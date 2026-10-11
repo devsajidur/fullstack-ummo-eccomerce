@@ -221,7 +221,7 @@ const Header = () => {
           }
 
 
-          <ul className={`z-50 border-t-2 border-[#bebebe] absolute duration-350 w-full px-2 ${menuActive ? "left-0" : "-left-full"}  pt-5 h-screen bg-white top-15 `}>
+          <ul className={`z-50 border-t-2 border-[#bebebe] absolute duration-350 w-full px-2 ${menuActive ? "left-0" : "-left-full"}  pt-5 h-screen bg-white top-13.5  overflow-y-hidden`}>
             <div>
 
               <div className="flex justify-between items-center w-full relative" onClick={() => setsearchOpen(true)}>
