@@ -1,40 +1,54 @@
-import { createSlice } from '@reduxjs/toolkit'
-// localStorage.clear()
+import { createSlice } from "@reduxjs/toolkit";
+
+const loadWishList = () => {
+  try {
+    const saved = localStorage.getItem("wishList");
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+};
 
 const initialState = {
-  wishProduct:localStorage.getItem("wishList")?JSON.parse(localStorage.getItem("wishList")) :[],
-  boolean:null
-}
-localStorage.clear()
+  wishProduct: loadWishList(),
+  boolean: null,
+};
+
 export const wishListSlice = createSlice({
-  name: 'wishList',
+  name: "wishList",
   initialState,
   reducers: {
-
     addWishList: (state, action) => {
-      const existingProduct = state.wishProduct.find(item => item.id === action.payload.id);
+      const existingProduct = state.wishProduct.find(
+        (item) => item.id === action.payload.id
+      );
       if (existingProduct) {
-        // Product already exists in the wishlist, do not add it again
         return;
-      } else {
-        state.wishProduct.push(action.payload);
-        localStorage.setItem("wishList",JSON.stringify(state.wishProduct)) 
       }
+      state.wishProduct.push(action.payload);
+      localStorage.setItem("wishList", JSON.stringify(state.wishProduct));
     },
-    deleteWishEndevisual:(state,action)=>{
-      const filterEndevisual=state.wishProduct.filter(item=>item.id!==action.payload.id);
-      state.wishProduct=filterEndevisual
-      localStorage.setItem("wishList",JSON.stringify(state.wishProduct)) 
+    deleteWishEndevisual: (state, action) => {
+      state.wishProduct = state.wishProduct.filter(
+        (item) => item.id !== action.payload.id
+      );
+      localStorage.setItem("wishList", JSON.stringify(state.wishProduct));
     },
-    deletebydoubleckick:(state,action)=>{
-    state.boolean=action.payload
-    
-    }
- 
+    clearWishList: (state) => {
+      state.wishProduct = [];
+      localStorage.removeItem("wishList");
+    },
+    deletebydoubleckick: (state, action) => {
+      state.boolean = action.payload;
+    },
   },
-})
+});
 
-// Action creators are generated for each case reducer function
-export const { addWishList,deleteWishEndevisual,deletebydoubleckick } = wishListSlice.actions
+export const {
+  addWishList,
+  deleteWishEndevisual,
+  clearWishList,
+  deletebydoubleckick,
+} = wishListSlice.actions;
 
-export default wishListSlice.reducer
+export default wishListSlice.reducer;

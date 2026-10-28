@@ -2,35 +2,62 @@ import { useEffect, useState } from "react";
 import { CiMail, CiPhone, CiLocationOn } from "react-icons/ci";
 import { FaRegCheckCircle } from "react-icons/fa";
 import { GoXCircle } from "react-icons/go";
-import { LogOut } from "lucide-react";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../../firebase.config";
+import { LogOut, Package } from "lucide-react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onValue, ref } from "firebase/database";
+import { auth, db } from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
-import { signOut } from "firebase/auth";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
+
 export default function ProfilePage() {
   const [user, setUser] = useState(null);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate()
+  const navigate = useNavigate();
+
   useEffect(() => {
+    let unsubscribeOrders = null;
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
+        const ordersRef = ref(db, `orders/${currentUser.uid}`);
+        unsubscribeOrders = onValue(ordersRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const raw = snapshot.val();
+            const list = Object.entries(raw)
+              .map(([orderId, data]) => ({
+                orderId,
+                ...data,
+              }))
+              .sort(
+                (a, b) =>
+                  new Date(b.date || 0).getTime() -
+                  new Date(a.date || 0).getTime()
+              );
+            setOrders(list);
+          } else {
+            setOrders([]);
+          }
+        });
       } else {
         setUser(null);
+        setOrders([]);
       }
       setLoading(false);
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      unsubscribeOrders?.();
+    };
   }, []);
 
-  // logout functionality================
   function handleLogOut() {
-    signOut(auth).then(() => {
-
-    })
+    signOut(auth)
+      .then(() => {
+        toast.success("Logged out successfully");
+      })
       .catch((error) => {
-        toast.error(error)
+        toast.error(error?.message || "Logout failed");
       });
   }
 
@@ -42,125 +69,179 @@ export default function ProfilePage() {
     );
   }
 
-
   const joinedDate = user?.metadata?.creationTime
     ? new Date(user.metadata.creationTime).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    })
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
     : "Unknown";
 
   return (
-    <div className="min-h-screen bg-gray-50 px-4 py-10">
+    <div className="min-h-screen bg-gray-50 px-4 py-10 font-jost">
       <Toaster position="top-center" reverseOrder={false} />
 
-      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {/* Cover */}
-        <div className="h-28 bg-linear-to-r from-indigo-500 to-purple-500" />
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          {/* Cover */}
+          <div className="h-28 bg-linear-to-r from-indigo-500 to-purple-500" />
 
-        {/* Profile content */}
-        <div className="px-6 pb-6">
-          {/* Avatar Image*/}
-          <div className="flex items-end justify-between -mt-12 mb-4">
-            <div className="relative">
-              <div className="w-24 h-24 rounded-full border-4 border-white bg-gray-200 flex items-center justify-center overflow-hidden shadow-sm">
-                {user?.photoURL &&
-                  <img
-                    src={user?.photoURL}
-                    alt={user?.displayName}
-                    className="w-full h-full object-cover"
-                  />
+          {/* Profile content */}
+          <div className="px-6 pb-6">
+            {/* Avatar Image*/}
+            <div className="flex items-end justify-between -mt-12 mb-4">
+              <div className="relative">
+                <div className="w-24 h-24 rounded-full border-4 border-white bg-gray-200 flex items-center justify-center overflow-hidden shadow-sm">
+                  {user?.photoURL && (
+                    <img
+                      src={user?.photoURL}
+                      alt={user?.displayName}
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
 
+            {/* Name + Logout */}
+            <div className="flex justify-between items-start gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h1 className="text-xl font-semibold text-gray-900">
+                    {user?.displayName || "Guest User"}
+                  </h1>
+
+                  {user?.emailVerified ? (
+                    <span className="flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                      <FaRegCheckCircle size={12} />
+                      Verified
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
+                      <GoXCircle size={12} />
+                      Not Verified
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-sm text-gray-500">
+                  Member since {joinedDate}
+                </p>
+              </div>
+              {user == null ? (
+                <button
+                  onClick={() => navigate("/login")}
+                  className="flex cursor-pointer bg-primary text-white hover:bg-[#333] items-center gap-1.5 text-sm font-medium border border-gray-300 rounded-lg px-3 py-1.5 transition-colors"
+                >
+                  Log In
+                </button>
+              ) : (
+                <button
+                  onClick={handleLogOut}
+                  className="flex cursor-pointer hover:bg-gray-100 items-center gap-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg px-3 py-1.5 transition-colors"
+                >
+                  Log Out
+                  <LogOut size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* User Information */}
+            <div className="space-y-4 border-t border-gray-100 pt-6 mt-6">
+              <InfoRow
+                icon={<CiMail size={20} />}
+                label="Email"
+                value={user?.email || "Not available"}
+              />
+
+              <InfoRow
+                icon={<CiPhone size={20} />}
+                label="Phone"
+                value={user?.phoneNumber || "Not available"}
+              />
+
+              <InfoRow
+                icon={<CiLocationOn size={20} />}
+                label="Location"
+                value="Not available"
+              />
+
+              <InfoRow
+                icon={<span className="text-sm font-semibold">ID</span>}
+                label="User ID"
+                value={user?.uid || "Not signed in"}
+              />
+
+              <InfoRow
+                icon={<span className="text-sm font-semibold">🔐</span>}
+                label="Login Provider"
+                value={
+                  user?.providerData?.[0]?.providerId
+                    ?.replace(".com", "")
+                    .replace("password", "Email & Password") || "Unknown"
                 }
-              </div>
+              />
             </div>
-          </div>
-
-          {/* Name + Logout */}
-          <div className="flex justify-between items-start gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h1 className="text-xl font-semibold text-gray-900">
-                  {user?.displayName}
-                </h1>
-
-                {user?.emailVerified ? (
-                  <span className="flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
-                    <FaRegCheckCircle size={12} />
-                    Verified
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
-                    <GoXCircle size={12} />
-                    Not Verified
-                  </span>
-                )}
-              </div>
-
-              <p className="text-sm text-gray-500">
-                Member since {joinedDate}
-              </p>
-            </div>
-            {user == null ?
-
-              <button onClick={() => navigate("/login")}
-
-                className="flex cursor-pointer bg-primary text-white hover:bg-[#333] items-center gap-1.5 text-sm font-medium border border-gray-300 rounded-lg px-3 py-1.5 transition-colors"
-              >
-                Log In
-
-              </button>
-              :
-
-              <button onClick={handleLogOut}
-
-                className="flex cursor-pointer hover:bg-gray-100 items-center gap-1.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg px-3 py-1.5 transition-colors"
-              >
-                Log Out
-                <LogOut size={14} />
-              </button>
-            }
-          </div>
-
-          {/* User Information */}
-          <div className="space-y-4 border-t border-gray-100 pt-6 mt-6">
-            <InfoRow
-              icon={<CiMail size={20} />}
-              label="Email"
-              value={user?.email || "Not available"}
-            />
-
-            <InfoRow
-              icon={<CiPhone size={20} />}
-              label="Phone"
-              value={user?.phoneNumber || "Not available"}
-            />
-
-            <InfoRow
-              icon={<CiLocationOn size={20} />}
-              label="Location"
-              value="Not available"
-            />
-
-            <InfoRow
-              icon={<span className="text-sm font-semibold">ID</span>}
-              label="User ID"
-              value={user?.uid}
-            />
-
-            <InfoRow
-              icon={<span className="text-sm font-semibold">🔐</span>}
-              label="Login Provider"
-              value={
-                user?.providerData?.[0]?.providerId
-                  ?.replace(".com", "")
-                  .replace("password", "Email & Password") ||
-                "Unknown"
-              }
-            />
           </div>
         </div>
+
+        {/* Order History Section */}
+        {user && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Package size={20} className="text-primary" />
+                <h2 className="text-lg font-semibold text-gray-900">
+                  My Order History ({orders.length})
+                </h2>
+              </div>
+              <Link
+                to="/shop"
+                className="text-xs font-medium uppercase underline text-primary"
+              >
+                New Order
+              </Link>
+            </div>
+
+            {orders.length === 0 ? (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                You haven't placed any orders yet.
+              </p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {orders.map((order) => (
+                  <div
+                    key={order.orderId}
+                    className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">
+                        Order #{order.orderId}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {order.date
+                          ? new Date(order.date).toLocaleString()
+                          : "Recent"}{" "}
+                        • {order.OrderItems?.length || 0} item(s)
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm font-semibold text-primary">
+                        ${Number(order.total || 0).toFixed(2)}
+                      </span>
+                      <Link
+                        to={`/ordercomplete?orderId=${order.orderId}`}
+                        className="text-xs bg-primary text-white px-3 py-1.5 rounded-md hover:opacity-90"
+                      >
+                        View Invoice
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -176,9 +257,7 @@ function InfoRow({ icon, label, value }) {
       <div className="min-w-0">
         <p className="text-xs text-gray-500">{label}</p>
 
-        <p className="text-sm font-medium text-gray-900 break-all">
-          {value}
-        </p>
+        <p className="text-sm font-medium text-gray-900 break-all">{value}</p>
       </div>
     </div>
   );

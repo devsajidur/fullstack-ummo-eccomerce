@@ -10,53 +10,67 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../../../firebase.config";
 import SearchOpan from "./common/SearchOpan";
 import { productDetail } from "../../slices/ProductDetailsSlice";
-
-
-
+import { Allitem } from "../../slices/AllProductSlice";
+import { fetchCatalogProducts } from "../../services/api";
 
 const Header = () => {
-  const navigate = useNavigate()
-  const [menuActive, setmenuActive] = useState(false)
-  const CartProduct = useSelector((state) => state.cart.products)
-  const WishProduct = useSelector((state) => state.wishList.wishProduct)
-  const [User, setuser] = useState(null)
-  const [searchOpen, setsearchOpen] = useState(false)
-  const [Input, setInput] = useState('')
+  const navigate = useNavigate();
+  const [menuActive, setmenuActive] = useState(false);
+  const CartProduct = useSelector((state) => state.cart.products);
+  const WishProduct = useSelector((state) => state.wishList.wishProduct);
+  const [User, setuser] = useState(null);
+  const [searchOpen, setsearchOpen] = useState(false);
+  const [Input, setInput] = useState("");
 
+  const Alldata = useSelector((state) => state.AllProduct.Products);
+  const dispatch = useDispatch();
 
-  const Alldata = useSelector((state) => state.AllProduct.Products)
-  const title = Alldata.map((item) => item.title)
-  const dispatch = useDispatch()
-  const filteredTitles = title.filter((item) => item.toLowerCase().includes(Input.toLowerCase().trim()))
+  // Ensure product catalog is loaded even if user lands directly on /shop or /about
+  useEffect(() => {
+    if (!Alldata || Alldata.length === 0) {
+      fetchCatalogProducts(200)
+        .then((products) => {
+          if (products?.length) {
+            dispatch(Allitem(products));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [Alldata?.length, dispatch]);
+
+  const title = (Alldata || []).map((item) => item.title);
+  const filteredTitles = title.filter((item) =>
+    item?.toLowerCase().includes(Input.toLowerCase().trim())
+  );
+
   function handlesearchlist(item) {
-    setInput(item)
-    dispatch(productDetail(Alldata.find((product) => product.title === item)))
-    navigate("/shopsingle")
-    setInput("")
-    setsearchOpen(false)
-    setmenuActive(false)
+    setInput(item);
+    dispatch(productDetail(Alldata.find((product) => product.title === item)));
+    navigate("/shopsingle");
+    setInput("");
+    setsearchOpen(false);
+    setmenuActive(false);
   }
-
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setuser(user);
       } else {
-        setuser(null)
+        setuser(null);
       }
     });
     return () => unsubscribe();
   }, []);
 
   function handleNavigate() {
-    navigate('/cart')
+    navigate("/cart");
   }
   function handlelogin() {
-    navigate('/login')
+    navigate("/login");
   }
   function handleWishList() {
-    navigate('/wishlist')
+    navigate("/wishlist");
   }
 
   return (
@@ -70,11 +84,7 @@ const Header = () => {
             <ul className="lg:ml-14 bmd:ml-10 ml-5 flex gap-5 lg:gap-10.75">
               {navData?.map((item, id) => (
                 <Link key={id} to={item.path}>
-
-                  <li
-                    className='text-primary cursor-pointer after:bg-primary relative text-sm md:text-[12px] lg:text-sm leading-6 font-medium after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:duration-300 after:content-[""] hover:after:w-[70%]'
-                    key={item.id}
-                  >
+                  <li className='text-primary cursor-pointer after:bg-primary relative text-sm md:text-[12px] lg:text-sm leading-6 font-medium after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:duration-300 after:content-[""] hover:after:w-[70%]'>
                     {item?.title}
                   </li>
                 </Link>
@@ -82,10 +92,13 @@ const Header = () => {
             </ul>
 
             {/* ============icons ============== */}
-            <div className="ml-auto flex gap-5  bmd:gap-8">
-              <button className="cursor-pointer " onClick={() => setsearchOpen(!searchOpen)}>
-                <svg className="w-3.75 lg:w-5"
-
+            <div className="ml-auto flex gap-5 bmd:gap-8">
+              <button
+                className="cursor-pointer"
+                onClick={() => setsearchOpen(!searchOpen)}
+              >
+                <svg
+                  className="w-3.75 lg:w-5"
                   height="20"
                   viewBox="0 0 21 20"
                   fill="none"
@@ -108,11 +121,18 @@ const Header = () => {
                   </defs>
                 </svg>
               </button>
-              {User ?
-                <button className=" w-7 rounded-full cursor-pointer" onClick={() => navigate("/profile")}>
-                  <Image className=" w-full rounded-full" src={User?.photoURL} alt="user Image" />
+              {User ? (
+                <button
+                  className="w-7 rounded-full cursor-pointer"
+                  onClick={() => navigate("/profile")}
+                >
+                  <Image
+                    className="w-full rounded-full"
+                    src={User?.photoURL}
+                    alt="user Image"
+                  />
                 </button>
-                :
+              ) : (
                 <button onClick={handlelogin} className="cursor-pointer">
                   <svg
                     className="w-3.75 lg:w-5"
@@ -137,12 +157,13 @@ const Header = () => {
                       </clipPath>
                     </defs>
                   </svg>
-
                 </button>
-              }
+              )}
 
-
-              <button className="cursor-pointer relative" onClick={handleWishList}>
+              <button
+                className="cursor-pointer relative"
+                onClick={handleWishList}
+              >
                 <svg
                   className="w-3.75 lg:w-5"
                   height="20"
@@ -162,9 +183,14 @@ const Header = () => {
                     </clipPath>
                   </defs>
                 </svg>
-                <span className="absolute -bottom-1.5 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">{WishProduct.length}</span>
+                <span className="absolute -bottom-1.5 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">
+                  {WishProduct.length}
+                </span>
               </button>
-              <button onClick={handleNavigate} className="cursor-pointer relative">
+              <button
+                onClick={handleNavigate}
+                className="cursor-pointer relative"
+              >
                 <svg
                   className="w-3.75 lg:w-5"
                   height="20"
@@ -177,7 +203,9 @@ const Header = () => {
                     fill="#222222"
                   />
                 </svg>
-                <span className="absolute -bottom-1.5 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">{CartProduct.length}</span>
+                <span className="absolute -bottom-1.5 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">
+                  {CartProduct.length}
+                </span>
               </button>
               <button className="cursor-pointer">
                 <svg
@@ -196,73 +224,88 @@ const Header = () => {
           </div>
         </div>
         <div className="hidden md:block">
-
-          {searchOpen &&
+          {searchOpen && (
             <SearchOpan searchOpen={searchOpen} setSearchOpen={setsearchOpen} />
-
-          }
+          )}
         </div>
 
-
         {/* =========mobile ===responsive header========== */}
-        <div className="flex  justify-between items-center mx-4 md:hidden">
-          {menuActive ? <button>
-
-            <IoCloseSharp onClick={() => setmenuActive(false)} size={25} />
-          </button>
-            :
+        <div className="flex justify-between items-center mx-4 md:hidden">
+          {menuActive ? (
+            <button>
+              <IoCloseSharp onClick={() => setmenuActive(false)} size={25} />
+            </button>
+          ) : (
             <button onClick={() => setmenuActive(true)}>
-              <svg width="25" height="18" viewBox="0 0 25 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg
+                width="25"
+                height="18"
+                viewBox="0 0 25 18"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
                 <rect width="25" height="2" fill="#222222" />
                 <rect y="8" width="20" height="2" fill="#222222" />
                 <rect y="16" width="25" height="2" fill="#222222" />
               </svg>
             </button>
-          }
+          )}
 
-
-          <ul className={`z-50 border-t-2 border-[#bebebe] absolute duration-350 w-full px-2 ${menuActive ? "left-0" : "-left-full"}  pt-5 h-screen bg-white top-13.5  overflow-y-hidden`}>
+          <ul
+            className={`z-50 border-t-2 border-[#bebebe] absolute duration-350 w-full px-2 ${
+              menuActive ? "left-0" : "-left-full"
+            } pt-5 h-screen bg-white top-13.5 overflow-y-hidden`}
+          >
             <div>
-
-              <div className="flex justify-between items-center w-full relative" onClick={() => setsearchOpen(true)}>
-                <input value={Input} onChange={(e) => setInput(e.target.value)} type="text"
-
-                  placeholder="Search Products..." className="w-full border-2 border-[#E4E4E4] h-10 px-3.5 mb-5" />
+              <div
+                className="flex justify-between items-center w-full relative"
+                onClick={() => setsearchOpen(true)}
+              >
+                <input
+                  value={Input}
+                  onChange={(e) => setInput(e.target.value)}
+                  type="text"
+                  placeholder="Search Products..."
+                  className="w-full border-2 border-[#E4E4E4] h-10 px-3.5 mb-5"
+                />
                 <button>
-                  < IoSearchOutline size={25} className="absolute right-3 top-2.5" />
+                  <IoSearchOutline
+                    size={25}
+                    className="absolute right-3 top-2.5"
+                  />
                 </button>
-
               </div>
 
-
-              {searchOpen &&
-                <div className=" md:hidden h-screen">
-                  {Input === "" ?
-                    (
-                      <p className='mb-3 cursor-pointer '>No results found</p>
-                    ) :
-                    filteredTitles.map((item) => (
-                      <p className='mb-3 cursor-pointer ' onClick={() => handlesearchlist(item)}>
+              {searchOpen && (
+                <div className="md:hidden h-screen">
+                  {Input === "" ? (
+                    <p className="mb-3 cursor-pointer">No results found</p>
+                  ) : (
+                    filteredTitles.map((item, idx) => (
+                      <p
+                        key={idx}
+                        className="mb-3 cursor-pointer"
+                        onClick={() => handlesearchlist(item)}
+                      >
                         {item}
                       </p>
-                    ))}
+                    ))
+                  )}
                 </div>
-              }
+              )}
             </div>
 
-
-
             {navData?.map((item) => (
-              <Link key={item.id} to={item.path} onClick={() => setmenuActive(false)}>
-                <li
-                  className='text-primary leading-10 cursor-pointer text-sm  font-medium flex items-center justify-between '
-                >
+              <Link
+                key={item.id}
+                to={item.path}
+                onClick={() => setmenuActive(false)}
+              >
+                <li className="text-primary leading-10 cursor-pointer text-sm font-medium flex items-center justify-between">
                   {item?.title}
                   <FaAngleRight />
-
                 </li>
               </Link>
-
             ))}
           </ul>
 
@@ -270,14 +313,23 @@ const Header = () => {
             <Image src="../images/logo.png" alt="logo" />
           </Link>
           <button className="relative" onClick={handleNavigate}>
-
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M17.6562 4.6875H15.2755C14.9652 2.05164 12.7179 0 10 0C7.28215 0 5.0348 2.05164 4.72445 4.6875H2.34375C1.91227 4.6875 1.5625 5.03727 1.5625 5.46875V19.2188C1.5625 19.6502 1.91227 20 2.34375 20H17.6562C18.0877 20 18.4375 19.6502 18.4375 19.2188V5.46875C18.4375 5.03727 18.0877 4.6875 17.6562 4.6875ZM10 1.5625C11.8548 1.5625 13.3992 2.91621 13.6976 4.6875H6.30238C6.60082 2.91621 8.14516 1.5625 10 1.5625ZM16.875 18.4375H3.125V6.25H4.6875V8.59375C4.6875 9.02523 5.03727 9.375 5.46875 9.375C5.90023 9.375 6.25 9.02523 6.25 8.59375V6.25H13.75V8.59375C13.75 9.02523 14.0998 9.375 14.5312 9.375C14.9627 9.375 15.3125 9.02523 15.3125 8.59375V6.25H16.875V18.4375Z" fill="#222222" />
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M17.6562 4.6875H15.2755C14.9652 2.05164 12.7179 0 10 0C7.28215 0 5.0348 2.05164 4.72445 4.6875H2.34375C1.91227 4.6875 1.5625 5.03727 1.5625 5.46875V19.2188C1.5625 19.6502 1.91227 20 2.34375 20H17.6562C18.0877 20 18.4375 19.6502 18.4375 19.2188V5.46875C18.4375 5.03727 18.0877 4.6875 17.6562 4.6875ZM10 1.5625C11.8548 1.5625 13.3992 2.91621 13.6976 4.6875H6.30238C6.60082 2.91621 8.14516 1.5625 10 1.5625ZM16.875 18.4375H3.125V6.25H4.6875V8.59375C4.6875 9.02523 5.03727 9.375 5.46875 9.375C5.90023 9.375 6.25 9.02523 6.25 8.59375V6.25H13.75V8.59375C13.75 9.02523 14.0998 9.375 14.5312 9.375C14.9627 9.375 15.3125 9.02523 15.3125 8.59375V6.25H16.875V18.4375Z"
+                fill="#222222"
+              />
             </svg>
-            <span className="block size-4 bg-[#b9a16b] rounded-full text-[10px] font-medium absolute -right-2 -bottom-3 text-white">{CartProduct.length}</span>
+            <span className="block size-4 bg-[#b9a16b] rounded-full text-[10px] font-medium absolute -right-2 -bottom-3 text-white">
+              {CartProduct.length}
+            </span>
           </button>
         </div>
-
       </nav>
     </header>
   );

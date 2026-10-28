@@ -1,9 +1,17 @@
 import { createSlice } from "@reduxjs/toolkit";
 
+const loadCarts = () => {
+  try {
+    const saved = localStorage.getItem("carts");
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+};
+
 const initialState = {
-  products: localStorage.getItem("carts")
-    ? JSON.parse(localStorage.getItem("carts"))
-    : [],
+  products: loadCarts(),
+  shippingMethod: localStorage.getItem("shippingMethod") || "free",
 };
 
 export const cartSlice = createSlice({
@@ -11,59 +19,59 @@ export const cartSlice = createSlice({
   initialState,
   reducers: {
     addToCart: (state, action) => {
-      let findunic = state.products.find(
-        (fitem) => fitem.id === action.payload.id,
+      const existing = state.products.find(
+        (fitem) => fitem.id === action.payload.id
       );
-      if (findunic) {
-        findunic.quantity++;
-        localStorage.setItem("carts", JSON.stringify(state.products));
+      if (existing) {
+        existing.quantity++;
       } else {
         state.products.push({ ...action.payload, quantity: 1 });
-        localStorage.setItem("carts", JSON.stringify(state.products));
       }
+      localStorage.setItem("carts", JSON.stringify(state.products));
     },
     quentityIncrease: (state, action) => {
-      let f = state.products.find((item) => item.id == action.payload.id);
-      if (f) {
-        f.quantity++;
+      const found = state.products.find((item) => item.id == action.payload.id);
+      if (found) {
+        found.quantity++;
         localStorage.setItem("carts", JSON.stringify(state.products));
       }
     },
     quentityDecrease: (state, action) => {
-      let Dec = state.products.find((item) => item.id == action.payload.id);
-      if (Dec) {
-        Dec.quantity--;
-        if (Dec.quantity < 1) {
-          let FilterCart = state.products.filter(
-            (item) => item.id != action.payload.id,
+      const found = state.products.find((item) => item.id == action.payload.id);
+      if (found) {
+        found.quantity--;
+        if (found.quantity < 1) {
+          state.products = state.products.filter(
+            (item) => item.id != action.payload.id
           );
-          state.products = FilterCart;
-          localStorage.setItem("carts", JSON.stringify(state.products));
         }
         localStorage.setItem("carts", JSON.stringify(state.products));
       }
     },
     RemoveItem: (state, action) => {
-      let FilterCart = state.products.filter(
-        (item) => item.id != action.payload.id,
+      state.products = state.products.filter(
+        (item) => item.id != action.payload.id
       );
-      state.products = FilterCart;
       localStorage.setItem("carts", JSON.stringify(state.products));
     },
-    EmptyCart: (state, action) => {
+    EmptyCart: (state) => {
       state.products = [];
       localStorage.setItem("carts", JSON.stringify(state.products));
+    },
+    setShippingMethod: (state, action) => {
+      state.shippingMethod = action.payload;
+      localStorage.setItem("shippingMethod", action.payload);
     },
   },
 });
 
-// Action creators are generated for each case reducer function
 export const {
   addToCart,
   quentityIncrease,
   quentityDecrease,
   RemoveItem,
   EmptyCart,
+  setShippingMethod,
 } = cartSlice.actions;
 
 export default cartSlice.reducer;

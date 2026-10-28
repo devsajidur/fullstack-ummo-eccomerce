@@ -1,6 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useSelector } from "react-redux";
-
 
 const Star = ({ filled, size = 18 }) => {
   return (
@@ -53,27 +52,26 @@ const Review = ({ review }) => {
 };
 
 export default function Reviews() {
-    const detailsProduct = useSelector((state) => state.clickProductDetails.Details)
-  const [reviews, setReviews] = useState(detailsProduct.reviews);
+  const detailsProduct = useSelector(
+    (state) => state.clickProductDetails.Details
+  );
+  const reviews = detailsProduct?.reviews || [];
 
   const averageRating = useMemo(() => {
     if (!reviews.length) return 0;
 
     const total = reviews.reduce((sum, review) => {
-      return sum + review.rating;
+      return sum + Number(review.rating || 0);
     }, 0);
 
     return total / reviews.length;
   }, [reviews]);
-
-
 
   return (
     <section className="w-full font-jost">
       {/* Rating Summary */}
       <div className="mb-10 border-b border-gray-200 pb-8">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-          
           {/* Average Rating */}
           <div>
             <h3 className="mb-2 text-lg font-medium text-primary">
@@ -95,19 +93,15 @@ export default function Reviews() {
               </div>
             </div>
           </div>
-
-       
-      
         </div>
       </div>
 
       {/* Reviews */}
       <div className="mb-12">
-        {reviews.map((review) => (
-          <Review key={review.id} review={review} />
+        {reviews.map((review, index) => (
+          <Review key={review.id || index} review={review} />
         ))}
       </div>
-
     </section>
   );
 }
