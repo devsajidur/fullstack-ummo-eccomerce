@@ -1,87 +1,118 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { onValue, push, ref, set } from "firebase/database";
+import { db } from "../../../firebase.config";
 import { productDetail } from "../../slices/ProductDetailsSlice";
 import toast from "react-hot-toast";
 
-const Star = ({ filled, size = 18 }) => {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth="1.5"
-      className="text-primary"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M12 3.75l2.572 5.21 5.75.836-4.16 4.054.982 5.727L12 16.875l-5.144 2.702.982-5.727-4.16-4.054 5.75-.836L12 3.75z"
-      />
-    </svg>
-  );
-};
+const Star = ({ filled, size = 18 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill={filled ? "currentColor" : "none"}
+    stroke="currentColor"
+    strokeWidth="1.5"
+    className="text-primary"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M12 3.75l2.572 5.21 5.75.836-4.16 4.054.982 5.727L12 16.875l-5.144 2.702.982-5.727-4.16-4.054 5.75-.836L12 3.75z"
+    />
+  </svg>
+);
 
-const RatingStars = ({ rating, size = 18 }) => {
-  return (
-    <div className="flex items-center gap-0.5">
-      {[1, 2, 3, 4, 5].map((star) => (
-        <Star key={star} filled={star <= Math.round(rating)} size={size} />
-      ))}
-    </div>
-  );
-};
+const RatingStars = ({ rating, size = 18 }) => (
+  <div className="flex items-center gap-0.5">
+    {[1, 2, 3, 4, 5].map((star) => (
+      <Star key={star} filled={star <= Math.round(rating)} size={size} />
+    ))}
+  </div>
+);
 
-const Review = ({ review }) => {
-  return (
-    <div className="border-b border-gray-200 py-6 last:border-b-0">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h4 className="font-jost text-sm font-medium text-primary">
-            {review.reviewerName}
-          </h4>
-          {review.date && (
-            <p className="text-[11px] text-gray">
-              {new Date(review.date).toLocaleDateString()}
-            </p>
-          )}
-        </div>
-
-        <RatingStars rating={review.rating} size={16} />
+const Review = ({ review }) => (
+  <div className="border-b border-gray-200 py-6 last:border-b-0">
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <h4 className="font-jost text-sm font-medium text-primary">
+          {review.reviewerName}
+        </h4>
+        {review.date && (
+          <p className="text-[11px] text-gray">
+            {new Date(review.date).toLocaleDateString()}
+          </p>
+        )}
       </div>
-
-      <p className="mt-3 font-jost text-sm leading-6 text-gray">
-        {review.comment}
-      </p>
+      <RatingStars rating={review.rating} size={16} />
     </div>
-  );
-};
+    <p className="mt-3 font-jost text-sm leading-6 text-gray">
+      {review.comment}
+    </p>
+  </div>
+);
 
 export default function Reviews() {
   const detailsProduct = useSelector(
     (state) => state.clickProductDetails.Details
   );
   const dispatch = useDispatch();
-  const reviews = detailsProduct?.reviews || [];
+  const productId = detailsProduct?.id;
 
+  const [persistedReviews, setPersistedReviews] = useState([]);
   const [reviewerName, setReviewerName] = useState("");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
 
+  // Load persisted reviews from Firebase Realtime DB (`reviews/{productId}`) + localStorage fallback
+  useEffect(() => {
+    if (!productId) return;
+    const localKey = `ummo_reviews_${productId}`;
+    try {
+      const cached = localStorage.getItem(localKey);
+      if (cached) setPersistedReviews(JSON.parse(cached));
+    } catch {
+      // ignore
+    }
+
+    const unsub = onValue(ref(db, `reviews/${productId}`), (snap) => {
+      if (!snap.exists()) return;
+      const list = Object.entries(snap.val())
+        .map(([id, data]) => ({ id, ...data }))
+        .sort(
+          (a, b) =>
+            new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+        );
+      setPersistedReviews(list);
+      localStorage.setItem(localKey, JSON.stringify(list));
+    });
+
+    return () => unsub();
+  }, [productId]);
+
+  const reviews = useMemo(() => {
+    const base = Array.isArray(detailsProduct?.reviews)
+      ? detailsProduct.reviews
+      : [];
+    const seen = new Set(persistedReviews.map((r) => String(r.id)));
+    return [
+      ...persistedReviews,
+      ...base.filter((r) => !seen.has(String(r.id))),
+    ];
+  }, [persistedReviews, detailsProduct?.reviews]);
+
   const averageRating = useMemo(() => {
     if (!reviews.length) return 0;
-
-    const total = reviews.reduce((sum, review) => {
-      return sum + Number(review.rating || 0);
-    }, 0);
-
+    const total = reviews.reduce(
+      (sum, review) => sum + Number(review.rating || 0),
+      0
+    );
     return total / reviews.length;
   }, [reviews]);
 
-  function handleSubmitReview(e) {
+  async function handleSubmitReview(e) {
     e.preventDefault();
-    if (!reviewerName.trim() || !comment.trim()) return;
+    if (!reviewerName.trim() || !comment.trim() || !productId) return;
 
     const newReview = {
       id: Date.now(),
@@ -91,12 +122,26 @@ export default function Reviews() {
       date: new Date().toISOString(),
     };
 
-    const updatedProduct = {
-      ...detailsProduct,
-      reviews: [newReview, ...reviews],
-    };
+    const nextPersisted = [newReview, ...persistedReviews];
+    setPersistedReviews(nextPersisted);
+    localStorage.setItem(
+      `ummo_reviews_${productId}`,
+      JSON.stringify(nextPersisted)
+    );
 
-    dispatch(productDetail(updatedProduct));
+    try {
+      const reviewRef = push(ref(db, `reviews/${productId}`));
+      await set(reviewRef, newReview);
+    } catch {
+      // Stored locally if offline
+    }
+
+    dispatch(
+      productDetail({
+        ...detailsProduct,
+        reviews: [newReview, ...(detailsProduct?.reviews || [])],
+      })
+    );
     setReviewerName("");
     setComment("");
     setRating(5);
@@ -105,22 +150,18 @@ export default function Reviews() {
 
   return (
     <section className="w-full font-jost">
-      {/* Rating Summary */}
       <div className="mb-10 border-b border-gray-200 pb-8">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="mb-2 text-lg font-medium text-primary">
               Customer Reviews
             </h3>
-
             <div className="flex items-center gap-3">
               <span className="text-4xl font-medium text-primary">
                 {averageRating.toFixed(1)}
               </span>
-
               <div>
                 <RatingStars rating={averageRating} size={20} />
-
                 <p className="mt-1 text-xs text-gray">
                   Based on {reviews.length}{" "}
                   {reviews.length === 1 ? "Review" : "Reviews"}
@@ -131,14 +172,12 @@ export default function Reviews() {
         </div>
       </div>
 
-      {/* Reviews List */}
       <div className="mb-12">
         {reviews.map((review, index) => (
           <Review key={review.id || index} review={review} />
         ))}
       </div>
 
-      {/* Write a Review Form */}
       <div className="border-t border-gray-200 pt-8">
         <h4 className="text-base font-medium text-primary mb-4">
           Write a Customer Review

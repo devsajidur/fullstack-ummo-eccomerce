@@ -102,12 +102,15 @@ export default function ProfilePage() {
           if (!snap.exists()) {
             setAddresses([]);
           } else {
-            setAddresses(
-              Object.entries(snap.val()).map(([id, data]) => ({
-                id,
-                ...data,
-              }))
-            );
+            const list = Object.entries(snap.val()).map(([id, data]) => ({
+              id,
+              ...data,
+            }));
+            setAddresses(list);
+            const def = list.find((a) => a.isDefault) || list[0];
+            if (def) {
+              localStorage.setItem("ummo_default_address", JSON.stringify(def));
+            }
           }
         }
       );
