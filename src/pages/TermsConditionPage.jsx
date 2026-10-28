@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-
 const TERMS_SECTIONS = [
   {
     title: "Your use of this is governed by these terms of use",
@@ -28,13 +26,9 @@ const TERMS_SECTIONS = [
 ];
 
 export default function TermsConditionPage() {
-
   return (
-    <div
-      className=" bg-white container px-5 lg:px-0"
-  
-    >
-      <div className=" py-10 sm:py-14 lg:py-16 mx-auto max-w-232">
+    <div className="bg-white container px-5 lg:px-0">
+      <div className="py-10 sm:py-14 lg:py-16 mx-auto max-w-232">
         <h1 className="mb-8 text-2xl font-bold uppercase text-primary sm:mb-10 lg:mb-12 sm:text-3xl lg:text-[34px] mx-auto">
           Terms &amp; Conditions
         </h1>
@@ -45,7 +39,7 @@ export default function TermsConditionPage() {
               <h2 className="mb-2 md:mb-4 text-base font-medium text-primary">
                 {section.title}
               </h2>
-              <p className="md:text-sm text-[12px] leading-relaxed text-primary ">
+              <p className="md:text-sm text-[12px] leading-relaxed text-primary">
                 {section.body}
               </p>
             </section>

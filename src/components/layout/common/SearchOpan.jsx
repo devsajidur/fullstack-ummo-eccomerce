@@ -14,8 +14,8 @@ const QUICK_CATEGORIES = [
   { label: "Sunglasses", value: "sunglasses" },
 ];
 
-const SearchOpan = ({ searchOpen, setSearchOpen }) => {
-  const Alldata = useSelector((state) => state.AllProduct.Products) || [];
+const SearchOpan = ({ setSearchOpen }) => {
+  const Alldata = useSelector((state) => state.AllProduct.Products);
   const [Input, setInput] = useState("");
   const [selectedCat, setSelectedCat] = useState("");
   const dispatch = useDispatch();
@@ -23,7 +23,7 @@ const SearchOpan = ({ searchOpen, setSearchOpen }) => {
 
   const matchedProducts = useMemo(() => {
     const q = Input.toLowerCase().trim();
-    return Alldata.filter((item) => {
+    return (Alldata || []).filter((item) => {
       const catMatch = !selectedCat || item.category === selectedCat;
       if (!catMatch) return false;
       if (!q) return Boolean(selectedCat);

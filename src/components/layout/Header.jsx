@@ -33,11 +33,12 @@ const Header = () => {
   const [Input, setInput] = useState("");
 
   const Alldata = useSelector((state) => state.AllProduct.Products);
+  const hasProducts = Boolean(Alldata?.length);
   const dispatch = useDispatch();
 
   // Load catalog with deduplicated cache + subscribe to live Admin storeConfig updates
   useEffect(() => {
-    if (!Alldata || Alldata.length === 0) {
+    if (!hasProducts) {
       fetchCatalogProducts(200)
         .then((products) => {
           if (products?.length) {
@@ -52,7 +53,7 @@ const Header = () => {
       dispatch(Allitem(updatedCatalog));
       dispatch(addProduct(updatedCatalog));
     });
-  }, [Alldata?.length, dispatch]);
+  }, [hasProducts, dispatch]);
 
   const mobileFilteredProducts = useMemo(() => {
     const q = Input.toLowerCase().trim();

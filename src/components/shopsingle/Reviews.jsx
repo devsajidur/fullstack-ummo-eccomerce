@@ -99,7 +99,7 @@ export default function Reviews() {
       ...persistedReviews,
       ...base.filter((r) => !seen.has(String(r.id))),
     ];
-  }, [persistedReviews, detailsProduct?.reviews]);
+  }, [persistedReviews, detailsProduct]);
 
   const averageRating = useMemo(() => {
     if (!reviews.length) return 0;
