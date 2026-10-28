@@ -1,27 +1,32 @@
-[{
-    "id":1,
-    "name":"Customer Service",
-    "path":"/faq"
-},
-{
-    "id":2,
-    "name":"My Account",
-    "path":"/profile"
-},{
-    "id":3,
-    "name":"Find a Store",
-    "path":"/location"
-},
-{
-    "id":4,
-    "name":"Legal & Privacy",
-    "path":"/terms"
-},{
-    "id":5,
-    "name":"Contact",
-    "path":"/contact"
-},{
-    "id":6,
-    "name":"Gift Card",
-    "path":"/gift"
-}]
+[
+  {
+    "id": 1,
+    "name": "Customer Service",
+    "path": "/faq"
+  },
+  {
+    "id": 2,
+    "name": "My Account",
+    "path": "/profile"
+  },
+  {
+    "id": 3,
+    "name": "Find a Store",
+    "path": "/location"
+  },
+  {
+    "id": 4,
+    "name": "Legal & Privacy",
+    "path": "/terms"
+  },
+  {
+    "id": 5,
+    "name": "Contact",
+    "path": "/contact"
+  },
+  {
+    "id": 6,
+    "name": "Gift Card",
+    "path": "/shop"
+  }
+]

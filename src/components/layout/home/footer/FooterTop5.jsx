@@ -34,9 +34,11 @@ const FooterTop5 = () => {
     e.preventDefault();
     if (!subEmail.trim()) return;
     try {
+      const nowIso = new Date().toISOString();
       await push(ref(db, "subscribers"), {
         email: subEmail.trim().toLowerCase(),
-        date: new Date().toISOString(),
+        date: nowIso,
+        subscribedAt: nowIso,
       });
     } catch {
       // ignore offline
