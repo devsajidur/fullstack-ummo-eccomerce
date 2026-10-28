@@ -33,12 +33,12 @@ export default function AdminBannersTab() {
       ...(banners.heroSlides || []),
       {
         id: Date.now(),
-        tag: "SPECIAL CAMPAIGN",
-        title: "New Seasonal Collection",
-        subtitle: "Discover limited-time luxury arrivals in our store.",
+        tag: "",
+        title: "",
+        subtitle: "",
         ctaText: "SHOP NOW",
         ctaLink: "/shop",
-        image: "../images/banner.png",
+        image: "/images/SLIDER.png",
       },
     ];
     setBanners({ ...banners, heroSlides: nextSlides });

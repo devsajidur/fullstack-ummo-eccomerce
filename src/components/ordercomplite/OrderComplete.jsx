@@ -1,8 +1,8 @@
 import { Check, Printer } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
-import { onAuthStateChanged } from "firebase/auth";
 import { onValue, ref } from "firebase/database";
-import { auth, db } from "../../../firebase.config";
+import { db } from "../../../firebase.config";
+import { getLocalOrders, onUserChanged } from "../../services/authSession";
 import { useEffect, useState } from "react";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -19,7 +19,7 @@ export default function OrderComplete() {
 
   useEffect(() => {
     let unsubscribeOrder;
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onUserChanged((user) => {
       if (!user) {
         setError("Please log in to view your order.");
         setLoading(false);
@@ -31,19 +31,30 @@ export default function OrderComplete() {
         return;
       }
 
+      const localMatched = getLocalOrders().find(
+        (o) => String(o.orderId || o.id) === String(orderId)
+      );
+      if (localMatched) {
+        setOrder(localMatched);
+        setError("");
+        setLoading(false);
+      }
+
       unsubscribeOrder = onValue(
         ref(db, `orders/${user.uid}/${orderId}`),
         (snapshot) => {
           if (snapshot.exists()) {
             setOrder(snapshot.val());
             setError("");
-          } else {
+          } else if (!localMatched) {
             setError("We could not find this order.");
           }
           setLoading(false);
         },
         () => {
-          setError("We could not load your order. Please try again.");
+          if (!localMatched) {
+            setError("We could not load your order. Please try again.");
+          }
           setLoading(false);
         }
       );

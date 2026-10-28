@@ -60,30 +60,39 @@ export const DEFAULT_BANNERS = {
   heroSlides: [
     {
       id: 1,
-      tag: "NEW ARRIVALS 2026",
-      title: "Luxury Minimalist Collection",
-      subtitle: "Crafted with sustainable fabrics for modern everyday elegance.",
-      ctaText: "SHOP COLLECTION",
+      tag: "",
+      title: "",
+      subtitle: "",
+      ctaText: "",
       ctaLink: "/shop",
-      image: "../images/banner.png",
+      image: "/images/SLIDER.png",
     },
     {
       id: 2,
-      tag: "LIMITED EDITION",
-      title: "Summer & Spring Essentials",
-      subtitle: "Up to 40% off on designer dresses, footwear & accessories.",
-      ctaText: "EXPLORE DEALS",
-      ctaLink: "/shop?sort=low",
-      image: "../images/banner.png",
+      tag: "",
+      title: "",
+      subtitle: "",
+      ctaText: "",
+      ctaLink: "/shop",
+      image: "/images/SLIDER2.png",
     },
     {
       id: 3,
-      tag: "EXCLUSIVE DROP",
-      title: "Signature Menswear & Watches",
-      subtitle: "Timeless tailoring and precision craftsmanship.",
-      ctaText: "DISCOVER MEN",
-      ctaLink: "/shop?category=mens-shirts",
-      image: "../images/banner.png",
+      tag: "",
+      title: "",
+      subtitle: "",
+      ctaText: "",
+      ctaLink: "/shop",
+      image: "/images/SLIDER3.png",
+    },
+    {
+      id: 4,
+      tag: "",
+      title: "",
+      subtitle: "",
+      ctaText: "",
+      ctaLink: "/shop",
+      image: "/images/SLIDER4.png",
     },
   ],
   dealBanner: {
@@ -105,7 +114,7 @@ export const DEFAULT_BANNERS = {
       categoryFilter: "womens-dresses",
       bgColor: "#D6001C",
       textColor: "white",
-      image: "../images/startingImage1.png",
+      image: "/images/startingImage1.png",
     },
     {
       id: 2,
@@ -115,12 +124,13 @@ export const DEFAULT_BANNERS = {
       categoryFilter: "mens-shoes",
       bgColor: "#f5f5f5",
       textColor: "black",
-      image: "./images/startingImage2.png",
+      image: "/images/startingImage2.png",
     },
   ],
-  shopBanner: {
-    defaultTitle: "COLLECTION",
-    subtitle: "Explore our curated catalog with instant multi-filter search",
+  shopHeader: {
+    title: "ALL COLLECTIONS",
+    subtitle: "",
+    image: "",
   },
 };
 
@@ -156,11 +166,38 @@ export function saveStoredCoupons(coupons) {
   set(ref(db, "storeConfig/coupons"), coupons).catch(() => {});
 }
 
+function sanitizeBanners(raw) {
+  if (!raw || typeof raw !== "object") return DEFAULT_BANNERS;
+  const merged = { ...DEFAULT_BANNERS, ...raw };
+  if (Array.isArray(merged.heroSlides)) {
+    merged.heroSlides = merged.heroSlides.map((s, idx) => {
+      const fallbackImg = `/images/SLIDER${idx === 0 ? "" : idx + 1}.png`;
+      const isBrokenLegacy =
+        !s.image ||
+        s.image.includes("banner.png") ||
+        s.image.includes("banner2.png") ||
+        s.image.includes("banner3.png");
+      if (isBrokenLegacy) {
+        return {
+          ...s,
+          image: fallbackImg,
+          tag: "",
+          title: "",
+          subtitle: "",
+          ctaText: "",
+        };
+      }
+      return s;
+    });
+  }
+  return merged;
+}
+
 export function getStoredBanners() {
   try {
-    const saved = localStorage.getItem("ummo_admin_banners");
+    const saved = localStorage.getItem("ummo_admin_banners_v2");
     if (saved) {
-      return { ...DEFAULT_BANNERS, ...JSON.parse(saved) };
+      return sanitizeBanners(JSON.parse(saved));
     }
   } catch {
     // ignore
@@ -169,10 +206,11 @@ export function getStoredBanners() {
 }
 
 export function saveStoredBanners(banners) {
-  localStorage.setItem("ummo_admin_banners", JSON.stringify(banners));
-  set(ref(db, "storeConfig/banners"), banners).catch(() => {});
+  const clean = sanitizeBanners(banners);
+  localStorage.setItem("ummo_admin_banners_v2", JSON.stringify(clean));
+  set(ref(db, "storeConfig/banners"), clean).catch(() => {});
   window.dispatchEvent(
-    new CustomEvent("ummo:banners-updated", { detail: banners })
+    new CustomEvent("ummo:banners-updated", { detail: clean })
   );
 }
 
@@ -221,9 +259,13 @@ export function initStoreConfigSync(onCatalogChanged) {
         localStorage.setItem("ummo_admin_coupons", JSON.stringify(val.coupons));
       }
       if (val.banners && typeof val.banners === "object") {
-        localStorage.setItem("ummo_admin_banners", JSON.stringify(val.banners));
+        const cleanBanners = sanitizeBanners(val.banners);
+        localStorage.setItem(
+          "ummo_admin_banners_v2",
+          JSON.stringify(cleanBanners)
+        );
         window.dispatchEvent(
-          new CustomEvent("ummo:banners-updated", { detail: val.banners })
+          new CustomEvent("ummo:banners-updated", { detail: cleanBanners })
         );
       }
       if (val.customProducts && Array.isArray(val.customProducts)) {

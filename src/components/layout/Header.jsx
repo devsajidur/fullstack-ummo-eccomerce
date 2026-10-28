@@ -5,8 +5,7 @@ import { IoSearchOutline, IoCloseSharp } from "react-icons/io5";
 import { Link, useNavigate } from "react-router";
 import navData from "../../api/navbardata.json";
 import { useDispatch, useSelector } from "react-redux";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../../../firebase.config";
+import { onUserChanged } from "../../services/authSession";
 import SearchOpan from "./common/SearchOpan";
 import { productDetail } from "../../slices/ProductDetailsSlice";
 import { Allitem } from "../../slices/AllProductSlice";
@@ -87,7 +86,7 @@ const Header = () => {
   }
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onUserChanged((user) => {
       setuser(user || null);
     });
     return () => unsubscribe();

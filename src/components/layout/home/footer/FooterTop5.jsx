@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import Image from "../../common/Image";
 import footerImage from "../../../../assets/images/footerimage.png";
 import { useNavigate } from "react-router";
-import { auth, db } from "../../../../../firebase.config";
-import { onAuthStateChanged } from "firebase/auth";
+import { db } from "../../../../../firebase.config";
+import { onUserChanged } from "../../../../services/authSession";
 import { push, ref } from "firebase/database";
 import { useSelector } from "react-redux";
 import toast from "react-hot-toast";
@@ -48,7 +48,7 @@ const FooterTop5 = () => {
   }
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onUserChanged((user) => {
       if (user) {
         setuser(user);
       } else {

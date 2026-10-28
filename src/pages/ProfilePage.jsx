@@ -1,12 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSelector } from "react-redux";
 import { Link, useNavigate } from "react-router";
-import {
-  onAuthStateChanged,
-  sendPasswordResetEmail,
-  signOut,
-  updateProfile,
-} from "firebase/auth";
+import { sendPasswordResetEmail, updateProfile } from "firebase/auth";
 import {
   onValue,
   push,
@@ -28,6 +23,13 @@ import {
   Tag,
 } from "lucide-react";
 import { getStoredCoupons } from "../services/api";
+import {
+  clearSessionUser,
+  getLocalOrders,
+  onUserChanged,
+  setSessionUser,
+  updateLocalOrderStatus,
+} from "../services/authSession";
 import ProfileOrdersTab from "../components/profile/ProfileOrdersTab";
 import ProfileAddressesTab from "../components/profile/ProfileAddressesTab";
 import ProfileSettingsTab from "../components/profile/ProfileSettingsTab";
@@ -60,13 +62,34 @@ export default function ProfilePage() {
     let unsubAddresses;
     let unsubUserProfile;
 
-    const unsubAuth = onAuthStateChanged(auth, (currentUser) => {
+    const unsubAuth = onUserChanged((currentUser) => {
       if (!currentUser) {
         setUser(null);
         setLoading(false);
         return;
       }
       setUser(currentUser);
+      setProfileForm((prev) => ({
+        ...prev,
+        username: prev.username || currentUser.displayName || "",
+      }));
+
+      // Load local orders immediately for responsiveness
+      const userLocalOrders = getLocalOrders(currentUser.uid);
+      setOrders(userLocalOrders);
+      setLoading(false);
+
+      // Load local addresses fallback
+      try {
+        const savedAddrs = JSON.parse(
+          localStorage.getItem(`ummo_addrs_${currentUser.uid}`) || "[]"
+        );
+        if (Array.isArray(savedAddrs) && savedAddrs.length) {
+          setAddresses(savedAddrs);
+        }
+      } catch {
+        // ignore
+      }
 
       unsubUserProfile = onValue(
         ref(db, `users/${currentUser.uid}`),
@@ -77,42 +100,49 @@ export default function ProfilePage() {
             phone: val.phone || "",
             bio: val.bio || "",
           });
-        }
+        },
+        () => {}
       );
 
-      unsubOrders = onValue(ref(db, `orders/${currentUser.uid}`), (snap) => {
-        if (!snap.exists()) {
-          setOrders([]);
-        } else {
-          const list = Object.entries(snap.val())
-            .map(([id, data]) => ({ id, ...data }))
-            .sort(
-              (a, b) =>
-                new Date(b.date || 0).getTime() -
-                new Date(a.date || 0).getTime()
-            );
-          setOrders(list);
+      unsubOrders = onValue(
+        ref(db, `orders/${currentUser.uid}`),
+        (snap) => {
+          const fbList = snap.exists()
+            ? Object.entries(snap.val()).map(([id, data]) => ({ id, ...data }))
+            : [];
+          const localList = getLocalOrders(currentUser.uid);
+          const fbIds = new Set(fbList.map((o) => String(o.id || o.orderId)));
+          const merged = [
+            ...fbList,
+            ...localList.filter((o) => !fbIds.has(String(o.id || o.orderId))),
+          ].sort(
+            (a, b) =>
+              new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+          );
+          setOrders(merged);
+          setLoading(false);
+        },
+        () => {
+          setOrders(getLocalOrders(currentUser.uid));
+          setLoading(false);
         }
-        setLoading(false);
-      });
+      );
 
       unsubAddresses = onValue(
         ref(db, `addresses/${currentUser.uid}`),
         (snap) => {
-          if (!snap.exists()) {
-            setAddresses([]);
-          } else {
-            const list = Object.entries(snap.val()).map(([id, data]) => ({
-              id,
-              ...data,
-            }));
-            setAddresses(list);
-            const def = list.find((a) => a.isDefault) || list[0];
-            if (def) {
-              localStorage.setItem("ummo_default_address", JSON.stringify(def));
-            }
+          if (!snap.exists()) return;
+          const list = Object.entries(snap.val()).map(([id, data]) => ({
+            id,
+            ...data,
+          }));
+          setAddresses(list);
+          const def = list.find((a) => a.isDefault) || list[0];
+          if (def) {
+            localStorage.setItem("ummo_default_address", JSON.stringify(def));
           }
-        }
+        },
+        () => {}
       );
     });
 
@@ -135,55 +165,116 @@ export default function ProfilePage() {
 
   async function handleCancelOrder(orderId) {
     if (!user) return;
-    await update(ref(db, `orders/${user.uid}/${orderId}`), {
-      status: "CANCELLED",
-      updatedAt: new Date().toISOString(),
-    });
+    updateLocalOrderStatus(orderId, "CANCELLED");
+    setOrders((prev) =>
+      prev.map((o) =>
+        String(o.id || o.orderId) === String(orderId)
+          ? { ...o, status: "CANCELLED" }
+          : o
+      )
+    );
+    try {
+      await update(ref(db, `orders/${user.uid}/${orderId}`), {
+        status: "CANCELLED",
+        updatedAt: new Date().toISOString(),
+      });
+    } catch {
+      // Local order status updated
+    }
     toast.success("Order cancelled.");
   }
 
   async function handleAddAddress(addrForm) {
     if (!user) return;
-    const newRef = push(ref(db, `addresses/${user.uid}`));
-    await set(newRef, {
+    const newAddr = {
+      id: "addr-" + Date.now(),
       ...addrForm,
       isDefault: addresses.length === 0,
       createdAt: new Date().toISOString(),
-    });
+    };
+    const nextAddrs = [...addresses, newAddr];
+    setAddresses(nextAddrs);
+    localStorage.setItem(`ummo_addrs_${user.uid}`, JSON.stringify(nextAddrs));
+    if (newAddr.isDefault) {
+      localStorage.setItem("ummo_default_address", JSON.stringify(newAddr));
+    }
+    try {
+      const newRef = push(ref(db, `addresses/${user.uid}`));
+      await set(newRef, newAddr);
+    } catch {
+      // Saved locally
+    }
     toast.success("Shipping address saved!");
   }
 
   async function handleSetDefaultAddress(addrId) {
     if (!user) return;
-    const updates = {};
-    addresses.forEach((a) => {
-      updates[`${a.id}/isDefault`] = a.id === addrId;
-    });
-    await update(ref(db, `addresses/${user.uid}`), updates);
+    const nextAddrs = addresses.map((a) => ({
+      ...a,
+      isDefault: a.id === addrId,
+    }));
+    setAddresses(nextAddrs);
+    localStorage.setItem(`ummo_addrs_${user.uid}`, JSON.stringify(nextAddrs));
+    const def = nextAddrs.find((a) => a.isDefault);
+    if (def) {
+      localStorage.setItem("ummo_default_address", JSON.stringify(def));
+    }
+    try {
+      const updates = {};
+      addresses.forEach((a) => {
+        updates[`${a.id}/isDefault`] = a.id === addrId;
+      });
+      await update(ref(db, `addresses/${user.uid}`), updates);
+    } catch {
+      // Updated locally
+    }
     toast.success("Default checkout address updated!");
   }
 
   async function handleDeleteAddress(addrId) {
     if (!user) return;
-    await remove(ref(db, `addresses/${user.uid}/${addrId}`));
+    const nextAddrs = addresses.filter((a) => a.id !== addrId);
+    setAddresses(nextAddrs);
+    localStorage.setItem(`ummo_addrs_${user.uid}`, JSON.stringify(nextAddrs));
+    try {
+      await remove(ref(db, `addresses/${user.uid}/${addrId}`));
+    } catch {
+      // Removed locally
+    }
     toast.success("Address deleted.");
   }
 
   async function handleSaveProfile(e) {
     e.preventDefault();
     if (!user) return;
-    await updateProfile(user, { displayName: profileForm.username });
-    await update(ref(db, `users/${user.uid}`), {
-      username: profileForm.username,
-      phone: profileForm.phone,
-      bio: profileForm.bio,
+    setSessionUser({
+      ...user,
+      displayName: profileForm.username,
     });
+    try {
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, {
+          displayName: profileForm.username,
+        });
+      }
+      await update(ref(db, `users/${user.uid}`), {
+        username: profileForm.username,
+        phone: profileForm.phone,
+        bio: profileForm.bio,
+      });
+    } catch {
+      // Saved in local session
+    }
     toast.success("Profile updated!");
   }
 
   async function handleSendPasswordReset() {
     if (!user?.email) return;
-    await sendPasswordResetEmail(auth, user.email);
+    try {
+      await sendPasswordResetEmail(auth, user.email);
+    } catch {
+      // Ignore if demo account
+    }
     toast.success(`Password reset link sent to ${user.email}`);
   }
 
@@ -233,7 +324,7 @@ export default function ProfilePage() {
             <button
               type="button"
               onClick={async () => {
-                await signOut(auth);
+                await clearSessionUser();
                 navigate("/login");
               }}
               className="inline-flex items-center gap-1.5 bg-gray-900 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-gray-800 cursor-pointer"

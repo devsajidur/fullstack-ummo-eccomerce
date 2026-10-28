@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
-import { onAuthStateChanged } from "firebase/auth";
 import {
   limitToLast,
   onValue,
@@ -9,13 +8,14 @@ import {
   ref,
   update,
 } from "firebase/database";
-import { auth, db } from "../../firebase.config";
+import { db } from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
 import {
   ExternalLink,
   Image as ImageIcon,
   LayoutDashboard,
   Lock,
+  LogOut,
   Package,
   ShieldCheck,
   ShoppingCart,
@@ -32,6 +32,17 @@ import {
   saveDeletedProductIds,
   saveStoredCoupons,
 } from "../services/api";
+import {
+  clearSessionUser,
+  DEFAULT_ADMIN_ACCOUNT,
+  DEFAULT_ADMIN_EMAIL,
+  DEFAULT_ADMIN_PASSWORD,
+  getLocalOrders,
+  getLocalRegisteredUsers,
+  onUserChanged,
+  setSessionUser,
+  updateLocalOrderStatus,
+} from "../services/authSession";
 import { Allitem } from "../slices/AllProductSlice";
 import { addProduct } from "../slices/productSlice";
 import AdminOverviewTab from "../components/admin/AdminOverviewTab";
@@ -61,34 +72,43 @@ export default function AdminDashboardPage() {
     () => localStorage.getItem("ummo_admin_unlocked") === "true"
   );
 
+  // Direct Admin Login form state
+  const [adminEmail, setAdminEmail] = useState(DEFAULT_ADMIN_EMAIL);
+  const [adminPass, setAdminPass] = useState(DEFAULT_ADMIN_PASSWORD);
+
   const [activeTab, setActiveTab] = useState("overview");
   const [products, setProducts] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [customers, setCustomers] = useState([]);
+  const [orders, setOrders] = useState(() => getLocalOrders());
+  const [customers, setCustomers] = useState(() => getLocalRegisteredUsers());
   const [messages, setMessages] = useState([]);
   const [subscribers, setSubscribers] = useState([]);
   const [coupons, setCoupons] = useState(() => getStoredCoupons());
 
-  // 1. Verify Authentication & Admin Role
+  // 1. Verify Authentication & Admin Role (Supports both Firebase Auth and Local Session)
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
+    const unsub = onUserChanged((user) => {
       setAuthUser(user || null);
       setAuthLoading(false);
       if (user) {
-        onValue(
-          ref(db, `users/${user.uid}`),
-          (snap) => {
-            const val = snap.val();
-            if (
-              val?.role === "ADMIN" ||
-              val?.role === "SUPER_ADMIN" ||
-              user.email?.toLowerCase().includes("admin")
-            ) {
-              setIsAdminVerified(true);
-            }
-          },
-          { onlyOnce: true }
-        );
+        if (
+          user.role === "ADMIN" ||
+          user.role === "SUPER_ADMIN" ||
+          user.email?.toLowerCase().includes("admin") ||
+          localStorage.getItem("ummo_admin_unlocked") === "true"
+        ) {
+          setIsAdminVerified(true);
+        } else {
+          onValue(
+            ref(db, `users/${user.uid}`),
+            (snap) => {
+              const val = snap.val();
+              if (val?.role === "ADMIN" || val?.role === "SUPER_ADMIN") {
+                setIsAdminVerified(true);
+              }
+            },
+            { onlyOnce: true }
+          );
+        }
       }
     });
     return () => unsub();
@@ -107,51 +127,67 @@ export default function AdminDashboardPage() {
     }
   }, [catalogProducts, dispatch]);
 
-  // 3. Bounded Firebase Realtime Listeners (limitToLast(100) for high-concurrency safety)
+  // 3. Bounded Firebase Realtime Listeners + Local Orders/Customers Merge
   useEffect(() => {
     if (!authUser || !isAdminVerified) return;
 
     const unsubOrders = onValue(
       query(ref(db, "orders"), limitToLast(100)),
       (snapshot) => {
-        if (!snapshot.exists()) {
-          setOrders([]);
-          return;
-        }
-        const allOrders = [];
-        Object.entries(snapshot.val()).forEach(([userUid, userOrders]) => {
-          if (userOrders && typeof userOrders === "object") {
-            Object.entries(userOrders).forEach(([orderId, orderData]) => {
-              allOrders.push({
-                orderId,
-                userUid,
-                ...orderData,
-                status: orderData.status || "PENDING",
+        const fbOrders = [];
+        if (snapshot.exists()) {
+          Object.entries(snapshot.val()).forEach(([userUid, userOrders]) => {
+            if (userOrders && typeof userOrders === "object") {
+              Object.entries(userOrders).forEach(([orderId, orderData]) => {
+                fbOrders.push({
+                  orderId,
+                  userUid,
+                  ...orderData,
+                  status: orderData.status || "PENDING",
+                });
               });
-            });
-          }
-        });
-        allOrders.sort(
+            }
+          });
+        }
+        const localList = getLocalOrders();
+        const fbIds = new Set(fbOrders.map((o) => String(o.orderId)));
+        const merged = [
+          ...fbOrders,
+          ...localList.filter((o) => !fbIds.has(String(o.orderId))),
+        ];
+        merged.sort(
           (a, b) =>
             new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
         );
-        setOrders(allOrders);
+        setOrders(merged);
+      },
+      () => {
+        setOrders(getLocalOrders());
       }
     );
 
     const unsubUsers = onValue(
       query(ref(db, "users"), limitToLast(100)),
       (snapshot) => {
-        if (!snapshot.exists()) {
-          setCustomers([]);
-          return;
-        }
-        setCustomers(
-          Object.entries(snapshot.val()).map(([uid, data]) => ({
-            uid,
-            ...data,
-          }))
+        const fbUsers = snapshot.exists()
+          ? Object.entries(snapshot.val()).map(([uid, data]) => ({
+              uid,
+              ...data,
+            }))
+          : [];
+        const localUsers = getLocalRegisteredUsers();
+        const fbEmails = new Set(
+          fbUsers.map((u) => String(u.email || "").toLowerCase())
         );
+        setCustomers([
+          ...fbUsers,
+          ...localUsers.filter(
+            (u) => !fbEmails.has(String(u.email || "").toLowerCase())
+          ),
+        ]);
+      },
+      () => {
+        setCustomers(getLocalRegisteredUsers());
       }
     );
 
@@ -273,15 +309,23 @@ export default function AdminDashboardPage() {
   }
 
   async function handleUpdateOrderStatus(order, newStatus) {
+    updateLocalOrderStatus(order.orderId, newStatus);
+    setOrders((prev) =>
+      prev.map((item) =>
+        String(item.orderId) === String(order.orderId)
+          ? { ...item, status: newStatus }
+          : item
+      )
+    );
     try {
       await update(ref(db, `orders/${order.userUid}/${order.orderId}`), {
         status: newStatus,
         updatedAt: new Date().toISOString(),
       });
-      toast.success(`Order #${String(order.orderId).slice(-6)} → ${newStatus}`);
     } catch {
-      toast.error("Could not update order status.");
+      // Local order updated above
     }
+    toast.success(`Order #${String(order.orderId).slice(-6)} → ${newStatus}`);
   }
 
   function handleCreateCoupon(couponForm) {
@@ -314,15 +358,45 @@ export default function AdminDashboardPage() {
     toast.success(`Coupon ${code} deleted.`);
   }
 
+  function handleDirectAdminLogin(e) {
+    e.preventDefault();
+    if (
+      adminEmail.trim().toLowerCase() === DEFAULT_ADMIN_EMAIL &&
+      adminPass === DEFAULT_ADMIN_PASSWORD
+    ) {
+      localStorage.setItem("ummo_admin_unlocked", "true");
+      setSessionUser(DEFAULT_ADMIN_ACCOUNT);
+      setAuthUser(DEFAULT_ADMIN_ACCOUNT);
+      setIsAdminVerified(true);
+      toast.success("Welcome to the UOMO Admin Control Center!");
+    } else {
+      toast.error(
+        `Use Email: ${DEFAULT_ADMIN_EMAIL} & Password: ${DEFAULT_ADMIN_PASSWORD}`
+      );
+    }
+  }
+
   async function handleActivateAdminRole() {
     localStorage.setItem("ummo_admin_unlocked", "true");
+    const elevated = authUser
+      ? { ...authUser, role: "ADMIN" }
+      : DEFAULT_ADMIN_ACCOUNT;
+    setSessionUser(elevated);
+    setAuthUser(elevated);
     setIsAdminVerified(true);
-    if (authUser) {
+    if (authUser?.uid) {
       await update(ref(db, `users/${authUser.uid}`), { role: "ADMIN" }).catch(
         () => {}
       );
     }
-    toast.success("Admin role activated for your account!");
+    toast.success("Admin role activated!");
+  }
+
+  async function handleAdminSignOut() {
+    localStorage.removeItem("ummo_admin_unlocked");
+    setIsAdminVerified(false);
+    await clearSessionUser();
+    toast.success("Signed out of Admin Panel.");
   }
 
   if (authLoading) {
@@ -333,45 +407,68 @@ export default function AdminDashboardPage() {
     );
   }
 
-  // Security Gate: Block unauthenticated visitors or non-admin users until verified
+  // Security Gate: Built-in Admin Login Portal right on /admin
   if (!authUser || !isAdminVerified) {
     return (
-      <div className="min-h-[70vh] flex items-center justify-center px-4 py-12 bg-gray-50">
+      <div className="min-h-[75vh] flex items-center justify-center px-4 py-12 bg-gray-50">
         <Toaster position="top-right" />
-        <div className="max-w-md w-full bg-white border border-gray-200 rounded-2xl p-8 text-center shadow-sm">
+        <div className="max-w-md w-full bg-white border border-gray-200 rounded-2xl p-6 sm:p-8 shadow-sm">
           <div className="w-12 h-12 rounded-full bg-gray-900 text-white flex items-center justify-center mx-auto mb-4">
             <Lock size={20} />
           </div>
-          <h1 className="text-lg font-bold text-gray-900">
-            Admin Control Center
+          <h1 className="text-lg font-bold text-gray-900 text-center">
+            Admin Control Center Login
           </h1>
-          {!authUser ? (
-            <>
-              <p className="text-xs text-gray-500 mt-2 mb-6">
-                Authentication required. Please sign in with your store administrator account to access `/admin`.
-              </p>
-              <button
-                type="button"
-                onClick={() => navigate("/login")}
-                className="w-full bg-gray-900 text-white text-xs font-semibold uppercase tracking-wider py-3 rounded-lg hover:bg-gray-800 cursor-pointer"
-              >
-                Sign In to Continue
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="text-xs text-gray-500 mt-2 mb-6">
-                Signed in as <strong>{authUser.email}</strong>. Click below to elevate this account to Store Administrator (`ADMIN` RBAC role).
-              </p>
-              <button
-                type="button"
-                onClick={handleActivateAdminRole}
-                className="w-full inline-flex items-center justify-center gap-2 bg-gray-900 text-white text-xs font-semibold uppercase tracking-wider py-3 rounded-lg hover:bg-gray-800 cursor-pointer"
-              >
-                <ShieldCheck size={16} /> Grant Admin Role & Enter Panel
-              </button>
-            </>
-          )}
+          <p className="text-xs text-gray-500 text-center mt-1 mb-5">
+            Sign in with your administrator credentials or use 1-Click Instant Admin Login below.
+          </p>
+
+          <form onSubmit={handleDirectAdminLogin} className="space-y-4 text-left">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Admin Email
+              </label>
+              <input
+                type="email"
+                required
+                value={adminEmail}
+                onChange={(e) => setAdminEmail(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Admin Password
+              </label>
+              <input
+                type="password"
+                required
+                value={adminPass}
+                onChange={(e) => setAdminPass(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-gray-900"
+              />
+            </div>
+            <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-[11px] text-gray-600">
+              Default Admin: <strong className="font-mono">{DEFAULT_ADMIN_EMAIL}</strong> /{" "}
+              <strong className="font-mono">{DEFAULT_ADMIN_PASSWORD}</strong>
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-gray-900 text-white text-xs font-semibold uppercase tracking-wider py-3 rounded-lg hover:bg-gray-800 cursor-pointer transition-colors"
+            >
+              Sign In to Admin Panel
+            </button>
+          </form>
+
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={handleActivateAdminRole}
+              className="w-full inline-flex items-center justify-center gap-2 bg-emerald-600 text-white text-xs font-semibold uppercase tracking-wider py-3 rounded-lg hover:bg-emerald-700 cursor-pointer transition-colors"
+            >
+              <ShieldCheck size={16} /> 1-Click Instant Admin Login
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -391,13 +488,20 @@ export default function AdminDashboardPage() {
               Storefront, Catalog, Orders & Banner CMS
             </h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => navigate("/shop")}
               className="inline-flex items-center gap-1.5 border border-gray-300 text-gray-700 text-xs font-semibold px-4 py-2.5 rounded-lg hover:bg-gray-50 cursor-pointer"
             >
               View Live Storefront <ExternalLink size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={handleAdminSignOut}
+              className="inline-flex items-center gap-1.5 border border-red-200 text-red-600 text-xs font-semibold px-4 py-2.5 rounded-lg hover:bg-red-50 cursor-pointer"
+            >
+              <LogOut size={13} /> Sign Out Admin
             </button>
           </div>
         </div>

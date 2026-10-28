@@ -2,9 +2,9 @@ import React, { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "../../../firebase.config";
+import { db } from "../../../firebase.config";
 import { onValue, push, ref, set } from "firebase/database";
+import { onUserChanged, saveLocalOrder } from "../../services/authSession";
 import toast, { Toaster } from "react-hot-toast";
 import { EmptyCart } from "../../slices/cartSlice";
 import {
@@ -75,7 +75,7 @@ const BillingInformation = () => {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onUserChanged((currentUser) => {
       if (currentUser) {
         setuser(currentUser);
         if (currentUser.email) setemail((prev) => prev || currentUser.email);
@@ -175,11 +175,24 @@ const BillingInformation = () => {
       }
 
       const orderRef = push(ref(db, `orders/${user.uid}`));
-      await set(orderRef, orderPayload);
+      const generatedOrderId = orderRef.key || `ORD-${Date.now()}`;
+
+      saveLocalOrder({
+        ...orderPayload,
+        id: generatedOrderId,
+        orderId: generatedOrderId,
+        userUid: user.uid,
+      });
+
+      try {
+        await set(orderRef, orderPayload);
+      } catch {
+        // Order saved locally above
+      }
 
       dispatch(EmptyCart());
       toast.success("Order placed successfully!");
-      navigate(`/ordercomplete?orderId=${orderRef.key}`);
+      navigate(`/ordercomplete?orderId=${generatedOrderId}`);
     } catch (error) {
       console.error("Error placing order: ", error);
       toast.error("Could not place your order. Please try again.");
