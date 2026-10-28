@@ -1,10 +1,9 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
+import { prisma } from "../utils/db.js";
 import { requireAuth, requireRole } from "../middlewares/security.js";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Protect all admin routes with JWT + ADMIN/SUPER_ADMIN RBAC
 router.use(requireAuth, requireRole("ADMIN", "SUPER_ADMIN"));

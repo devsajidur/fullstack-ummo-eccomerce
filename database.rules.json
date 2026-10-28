@@ -1,0 +1,42 @@
+{
+  "rules": {
+    "users": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'ADMIN'",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'ADMIN')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'ADMIN')"
+      }
+    },
+    "orders": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'ADMIN'",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'ADMIN')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'ADMIN')"
+      }
+    },
+    "addresses": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "storeConfig": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "reviews": {
+      ".read": true,
+      "$productId": {
+        ".write": "auth != null"
+      }
+    },
+    "messages": {
+      ".read": "auth != null",
+      ".write": true
+    },
+    "subscribers": {
+      ".read": "auth != null",
+      ".write": true
+    }
+  }
+}

@@ -1,17 +1,21 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Image from "./common/Image";
 import { FaAngleRight } from "react-icons/fa6";
-import { IoSearchOutline } from "react-icons/io5";
+import { IoSearchOutline, IoCloseSharp } from "react-icons/io5";
 import { Link, useNavigate } from "react-router";
 import navData from "../../api/navbardata.json";
-import { IoCloseSharp } from "react-icons/io5";
 import { useDispatch, useSelector } from "react-redux";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../../../firebase.config";
 import SearchOpan from "./common/SearchOpan";
 import { productDetail } from "../../slices/ProductDetailsSlice";
 import { Allitem } from "../../slices/AllProductSlice";
-import { fetchCatalogProducts } from "../../services/api";
+import { addProduct, setShopOptions } from "../../slices/productSlice";
+import {
+  fetchCatalogProducts,
+  initStoreConfigSync,
+} from "../../services/api";
+import { Heart, Search, ShoppingBag, User as UserIcon, ShieldCheck } from "lucide-react";
 
 const Header = () => {
   const navigate = useNavigate();
@@ -25,65 +29,73 @@ const Header = () => {
   const Alldata = useSelector((state) => state.AllProduct.Products);
   const dispatch = useDispatch();
 
-  // Ensure product catalog is loaded even if user lands directly on /shop or /about
+  // Load catalog with deduplicated cache + subscribe to live Admin storeConfig updates
   useEffect(() => {
     if (!Alldata || Alldata.length === 0) {
       fetchCatalogProducts(200)
         .then((products) => {
           if (products?.length) {
             dispatch(Allitem(products));
+            dispatch(addProduct(products));
           }
         })
         .catch(() => {});
     }
+
+    initStoreConfigSync((updatedCatalog) => {
+      dispatch(Allitem(updatedCatalog));
+      dispatch(addProduct(updatedCatalog));
+    });
   }, [Alldata?.length, dispatch]);
 
-  const title = (Alldata || []).map((item) => item.title);
-  const filteredTitles = title.filter((item) =>
-    item?.toLowerCase().includes(Input.toLowerCase().trim())
-  );
+  const mobileFilteredProducts = useMemo(() => {
+    const q = Input.toLowerCase().trim();
+    if (!q) return [];
+    return (Alldata || [])
+      .filter(
+        (item) =>
+          item.title?.toLowerCase().includes(q) ||
+          item.category?.toLowerCase().includes(q) ||
+          item.brand?.toLowerCase().includes(q)
+      )
+      .slice(0, 6);
+  }, [Alldata, Input]);
 
-  function handlesearchlist(item) {
-    setInput(item);
-    dispatch(productDetail(Alldata.find((product) => product.title === item)));
-    navigate("/shopsingle");
+  function handleMobileSelectProduct(product) {
+    dispatch(productDetail(product));
+    navigate(`/shopsingle?id=${product.id}`);
     setInput("");
     setsearchOpen(false);
     setmenuActive(false);
   }
 
+  function handleMobileSearchSubmit(e) {
+    e.preventDefault();
+    const q = Input.trim();
+    dispatch(setShopOptions({ searchQuery: q }));
+    setsearchOpen(false);
+    setmenuActive(false);
+    navigate(q ? `/shop?q=${encodeURIComponent(q)}` : "/shop");
+  }
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setuser(user);
-      } else {
-        setuser(null);
-      }
+      setuser(user || null);
     });
     return () => unsubscribe();
   }, []);
 
-  function handleNavigate() {
-    navigate("/cart");
-  }
-  function handlelogin() {
-    navigate("/login");
-  }
-  function handleWishList() {
-    navigate("/wishlist");
-  }
-
   return (
-    <header className="md:pt-7.25 md:pb-7 py-4 md:px-2.5">
+    <header className="md:pt-7.25 md:pb-7 py-4 md:px-2.5 relative z-40 bg-white">
       <nav>
         <div className="container hidden md:block">
           <div className="flex items-center">
             <Link to="/">
               <Image src="../images/logo.png" alt="logo" />
             </Link>
-            <ul className="lg:ml-14 bmd:ml-10 ml-5 flex gap-5 lg:gap-10.75">
+            <ul className="lg:ml-14 bmd:ml-10 ml-5 flex gap-5 lg:gap-9">
               {navData?.map((item, id) => (
-                <Link key={id} to={item.path}>
+                <Link key={item.id || id} to={item.path}>
                   <li className='text-primary cursor-pointer after:bg-primary relative text-sm md:text-[12px] lg:text-sm leading-6 font-medium after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:duration-300 after:content-[""] hover:after:w-[70%]'>
                     {item?.title}
                   </li>
@@ -91,152 +103,95 @@ const Header = () => {
               ))}
             </ul>
 
-            {/* ============icons ============== */}
-            <div className="ml-auto flex gap-5 bmd:gap-8">
+            {/* Desktop Action Icons */}
+            <div className="ml-auto flex items-center gap-5 bmd:gap-7">
               <button
-                className="cursor-pointer"
+                type="button"
+                aria-label="Toggle Search"
+                className="cursor-pointer text-primary hover:text-[#B9A16B] transition-colors"
                 onClick={() => setsearchOpen(!searchOpen)}
               >
-                <svg
-                  className="w-3.75 lg:w-5"
-                  height="20"
-                  viewBox="0 0 21 20"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <g clipPath="url(#clip0_6_7)">
-                    <path
-                      d="M8.82291 0C3.95809 0 0 3.95121 0 8.80758C0 13.6642 3.95809 17.6152 8.82291 17.6152C13.688 17.6152 17.6458 13.6642 17.6458 8.80758C17.6458 3.95121 13.688 0 8.82291 0ZM8.82291 15.9892C4.85613 15.9892 1.62885 12.7675 1.62885 8.80762C1.62885 4.84773 4.85613 1.62602 8.82291 1.62602C12.7897 1.62602 16.017 4.84769 16.017 8.80758C16.017 12.7675 12.7897 15.9892 8.82291 15.9892Z"
-                      fill="#222222"
-                    />
-                    <path
-                      d="M19.7962 18.6122L15.1268 13.9509C14.8086 13.6333 14.2934 13.6333 13.9752 13.9509C13.657 14.2683 13.657 14.7832 13.9752 15.1005L18.6446 19.7618C18.8036 19.9206 19.0119 20 19.2204 20C19.4286 20 19.6371 19.9206 19.7962 19.7618C20.1143 19.4444 20.1143 18.9295 19.7962 18.6122Z"
-                      fill="#222222"
-                    />
-                  </g>
-                  <defs>
-                    <clipPath id="clip0_6_7">
-                      <rect width="20.0348" height="20" fill="white" />
-                    </clipPath>
-                  </defs>
-                </svg>
+                <Search size={20} />
               </button>
+
               {User ? (
                 <button
-                  className="w-7 rounded-full cursor-pointer"
+                  type="button"
+                  title="Customer Dashboard"
+                  className="w-7 h-7 rounded-full cursor-pointer overflow-hidden border border-gray-300 flex items-center justify-center bg-gray-100 text-xs font-bold"
                   onClick={() => navigate("/profile")}
                 >
-                  <Image
-                    className="w-full rounded-full"
-                    src={User?.photoURL}
-                    alt="user Image"
-                  />
+                  {User?.photoURL ? (
+                    <Image
+                      className="w-full h-full object-cover rounded-full"
+                      src={User.photoURL}
+                      alt="user avatar"
+                    />
+                  ) : (
+                    <span>{(User.displayName || User.email || "U")[0].toUpperCase()}</span>
+                  )}
                 </button>
               ) : (
-                <button onClick={handlelogin} className="cursor-pointer">
-                  <svg
-                    className="w-3.75 lg:w-5"
-                    height="20"
-                    viewBox="0 0 21 20"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <g clipPath="url(#clip0_6_29)">
-                      <path
-                        d="M10.0175 11.2652C3.99775 11.2652 0.682495 14.108 0.682495 19.2701C0.682495 19.6732 1.00982 20 1.41369 20H18.6212C19.0251 20 19.3524 19.6732 19.3524 19.2701C19.3524 14.1083 16.0372 11.2652 10.0175 11.2652ZM2.17149 18.5402C2.4591 14.6805 5.09505 12.7251 10.0175 12.7251C14.9399 12.7251 17.5759 14.6805 17.8637 18.5402H2.17149Z"
-                        fill="#222222"
-                      />
-                      <path
-                        d="M10.0174 0C7.25222 0 5.16711 2.12336 5.16711 4.93895C5.16711 7.83699 7.34292 10.1944 10.0174 10.1944C12.6918 10.1944 14.8676 7.83699 14.8676 4.93918C14.8676 2.12336 12.7825 0 10.0174 0ZM10.0174 8.7348C8.14917 8.7348 6.6295 7.03211 6.6295 4.93918C6.6295 2.92313 8.05436 1.45984 10.0174 1.45984C11.949 1.45984 13.4053 2.95547 13.4053 4.93918C13.4053 7.03211 11.8856 8.7348 10.0174 8.7348Z"
-                        fill="#222222"
-                      />
-                    </g>
-                    <defs>
-                      <clipPath id="clip0_6_29">
-                        <rect width="20.0348" height="20" fill="white" />
-                      </clipPath>
-                    </defs>
-                  </svg>
+                <button
+                  type="button"
+                  aria-label="Login"
+                  onClick={() => navigate("/login")}
+                  className="cursor-pointer text-primary hover:text-[#B9A16B] transition-colors"
+                >
+                  <UserIcon size={20} />
                 </button>
               )}
 
               <button
-                className="cursor-pointer relative"
-                onClick={handleWishList}
+                type="button"
+                aria-label="Wishlist"
+                className="cursor-pointer relative text-primary hover:text-[#B9A16B] transition-colors"
+                onClick={() => navigate("/wishlist")}
               >
-                <svg
-                  className="w-3.75 lg:w-5"
-                  height="20"
-                  viewBox="0 0 21 20"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <g clipPath="url(#clip0_6_54)">
-                    <path
-                      d="M18.4252 3.30806C16.2463 1.13349 12.7016 1.13349 10.5232 3.30806L10.0172 3.81285L9.51156 3.30806C7.33321 1.13319 3.78822 1.13319 1.60986 3.30806C-0.524272 5.43848 -0.53813 8.81543 1.57772 11.1634C3.50752 13.3041 9.19902 17.929 9.44051 18.1248C9.60444 18.2578 9.8017 18.3226 9.99777 18.3226C10.0043 18.3226 10.0107 18.3226 10.0169 18.3223C10.2198 18.3317 10.4241 18.2622 10.5934 18.1248C10.8349 17.929 16.5269 13.3041 18.4573 11.1631C20.5729 8.81543 20.559 5.43848 18.4252 3.30806ZM17.1423 9.98189C15.6377 11.6505 11.5018 15.0919 10.0169 16.3131C8.53207 15.0922 4.39708 11.6511 2.89275 9.98218C1.41673 8.34448 1.40287 6.01215 2.86062 4.55694C3.60511 3.81403 4.58284 3.44228 5.56056 3.44228C6.53829 3.44228 7.51601 3.81373 8.26051 4.55694L9.37269 5.66718C9.50508 5.79934 9.67196 5.87822 9.8471 5.90589C10.1313 5.96682 10.4398 5.88764 10.6609 5.66748L11.7737 4.55694C13.2629 3.07082 15.6854 3.07112 17.1739 4.55694C18.6316 6.01215 18.6177 8.34448 17.1423 9.98189Z"
-                      fill="#222222"
-                    />
-                  </g>
-                  <defs>
-                    <clipPath id="clip0_6_54">
-                      <rect width="20.0348" height="20" fill="white" />
-                    </clipPath>
-                  </defs>
-                </svg>
-                <span className="absolute -bottom-1.5 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">
+                <Heart size={20} />
+                <span className="absolute -bottom-1.5 -right-2 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">
                   {WishProduct.length}
                 </span>
               </button>
+
               <button
-                onClick={handleNavigate}
-                className="cursor-pointer relative"
+                type="button"
+                aria-label="Shopping Cart"
+                onClick={() => navigate("/cart")}
+                className="cursor-pointer relative text-primary hover:text-[#B9A16B] transition-colors"
               >
-                <svg
-                  className="w-3.75 lg:w-5"
-                  height="20"
-                  viewBox="0 0 21 20"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M17.6869 4.6875H15.3021C14.9912 2.05164 12.74 0 10.0174 0C7.29479 0 5.04353 2.05164 4.73264 4.6875H2.3478C1.91556 4.6875 1.56519 5.03727 1.56519 5.46875V19.2188C1.56519 19.6502 1.91556 20 2.3478 20H17.6869C18.1192 20 18.4696 19.6502 18.4696 19.2188V5.46875C18.4696 5.03727 18.1192 4.6875 17.6869 4.6875ZM10.0174 1.5625C11.8754 1.5625 13.4225 2.91621 13.7214 4.6875H6.31332C6.61228 2.91621 8.1593 1.5625 10.0174 1.5625ZM16.9043 18.4375H3.13041V6.25H4.69563V8.59375C4.69563 9.02523 5.046 9.375 5.47824 9.375C5.91047 9.375 6.26084 9.02523 6.26084 8.59375V6.25H13.7739V8.59375C13.7739 9.02523 14.1243 9.375 14.5565 9.375C14.9887 9.375 15.3391 9.02523 15.3391 8.59375V6.25H16.9043V18.4375Z"
-                    fill="#222222"
-                  />
-                </svg>
-                <span className="absolute -bottom-1.5 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">
+                <ShoppingBag size={20} />
+                <span className="absolute -bottom-1.5 -right-2 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">
                   {CartProduct.length}
                 </span>
               </button>
-              <button className="cursor-pointer">
-                <svg
-                  className="w-3.75 lg:w-5"
-                  height="18"
-                  viewBox="0 0 26 18"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <rect width="25.0435" height="2" fill="#222222" />
-                  <rect y="8" width="20.0348" height="2" fill="#222222" />
-                  <rect y="16" width="25.0435" height="2" fill="#222222" />
-                </svg>
+
+              <button
+                type="button"
+                title="Admin Control Panel"
+                onClick={() => navigate("/admin")}
+                className="cursor-pointer text-gray-500 hover:text-gray-900 transition-colors"
+              >
+                <ShieldCheck size={19} />
               </button>
             </div>
           </div>
         </div>
+
         <div className="hidden md:block">
           {searchOpen && (
             <SearchOpan searchOpen={searchOpen} setSearchOpen={setsearchOpen} />
           )}
         </div>
 
-        {/* =========mobile ===responsive header========== */}
+        {/* Mobile Responsive Header */}
         <div className="flex justify-between items-center mx-4 md:hidden">
           {menuActive ? (
-            <button>
-              <IoCloseSharp onClick={() => setmenuActive(false)} size={25} />
+            <button type="button" onClick={() => setmenuActive(false)}>
+              <IoCloseSharp size={25} />
             </button>
           ) : (
-            <button onClick={() => setmenuActive(true)}>
+            <button type="button" onClick={() => setmenuActive(true)}>
               <svg
                 width="25"
                 height="18"
@@ -252,12 +207,13 @@ const Header = () => {
           )}
 
           <ul
-            className={`z-50 border-t-2 border-[#bebebe] absolute duration-350 w-full px-2 ${
+            className={`z-50 border-t-2 border-[#bebebe] absolute duration-300 w-full px-4 ${
               menuActive ? "left-0" : "-left-full"
-            } pt-5 h-screen bg-white top-13.5 overflow-y-hidden`}
+            } pt-5 h-screen bg-white top-13.5 overflow-y-auto pb-24`}
           >
             <div>
-              <div
+              <form
+                onSubmit={handleMobileSearchSubmit}
                 className="flex justify-between items-center w-full relative"
                 onClick={() => setsearchOpen(true)}
               >
@@ -265,30 +221,42 @@ const Header = () => {
                   value={Input}
                   onChange={(e) => setInput(e.target.value)}
                   type="text"
-                  placeholder="Search Products..."
-                  className="w-full border-2 border-[#E4E4E4] h-10 px-3.5 mb-5"
+                  placeholder="Search products, brands, categories..."
+                  className="w-full border-2 border-[#E4E4E4] h-10 px-3.5 mb-4 text-sm"
                 />
-                <button>
+                <button type="submit">
                   <IoSearchOutline
-                    size={25}
-                    className="absolute right-3 top-2.5"
+                    size={22}
+                    className="absolute right-3 top-2.5 text-gray-600"
                   />
                 </button>
-              </div>
+              </form>
 
-              {searchOpen && (
-                <div className="md:hidden h-screen">
-                  {Input === "" ? (
-                    <p className="mb-3 cursor-pointer">No results found</p>
+              {searchOpen && Input.trim() !== "" && (
+                <div className="mb-4 border border-gray-200 rounded-md p-2 bg-gray-50 space-y-2">
+                  {mobileFilteredProducts.length === 0 ? (
+                    <p className="text-xs text-gray-500 p-2">No results found</p>
                   ) : (
-                    filteredTitles.map((item, idx) => (
-                      <p
-                        key={idx}
-                        className="mb-3 cursor-pointer"
-                        onClick={() => handlesearchlist(item)}
+                    mobileFilteredProducts.map((product) => (
+                      <div
+                        key={product.id}
+                        onClick={() => handleMobileSelectProduct(product)}
+                        className="flex items-center gap-3 p-1.5 bg-white rounded border border-gray-100 cursor-pointer"
                       >
-                        {item}
-                      </p>
+                        <img
+                          src={product.thumbnail}
+                          alt={product.title}
+                          className="w-10 h-10 object-contain rounded"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-gray-900 truncate">
+                            {product.title}
+                          </p>
+                          <p className="text-[11px] text-gray-500">
+                            ${Number(product.price || 0).toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
                     ))
                   )}
                 </div>
@@ -301,7 +269,7 @@ const Header = () => {
                 to={item.path}
                 onClick={() => setmenuActive(false)}
               >
-                <li className="text-primary leading-10 cursor-pointer text-sm font-medium flex items-center justify-between">
+                <li className="text-primary leading-10 cursor-pointer text-sm font-medium flex items-center justify-between border-b border-gray-100">
                   {item?.title}
                   <FaAngleRight />
                 </li>
@@ -312,20 +280,14 @@ const Header = () => {
           <Link to="/">
             <Image src="../images/logo.png" alt="logo" />
           </Link>
-          <button className="relative" onClick={handleNavigate}>
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M17.6562 4.6875H15.2755C14.9652 2.05164 12.7179 0 10 0C7.28215 0 5.0348 2.05164 4.72445 4.6875H2.34375C1.91227 4.6875 1.5625 5.03727 1.5625 5.46875V19.2188C1.5625 19.6502 1.91227 20 2.34375 20H17.6562C18.0877 20 18.4375 19.6502 18.4375 19.2188V5.46875C18.4375 5.03727 18.0877 4.6875 17.6562 4.6875ZM10 1.5625C11.8548 1.5625 13.3992 2.91621 13.6976 4.6875H6.30238C6.60082 2.91621 8.14516 1.5625 10 1.5625ZM16.875 18.4375H3.125V6.25H4.6875V8.59375C4.6875 9.02523 5.03727 9.375 5.46875 9.375C5.90023 9.375 6.25 9.02523 6.25 8.59375V6.25H13.75V8.59375C13.75 9.02523 14.0998 9.375 14.5312 9.375C14.9627 9.375 15.3125 9.02523 15.3125 8.59375V6.25H16.875V18.4375Z"
-                fill="#222222"
-              />
-            </svg>
-            <span className="block size-4 bg-[#b9a16b] rounded-full text-[10px] font-medium absolute -right-2 -bottom-3 text-white">
+
+          <button
+            type="button"
+            className="relative"
+            onClick={() => navigate("/cart")}
+          >
+            <ShoppingBag size={20} />
+            <span className="block size-4 bg-[#b9a16b] rounded-full text-[10px] font-medium absolute -right-2 -bottom-2 text-white">
               {CartProduct.length}
             </span>
           </button>

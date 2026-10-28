@@ -1,11 +1,13 @@
 import axios from "axios";
+import { onValue, ref, set } from "firebase/database";
+import { db } from "../../firebase.config";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1";
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 6000,
   withCredentials: true,
   headers: {
     "Content-Type": "application/json",
@@ -24,6 +26,9 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+// ============================================================================
+// 1. DEFAULT COUPONS & CMS BANNERS
+// ============================================================================
 export const DEFAULT_COUPONS = [
   {
     code: "WELCOME10",
@@ -51,6 +56,90 @@ export const DEFAULT_COUPONS = [
   },
 ];
 
+export const DEFAULT_BANNERS = {
+  heroSlides: [
+    {
+      id: 1,
+      tag: "NEW ARRIVALS 2026",
+      title: "Luxury Minimalist Collection",
+      subtitle: "Crafted with sustainable fabrics for modern everyday elegance.",
+      ctaText: "SHOP COLLECTION",
+      ctaLink: "/shop",
+      image: "../images/banner.png",
+    },
+    {
+      id: 2,
+      tag: "LIMITED EDITION",
+      title: "Summer & Spring Essentials",
+      subtitle: "Up to 40% off on designer dresses, footwear & accessories.",
+      ctaText: "EXPLORE DEALS",
+      ctaLink: "/shop?sort=low",
+      image: "../images/banner.png",
+    },
+    {
+      id: 3,
+      tag: "EXCLUSIVE DROP",
+      title: "Signature Menswear & Watches",
+      subtitle: "Timeless tailoring and precision craftsmanship.",
+      ctaText: "DISCOVER MEN",
+      ctaLink: "/shop?category=mens-shirts",
+      image: "../images/banner.png",
+    },
+  ],
+  dealBanner: {
+    tag: "DEAL OF THE WEEK",
+    titleBold: "Spring",
+    titleRegular: "Collection",
+    ctaText: "SHOP NOW",
+    ctaLink: "/shop",
+    countdownDate: "2026-12-31T23:59:59.000Z",
+    bgColor: "#ebebeb",
+    image: "",
+  },
+  promoCards: [
+    {
+      id: 1,
+      subtitle: "STARTING AT $39",
+      title: "Women’s Dresses",
+      ctaText: "SHOP NOW",
+      categoryFilter: "womens-dresses",
+      bgColor: "#D6001C",
+      textColor: "white",
+      image: "../images/startingImage1.png",
+    },
+    {
+      id: 2,
+      subtitle: "STARTING AT $39",
+      title: "Men’s Sportswear",
+      ctaText: "SHOP NOW",
+      categoryFilter: "mens-shoes",
+      bgColor: "#f5f5f5",
+      textColor: "black",
+      image: "./images/startingImage2.png",
+    },
+  ],
+  shopBanner: {
+    defaultTitle: "COLLECTION",
+    subtitle: "Explore our curated catalog with instant multi-filter search",
+  },
+};
+
+// ============================================================================
+// 2. IN-MEMORY CATALOG CACHE & IN-FLIGHT DEDUPLICATION (HIGH-CONCURRENCY SAFE)
+// ============================================================================
+let cachedBaseProducts = null;
+let lastFetchTimestamp = 0;
+let inFlightCatalogPromise = null;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
+
+export function invalidateCatalogCache() {
+  cachedBaseProducts = null;
+  lastFetchTimestamp = 0;
+}
+
+// ============================================================================
+// 3. STORE CONFIG HELPERS (LOCALSTORAGE + FIREBASE REALTIME SYNC)
+// ============================================================================
 export function getStoredCoupons() {
   try {
     const saved = localStorage.getItem("ummo_admin_coupons");
@@ -64,6 +153,27 @@ export function getStoredCoupons() {
 
 export function saveStoredCoupons(coupons) {
   localStorage.setItem("ummo_admin_coupons", JSON.stringify(coupons));
+  set(ref(db, "storeConfig/coupons"), coupons).catch(() => {});
+}
+
+export function getStoredBanners() {
+  try {
+    const saved = localStorage.getItem("ummo_admin_banners");
+    if (saved) {
+      return { ...DEFAULT_BANNERS, ...JSON.parse(saved) };
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_BANNERS;
+}
+
+export function saveStoredBanners(banners) {
+  localStorage.setItem("ummo_admin_banners", JSON.stringify(banners));
+  set(ref(db, "storeConfig/banners"), banners).catch(() => {});
+  window.dispatchEvent(
+    new CustomEvent("ummo:banners-updated", { detail: banners })
+  );
 }
 
 export function getCustomAdminProducts() {
@@ -77,6 +187,7 @@ export function getCustomAdminProducts() {
 
 export function saveCustomAdminProducts(products) {
   localStorage.setItem("ummo_admin_custom_products", JSON.stringify(products));
+  set(ref(db, "storeConfig/customProducts"), products).catch(() => {});
 }
 
 export function getDeletedProductIds() {
@@ -90,6 +201,50 @@ export function getDeletedProductIds() {
 
 export function saveDeletedProductIds(ids) {
   localStorage.setItem("ummo_admin_deleted_ids", JSON.stringify(ids));
+  set(ref(db, "storeConfig/deletedIds"), ids).catch(() => {});
+}
+
+/**
+ * Subscribe to Firebase `storeConfig` so changes made by Admin on one device
+ * automatically propagate to all connected visitors in real time.
+ */
+let storeConfigSubscribed = false;
+export function initStoreConfigSync(onCatalogChanged) {
+  if (storeConfigSubscribed) return;
+  storeConfigSubscribed = true;
+
+  try {
+    onValue(ref(db, "storeConfig"), (snapshot) => {
+      if (!snapshot.exists()) return;
+      const val = snapshot.val();
+      if (val.coupons && Array.isArray(val.coupons)) {
+        localStorage.setItem("ummo_admin_coupons", JSON.stringify(val.coupons));
+      }
+      if (val.banners && typeof val.banners === "object") {
+        localStorage.setItem("ummo_admin_banners", JSON.stringify(val.banners));
+        window.dispatchEvent(
+          new CustomEvent("ummo:banners-updated", { detail: val.banners })
+        );
+      }
+      if (val.customProducts && Array.isArray(val.customProducts)) {
+        localStorage.setItem(
+          "ummo_admin_custom_products",
+          JSON.stringify(val.customProducts)
+        );
+      }
+      if (val.deletedIds && Array.isArray(val.deletedIds)) {
+        localStorage.setItem(
+          "ummo_admin_deleted_ids",
+          JSON.stringify(val.deletedIds)
+        );
+      }
+      if (typeof onCatalogChanged === "function" && cachedBaseProducts) {
+        onCatalogChanged(mergeWithAdminCatalog(cachedBaseProducts));
+      }
+    });
+  } catch {
+    // Non-blocking if offline
+  }
 }
 
 function mergeWithAdminCatalog(baseProducts) {
@@ -99,14 +254,12 @@ function mergeWithAdminCatalog(baseProducts) {
   const customMap = new Map(customProducts.map((p) => [String(p.id), p]));
   const merged = [];
 
-  // First include newly added custom products at the top
   for (const cp of customProducts) {
     if (!deletedIds.has(String(cp.id)) && cp.isCustomNew) {
       merged.push(cp);
     }
   }
 
-  // Merge overrides and filter deleted items from base catalog
   for (const item of baseProducts) {
     const idStr = String(item.id);
     if (deletedIds.has(idStr)) continue;
@@ -121,22 +274,50 @@ function mergeWithAdminCatalog(baseProducts) {
 }
 
 /**
- * Fetches the product catalog from the Enterprise Backend API,
- * with automatic fallback to DummyJSON and merges Admin Panel customizations.
+ * Fetches the product catalog with:
+ * - In-Memory Cache (5-minute TTL)
+ * - In-Flight Promise Deduplication (multiple components mounting simultaneously share 1 request)
+ * - Automatic fallback to DummyJSON and Admin Catalog overlay
  */
 export async function fetchCatalogProducts(limit = 200) {
-  try {
-    const response = await apiClient.get(`/products?limit=${limit}`);
-    if (response.data?.data?.products?.length) {
-      return mergeWithAdminCatalog(response.data.data.products);
-    }
-  } catch {
-    // Fallback to DummyJSON when standalone frontend is used without local backend running
+  const now = Date.now();
+  if (cachedBaseProducts && now - lastFetchTimestamp < CACHE_TTL_MS) {
+    return mergeWithAdminCatalog(cachedBaseProducts).slice(0, limit);
   }
-  const fallback = await axios.get(
-    `https://dummyjson.com/products?limit=${limit}`
-  );
-  return mergeWithAdminCatalog(fallback.data?.products || []);
+
+  if (inFlightCatalogPromise) {
+    const base = await inFlightCatalogPromise;
+    return mergeWithAdminCatalog(base).slice(0, limit);
+  }
+
+  inFlightCatalogPromise = (async () => {
+    try {
+      if (import.meta.env.VITE_API_BASE_URL) {
+        const response = await apiClient.get(`/products?limit=200`);
+        if (response.data?.data?.products?.length) {
+          cachedBaseProducts = response.data.data.products;
+          lastFetchTimestamp = Date.now();
+          return cachedBaseProducts;
+        }
+      }
+    } catch {
+      // Fallback to DummyJSON
+    }
+
+    const fallback = await axios.get(
+      `https://dummyjson.com/products?limit=200`
+    );
+    cachedBaseProducts = fallback.data?.products || [];
+    lastFetchTimestamp = Date.now();
+    return cachedBaseProducts;
+  })();
+
+  try {
+    const baseList = await inFlightCatalogPromise;
+    return mergeWithAdminCatalog(baseList).slice(0, limit);
+  } finally {
+    inFlightCatalogPromise = null;
+  }
 }
 
 /**

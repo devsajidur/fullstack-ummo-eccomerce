@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React from "react";
 import Image from "./Image";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { addToCart } from "../../../slices/cartSlice";
 import {
   addWishList,
@@ -8,11 +8,13 @@ import {
 } from "../../../slices/wishListSlice";
 import { productDetail } from "../../../slices/ProductDetailsSlice";
 import { useNavigate } from "react-router";
+import toast from "react-hot-toast";
 
 const Product = ({ item }) => {
   const navigate = useNavigate();
-  const [LoveIcon, setLoveIcon] = useState(false);
   const dispatch = useDispatch();
+  const wishList = useSelector((state) => state.wishList.wishProduct) || [];
+  const isWished = wishList.some((w) => String(w.id) === String(item?.id));
 
   function handleAddtoCart(Citem) {
     dispatch(
@@ -23,16 +25,17 @@ const Product = ({ item }) => {
         image: Citem.thumbnail,
       })
     );
+    toast.success(`"${Citem.title}" added to cart!`);
   }
 
-  const handlefalseWish = (witem) => {
-    setLoveIcon(false);
-    dispatch(deleteWishEndevisual(witem));
-  };
-
-  const handleTrueWish = (trwish) => {
-    setLoveIcon(true);
-    dispatch(addWishList(trwish));
+  const handleToggleWish = () => {
+    if (isWished) {
+      dispatch(deleteWishEndevisual(item));
+      toast("Removed from wishlist", { icon: "🗑️" });
+    } else {
+      dispatch(addWishList(item));
+      toast.success("Saved to wishlist ❤️");
+    }
   };
 
   const handleProductDetails = (dtail) => {
@@ -44,31 +47,33 @@ const Product = ({ item }) => {
     <div className="max-w-82.5 group relative">
       <div
         onClick={() => handleProductDetails(item)}
-        className="cursor-pointer"
+        className="cursor-pointer relative overflow-hidden"
       >
         <Image
-          className="md:h-80 md:w-50 h-40 w-30 block mx-auto object-contain"
+          className="md:h-80 md:w-50 h-40 w-30 block mx-auto object-contain transition-transform duration-300 group-hover:scale-105"
           src={item?.thumbnail}
           alt={item?.title}
         />
+        {Number(item?.discountPercentage) >= 10 && (
+          <span className="absolute top-2 left-2 bg-[#D6001C] text-white text-[10px] font-bold px-2 py-0.5 rounded-sm">
+            -{Math.round(Number(item.discountPercentage))}%
+          </span>
+        )}
       </div>
       <div className="mt-3.2">
-        <div className="flex justify-between h-5">
-          <h4 className="text-[12px] md:text-sm text-gray font-normal uppercase">
+        <div className="flex justify-between items-center h-5">
+          <h4 className="text-[12px] md:text-sm text-gray font-normal uppercase truncate pr-2">
             {item?.category}
           </h4>
-          {LoveIcon ? (
-            <button
-              className="cursor-pointer"
-              onClick={() => handlefalseWish(item)}
-            >
-              <p className="text-[15px]">❤️</p>
-            </button>
-          ) : (
-            <button
-              className="cursor-pointer"
-              onClick={() => handleTrueWish(item)}
-            >
+          <button
+            type="button"
+            aria-label="Toggle Wishlist"
+            className="cursor-pointer shrink-0"
+            onClick={handleToggleWish}
+          >
+            {isWished ? (
+              <span className="text-[15px]">❤️</span>
+            ) : (
               <svg
                 width="16"
                 height="16"
@@ -88,24 +93,32 @@ const Product = ({ item }) => {
                   </clipPath>
                 </defs>
               </svg>
-            </button>
-          )}
+            )}
+          </button>
         </div>
         <h3
           onClick={() => handleProductDetails(item)}
-          className="cursor-pointer clamp"
+          className="cursor-pointer clamp font-medium text-sm text-primary hover:underline"
         >
           {item?.title}
         </h3>
-        <h5 className="md:text-base text-[14px] text-primary font-normal uppercase">
-          ${item?.price}
-        </h5>
+        <div className="flex items-center justify-between mt-0.5">
+          <h5 className="md:text-base text-[14px] text-primary font-semibold uppercase">
+            ${item?.price}
+          </h5>
+          {item?.rating && (
+            <span className="text-[11px] text-amber-600 font-medium">
+              ★ {Number(item.rating).toFixed(1)}
+            </span>
+          )}
+        </div>
       </div>
 
       <div>
         <button
+          type="button"
           onClick={() => handleAddtoCart(item)}
-          className="absolute md:invisible md:group-hover:visible cursor-pointer bottom-18 md:bottom-25 left-[50%] translate-[-50%] w-[90%] md:w-77.5 shadow-xl shadow-[#3333335b] font-medium text-[12px] md:text-sm bg-white text-black h-7 md:h-12.5 text-center"
+          className="absolute md:invisible md:group-hover:visible cursor-pointer bottom-18 md:bottom-25 left-[50%] translate-[-50%] w-[90%] md:w-77.5 shadow-xl shadow-[#3333335b] font-medium text-[12px] md:text-sm bg-white hover:bg-black hover:text-white transition-colors text-black h-7 md:h-12.5 text-center"
         >
           ADD TO CART
         </button>

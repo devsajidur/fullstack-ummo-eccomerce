@@ -1,65 +1,81 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import Rootlayout from "./components/layout/Rootlayout";
 import HomePage from "./pages/HomePage";
-import ShopPage from "./pages/ShopPage";
-import ShopSingle from "./pages/ShopSingle";
-import CartPage from "./pages/CartPage";
-import WishListPage from "./pages/WishListPage";
-import Register from "./pages/Register";
-import LoginPage from "./pages/LoginPage";
-import NotFoundPage from "./pages/NotFoundPage";
-import ShopDynamicPage from "./pages/ShopDynamicPage";
-import FAQPage from "./pages/FAQPage";
-import AboutPage from "./pages/AboutPage";
-import TermsConditionPage from "./pages/TermsConditionPage";
-import BlogPage from "./pages/Blogpage";
-import ContactPage from "./pages/ContactPage";
-import LocationPage from "./pages/LocationPage";
-import ForgotPassword from "./pages/ForgorPage";
-import ProfilePage from "./pages/ProfilePage";
-import BillingPage from "./pages/BillingPage";
-import OrderSuccessPage from "./pages/OrderSuccessPage";
-import ClickProductPage from "./pages/ClickProductPage";
-import AdminDashboardPage from "./pages/AdminDashboardPage";
+
+// Route-level code splitting for high-concurrency fast initial page load
+const ShopPage = lazy(() => import("./pages/ShopPage"));
+const ShopSingle = lazy(() => import("./pages/ShopSingle"));
+const CartPage = lazy(() => import("./pages/CartPage"));
+const WishListPage = lazy(() => import("./pages/WishListPage"));
+const Register = lazy(() => import("./pages/Register"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
+const ShopDynamicPage = lazy(() => import("./pages/ShopDynamicPage"));
+const FAQPage = lazy(() => import("./pages/FAQPage"));
+const AboutPage = lazy(() => import("./pages/AboutPage"));
+const TermsConditionPage = lazy(() => import("./pages/TermsConditionPage"));
+const BlogPage = lazy(() => import("./pages/Blogpage"));
+const ContactPage = lazy(() => import("./pages/ContactPage"));
+const LocationPage = lazy(() => import("./pages/LocationPage"));
+const ForgotPassword = lazy(() => import("./pages/ForgorPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const BillingPage = lazy(() => import("./pages/BillingPage"));
+const OrderSuccessPage = lazy(() => import("./pages/OrderSuccessPage"));
+const ClickProductPage = lazy(() => import("./pages/ClickProductPage"));
+const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
+
+function PageLoader() {
+  return (
+    <div className="min-h-[50vh] flex items-center justify-center text-xs font-semibold uppercase tracking-widest text-gray-400">
+      Loading...
+    </div>
+  );
+}
+
+const withSuspense = (Component) => (
+  <Suspense fallback={<PageLoader />}>
+    <Component />
+  </Suspense>
+);
+
+const router = createBrowserRouter([
+  {
+    path: "/",
+    Component: Rootlayout,
+    children: [
+      { index: true, Component: HomePage },
+      { path: "shop", element: withSuspense(ShopPage) },
+      { path: "shopsingle", element: withSuspense(ShopSingle) },
+      { path: "cart", element: withSuspense(CartPage) },
+      { path: "wish", element: withSuspense(WishListPage) },
+      { path: "register", element: withSuspense(Register) },
+      { path: "login", element: withSuspense(LoginPage) },
+      { path: "wishlist", element: withSuspense(WishListPage) },
+      { path: "blog", element: withSuspense(BlogPage) },
+      { path: "journal", element: withSuspense(BlogPage) },
+      { path: "collection", element: withSuspense(ShopPage) },
+      { path: "lookbook", element: withSuspense(ShopPage) },
+      { path: "faq", element: withSuspense(FAQPage) },
+      { path: "about", element: withSuspense(AboutPage) },
+      { path: "terms", element: withSuspense(TermsConditionPage) },
+      { path: "contact", element: withSuspense(ContactPage) },
+      { path: "location", element: withSuspense(LocationPage) },
+      { path: "profile", element: withSuspense(ProfilePage) },
+      { path: "dashboard", element: withSuspense(ProfilePage) },
+      { path: "admin", element: withSuspense(AdminDashboardPage) },
+      { path: "billing", element: withSuspense(BillingPage) },
+      { path: "ordercomplete", element: withSuspense(OrderSuccessPage) },
+      { path: "clickproduct", element: withSuspense(ClickProductPage) },
+    ],
+  },
+  { path: "/forgot", element: withSuspense(ForgotPassword) },
+  { path: "*", element: withSuspense(NotFoundPage) },
+  { path: "/shop/:id", element: withSuspense(ShopDynamicPage) },
+]);
 
 const App = () => {
-  const router = createBrowserRouter([
-    {
-      path: "/",
-      Component: Rootlayout,
-      children: [
-        { index: true, Component: HomePage },
-        { path: "shop", Component: ShopPage },
-        { path: "shopsingle", Component: ShopSingle },
-        { path: "cart", Component: CartPage },
-        { path: "wish", Component: WishListPage },
-        { path: "register", Component: Register },
-        { path: "login", Component: LoginPage },
-        { path: "wishlist", Component: WishListPage },
-        { path: "blog", Component: BlogPage },
-        { path: "journal", Component: BlogPage },
-        { path: "collection", Component: ShopPage },
-        { path: "lookbook", Component: ShopPage },
-        { path: "faq", Component: FAQPage },
-        { path: "about", Component: AboutPage },
-        { path: "terms", Component: TermsConditionPage },
-        { path: "contact", Component: ContactPage },
-        { path: "location", Component: LocationPage },
-        { path: "profile", Component: ProfilePage },
-        { path: "dashboard", Component: ProfilePage },
-        { path: "admin", Component: AdminDashboardPage },
-        { path: "billing", Component: BillingPage },
-        { path: "ordercomplete", Component: OrderSuccessPage },
-        { path: "clickproduct", Component: ClickProductPage },
-      ],
-    },
-    { path: "/forgot", Component: ForgotPassword },
-    { path: "*", Component: NotFoundPage },
-    { path: "/shop/:id", Component: ShopDynamicPage },
-  ]);
-
   return <RouterProvider router={router} />;
 };
 
