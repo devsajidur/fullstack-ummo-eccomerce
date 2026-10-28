@@ -18,6 +18,11 @@ const loadCoupon = () => {
   }
 };
 
+const isSameVariant = (item, target) =>
+  String(item.id) === String(target.id) &&
+  (item.size || "M") === (target.size || "M") &&
+  (item.color || "Default") === (target.color || "Default");
+
 const initialState = {
   products: loadCarts(),
   shippingMethod: localStorage.getItem("shippingMethod") || "free",
@@ -30,14 +35,17 @@ export const cartSlice = createSlice({
   reducers: {
     addToCart: (state, action) => {
       const incomingQty = Number(action.payload.quantity) || 1;
-      const incomingSize = action.payload.size || "M";
-      const incomingColor = action.payload.color || "Default";
+      const incomingSize =
+        action.payload.size || action.payload.selectedSize || "M";
+      const incomingColor =
+        action.payload.color || action.payload.selectedColor || "Default";
 
-      const existing = state.products.find(
-        (fitem) =>
-          fitem.id === action.payload.id &&
-          (fitem.size || "M") === incomingSize &&
-          (fitem.color || "Default") === incomingColor
+      const existing = state.products.find((fitem) =>
+        isSameVariant(fitem, {
+          id: action.payload.id,
+          size: incomingSize,
+          color: incomingColor,
+        })
       );
 
       if (existing) {
@@ -48,24 +56,30 @@ export const cartSlice = createSlice({
           quantity: incomingQty,
           size: incomingSize,
           color: incomingColor,
+          selectedSize: incomingSize,
+          selectedColor: incomingColor,
         });
       }
       localStorage.setItem("carts", JSON.stringify(state.products));
     },
     quentityIncrease: (state, action) => {
-      const found = state.products.find((item) => item.id == action.payload.id);
+      const found = state.products.find((item) =>
+        isSameVariant(item, action.payload)
+      );
       if (found) {
         found.quantity++;
         localStorage.setItem("carts", JSON.stringify(state.products));
       }
     },
     quentityDecrease: (state, action) => {
-      const found = state.products.find((item) => item.id == action.payload.id);
+      const found = state.products.find((item) =>
+        isSameVariant(item, action.payload)
+      );
       if (found) {
         found.quantity--;
         if (found.quantity < 1) {
           state.products = state.products.filter(
-            (item) => item.id != action.payload.id
+            (item) => !isSameVariant(item, action.payload)
           );
         }
         localStorage.setItem("carts", JSON.stringify(state.products));
@@ -73,7 +87,7 @@ export const cartSlice = createSlice({
     },
     RemoveItem: (state, action) => {
       state.products = state.products.filter(
-        (item) => item.id != action.payload.id
+        (item) => !isSameVariant(item, action.payload)
       );
       localStorage.setItem("carts", JSON.stringify(state.products));
     },
