@@ -1,28 +1,28 @@
-import React from 'react'
+import React from "react";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
-import Rootlayout from './components/layout/Rootlayout';
-import HomePage from './pages/HomePage';
-import ShopPage from './pages/ShopPage';
-import ShopSingle from './pages/ShopSingle';
-import CartPage from './pages/CartPage';
-import WishListPage from './pages/WishListPage';
-import Register from './pages/Register';
-import LoginPage from './pages/LoginPage';
-import NotFoundPage from './pages/NotFoundPage';
-import ShopDynamicPage from './pages/ShopDynamicPage';
-import FAQPage from './pages/FAQPage';
-import AboutPage from './pages/AboutPage';
-import TermsConditionPage from './pages/TermsConditionPage';
-import BlogPage from './pages/Blogpage';
-import ContactPage from './pages/ContactPage';
-import LocationPage from './pages/LocationPage';
-import ForgotPassword from './pages/ForgorPage';
-import ProfilePage from './pages/ProfilePage';
-import BillingPage from './pages/BillingPage';
-import OrderSuccessPage from './pages/OrderSuccessPage';
-import ClickProductPage from './pages/ClickProductPage';
-
+import Rootlayout from "./components/layout/Rootlayout";
+import HomePage from "./pages/HomePage";
+import ShopPage from "./pages/ShopPage";
+import ShopSingle from "./pages/ShopSingle";
+import CartPage from "./pages/CartPage";
+import WishListPage from "./pages/WishListPage";
+import Register from "./pages/Register";
+import LoginPage from "./pages/LoginPage";
+import NotFoundPage from "./pages/NotFoundPage";
+import ShopDynamicPage from "./pages/ShopDynamicPage";
+import FAQPage from "./pages/FAQPage";
+import AboutPage from "./pages/AboutPage";
+import TermsConditionPage from "./pages/TermsConditionPage";
+import BlogPage from "./pages/Blogpage";
+import ContactPage from "./pages/ContactPage";
+import LocationPage from "./pages/LocationPage";
+import ForgotPassword from "./pages/ForgorPage";
+import ProfilePage from "./pages/ProfilePage";
+import BillingPage from "./pages/BillingPage";
+import OrderSuccessPage from "./pages/OrderSuccessPage";
+import ClickProductPage from "./pages/ClickProductPage";
+import AdminDashboardPage from "./pages/AdminDashboardPage";
 
 const App = () => {
   const router = createBrowserRouter([
@@ -39,18 +39,20 @@ const App = () => {
         { path: "login", Component: LoginPage },
         { path: "wishlist", Component: WishListPage },
         { path: "blog", Component: BlogPage },
+        { path: "journal", Component: BlogPage },
+        { path: "collection", Component: ShopPage },
+        { path: "lookbook", Component: ShopPage },
         { path: "faq", Component: FAQPage },
         { path: "about", Component: AboutPage },
         { path: "terms", Component: TermsConditionPage },
         { path: "contact", Component: ContactPage },
         { path: "location", Component: LocationPage },
         { path: "profile", Component: ProfilePage },
-         { path: "billing", Component: BillingPage },
-         { path: "ordercomplete", Component: OrderSuccessPage },
-         {path: "clickproduct", Component: ClickProductPage}
-
-        
-        
+        { path: "dashboard", Component: ProfilePage },
+        { path: "admin", Component: AdminDashboardPage },
+        { path: "billing", Component: BillingPage },
+        { path: "ordercomplete", Component: OrderSuccessPage },
+        { path: "clickproduct", Component: ClickProductPage },
       ],
     },
     { path: "/forgot", Component: ForgotPassword },
@@ -58,14 +60,7 @@ const App = () => {
     { path: "/shop/:id", Component: ShopDynamicPage },
   ]);
 
-  return (
-    <>
-    <RouterProvider router={router}>
+  return <RouterProvider router={router} />;
+};
 
-
-    </RouterProvider>
-    </>
-  )
-}
-
-export default App
+export default App;

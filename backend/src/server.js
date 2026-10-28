@@ -12,6 +12,7 @@ import {
 import authRoutes from "./routes/auth.routes.js";
 import productRoutes from "./routes/product.routes.js";
 import orderRoutes from "./routes/order.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
 import webhookRoutes from "./routes/webhook.routes.js";
 
 const app = express();
@@ -59,6 +60,7 @@ app.get("/api/v1/health", (req, res) => {
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/products", productRoutes);
 app.use("/api/v1/orders", orderRoutes);
+app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/webhooks", webhookRoutes);
 
 // 7. 404 & Centralized Error Handler

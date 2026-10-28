@@ -1,51 +1,57 @@
-# 🛍️ Ummo E-Commerce — Enterprise Full-Stack Platform
+# Ummo-Ecommerce (Enterprise Full-Stack Edition)
 
-A modern, high-performance, enterprise-grade full-stack e-commerce platform built with **React 19, Vite, Tailwind CSS v4, Redux Toolkit**, and a secure **Node.js + Express + PostgreSQL (Prisma ORM)** backend architecture.
-
----
-
-## ✨ Key Features
-
-### 🖥️ Storefront & Customer Experience
-- **Modern Responsive UI:** Built with React 19, Tailwind CSS v4, and Swiper.js carousels.
-- **Advanced Catalog Filtering:** Filter by Category, Brand search, Dynamic Price Range slider, and Price Sorting (`low-to-high`, `high-to-low`).
-- **Global Instant Search:** Real-time product search in desktop & mobile navigation.
-- **Persistent Cart & Wishlist:** Redux Toolkit state synchronized with `localStorage` and server-side checkout validation.
-- **Customer Profile & Order History:** Real-time order tracking and printable digital invoices (`/ordercomplete?orderId=...`).
-
-### 🛡️ Enterprise Backend & Security Architecture (`/backend`)
-- **PostgreSQL + Prisma ORM Schema:** Relational schema supporting `Users`, `RefreshTokens`, `Categories`, `Products`, `ProductVariants` (SKU-level stock locking), `Coupons`, `Orders`, `OrderItems`, `Payments`, and `AuditLogs`.
-- **Zero-Trust Auth & RBAC:**
-  - Cryptographic `scrypt` password hashing with constant-time verification (`crypto.timingSafeEqual`).
-  - Short-lived JWT Access Tokens (`15m`) + `HttpOnly, Secure, SameSite=Strict` Refresh Token Rotation (`7d`).
-  - Role-Based Access Control (`CUSTOMER`, `STAFF`, `SUPER_ADMIN`).
-- **Anti-Tampering Checkout Engine:**
-  - Server-side price, shipping, and VAT calculation (prevents client-side price manipulation).
-  - Atomic stock verification & deduction with `Idempotency-Key` support to prevent duplicate charges.
-- **API Hardening:** `Helmet` HTTP security headers, strict `CORS`, `Zod` schema validation, `X-Request-Id` audit tracing, and multi-tier `express-rate-limit` brute-force protection.
-- **Payment Webhooks:** Ready-to-use cryptographic webhook verification endpoints for **Stripe** and **SSLCommerz**.
+A complete, production-ready Full-Stack E-Commerce application featuring a modern **React 19 + Redux Toolkit + Tailwind CSS v4** storefront, a full **Admin Control Panel (`/admin`)**, an interactive **Customer Dashboard (`/profile` / `/dashboard`)**, and an **Enterprise Node.js + Express + Prisma + PostgreSQL** backend architecture.
 
 ---
 
-## 📂 Project Structure
+## ✨ Key E-Commerce Features Included
+
+### 1. 🛡️ Full Admin Panel (`/admin`)
+- **Executive Analytics Overview**: Real-time KPIs for Total Revenue, Total Orders, Average Order Value (AOV), Registered Users, Store Catalog Size, and Active Promo Coupons.
+- **Order Fulfillment Pipeline**: Live breakdown and management of orders across `PENDING`, `PROCESSING`, `SHIPPED`, `DELIVERED`, and `CANCELLED` states—updating an order status immediately reflects in the customer's live order tracker.
+- **Product Catalog CRUD**: Add new products, edit existing products (title, category, price, discount %, stock, thumbnail), or delete products directly from the Admin Panel. Custom products sync instantaneously with the storefront (`/shop`).
+- **Promo Coupon Engine**: Create, view, and delete percentage or fixed-amount discount codes with minimum order rules (includes built-in `WELCOME10`, `UMMO20`, and `VIP25` coupons).
+- **Customer, Inquiry & Newsletter Hub**: View registered customers, read contact form messages, and inspect newsletter subscribers in real time.
+
+### 2. 👤 Customer Dashboard (`/profile` & `/dashboard`)
+- **Personal KPI Overview**: Total orders, active shipments in progress, lifetime spend, and saved wishlist counter.
+- **4-Step Visual Order Tracking**: Interactive progress bar (`Order Placed` → `Processing` → `Shipped` → `Delivered`) with live updates from the Admin Panel, item-level size/color breakdown, invoice link, and self-service **Cancel Order** action for pending orders.
+- **Exclusive Promo Coupons**: One-click copy for active store discount codes to apply in the cart or checkout.
+- **Saved Address Book**: Add, manage, delete, and set a **Default Shipping Address** that automatically pre-fills the checkout billing form.
+- **Account & Security Settings**: Update display name, phone number, bio, and trigger secure password reset emails.
+
+### 3. 🛍️ Complete Storefront & Checkout Experience
+- **Product Variants & Direct Buy**: Select **Size (`XS`–`XL`)**, **Color Swatches**, and **Quantity (`- / +`)** on the single product page, with both **Add to Cart** and **Buy Now** (instant checkout redirect) actions.
+- **Interactive Customer Reviews**: Submit verified customer reviews with 1–5 star ratings and comments on any product page.
+- **Promo Coupon Cart Calculation**: Apply promo codes directly in `/cart` with automatic discount calculation carried through `/billing` and `/ordercomplete`.
+- **Printable Order Invoice**: View order status badge, itemized variant details, coupon discount breakdown, and print-ready invoice at `/ordercomplete`.
+- **Connected Contact & Newsletter Forms**: Contact page inquiries and footer newsletter signups persist in real time with instant toast feedback.
+
+---
+
+## 🏗️ Project Structure
 
 ```text
 Ummo-Ecommerce/
-├── src/                        # React 19 + Vite Storefront
-│   ├── app/store.js            # Redux Toolkit Store
-│   ├── components/             # Modular UI Components (Home, Shop, Cart, Billing, etc.)
-│   ├── pages/                  # 19 Application Pages
-│   ├── services/api.js         # Centralized Axios API Client with fallback
-│   └── slices/                 # Redux State Slices
-└── backend/                    # Enterprise Node.js + Express + Prisma API
+├── src/                          # React 19 + Vite 8 + Tailwind v4 Frontend
+│   ├── api/                      # Navigation & static config
+│   ├── components/               # Storefront, Cart, Billing, Reviews, Invoice UI
+│   ├── pages/
+│   │   ├── AdminDashboardPage.jsx # Full 5-Tab Admin Control Center (/admin)
+│   │   ├── ProfilePage.jsx        # Full 4-Tab Customer Dashboard (/profile, /dashboard)
+│   │   └── ...                    # Home, Shop, ShopSingle, Cart, Billing, Blog, Contact, Auth
+│   ├── services/api.js           # Unified Product, Coupon, Order & API Service Layer
+│   ├── slices/                   # Redux Toolkit (cartSlice with Coupons, wishListSlice)
+│   └── store/                    # Redux Store
+└── backend/                      # Enterprise Node.js + Express + Prisma + PostgreSQL API
     ├── prisma/
-    │   ├── schema.prisma       # PostgreSQL Enterprise Schema
-    │   └── seed.js             # Catalog Database Seeder
+    │   ├── schema.prisma         # 12-Table Relational Schema with ACID & AuditLog
+    │   └── seed.js               # Automated Catalog, Admin & Coupon Seeder
     └── src/
-        ├── middlewares/        # Helmet, Rate Limiter, JWT Auth, RBAC Guards
-        ├── routes/             # Auth, Products, Checkout Orders, Payment Webhooks
-        ├── utils/crypto.js     # Password KDF, Token Hashing, Order Number Generator
-        └── server.js           # Express Application Entrypoint
+        ├── middlewares/          # Helmet, Rate-Limiting, JWT Auth & RBAC (ADMIN/CUSTOMER)
+        ├── routes/               # /auth, /products, /orders, /admin, /webhooks
+        ├── utils/crypto.js       # scrypt KDF, SHA-256 Token Hashing & Order Generator
+        └── server.js             # Express API Entrypoint
 ```
 
 ---
@@ -54,16 +60,21 @@ Ummo-Ecommerce/
 
 ### 1. Frontend Setup
 ```bash
-cp .env.example .env
 npm install
 npm run dev
 ```
+- **Storefront**: `http://localhost:5173`
+- **Customer Dashboard**: `http://localhost:5173/profile` (or `/dashboard`)
+- **Admin Panel**: `http://localhost:5173/admin`
 
-### 2. Enterprise Backend Setup
+### 2. Enterprise Backend Setup (Optional PostgreSQL Mode)
 ```bash
 cd backend
 cp .env.example .env
 npm install
-npx prisma generate
+npm run prisma:generate
+npm run prisma:migrate
+npm run prisma:seed
 npm run dev
 ```
+- **API Healthcheck**: `http://localhost:5000/api/v1/health`

@@ -1,4 +1,4 @@
-import { Check } from "lucide-react";
+import { Check, Printer } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
 import { onAuthStateChanged } from "firebase/auth";
 import { onValue, ref } from "firebase/database";
@@ -45,7 +45,7 @@ export default function OrderComplete() {
         () => {
           setError("We could not load your order. Please try again.");
           setLoading(false);
-        },
+        }
       );
     });
 
@@ -74,23 +74,33 @@ export default function OrderComplete() {
     ? order.OrderItems
     : Object.values(order.OrderItems || {});
   const subtotal = Number(
-    order.subtotal ?? items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0),
+    order.subtotal ??
+      items.reduce(
+        (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
+        0
+      )
   );
+  const discount = Number(order.discount || 0);
+  const couponCode = order.couponCode || null;
   const shipping = Number(order.shipping || 0);
   const vat = Number(order.vat || 0);
-  const total = Number(order.total ?? subtotal + shipping + vat);
+  const total = Number(
+    order.total ?? Math.max(0, subtotal - discount) + shipping + vat
+  );
   const billing = order.billing || {};
+  const status = order.status || "PENDING";
   const formattedDate = order.date
     ? new Date(order.date).toLocaleString()
     : "Not available";
-  const paymentMethod = {
-    "bank-transfer": "Direct bank transfer",
-    check: "Check payments",
-    cod: "Cash on delivery",
-    paypal: "PayPal",
-  }[order.paymentMethod] || order.paymentMethod || "Not available";
-
-
+  const paymentMethod =
+    {
+      "bank-transfer": "Direct bank transfer",
+      check: "Check payments",
+      cod: "Cash on delivery",
+      paypal: "PayPal",
+    }[order.paymentMethod] ||
+    order.paymentMethod ||
+    "Not available";
 
   return (
     <div className="min-h-screen bg-white px-4 sm:px-6 py-12 sm:py-16">
@@ -104,11 +114,14 @@ export default function OrderComplete() {
 
         {/* Heading */}
         <div className="text-center mb-10">
+          <span className="inline-block text-[11px] font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-gray-100 text-gray-800 mb-3">
+            Status: {status}
+          </span>
           <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-1.5">
             Your order is completed!
           </h1>
           <p className="text-sm text-gray-500">
-            Thank you. Your order has been received.
+            Thank you. Your order has been received and can be tracked live in your dashboard.
           </p>
         </div>
 
@@ -124,12 +137,22 @@ export default function OrderComplete() {
 
         {/* Order details card */}
         <div className="border border-gray-200 rounded-md px-6 py-6">
-          <h2 className="text-xs font-semibold  text-primary mb-5">
-            ORDER DETAILS
-          </h2>
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-xs font-semibold text-primary">
+              ORDER DETAILS
+            </h2>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 cursor-pointer"
+            >
+              <Printer size={14} />
+              Print Invoice
+            </button>
+          </div>
 
           {/* Product header */}
-          <div className="flex justify-between text-xs font-semibold  text-primary border-b border-gray-200 pb-3 mb-3">
+          <div className="flex justify-between text-xs font-semibold text-primary border-b border-gray-200 pb-3 mb-3">
             <span>PRODUCT</span>
             <span>SUBTOTAL</span>
           </div>
@@ -141,14 +164,36 @@ export default function OrderComplete() {
                 key={item.id || `${item.title || item.name}-${index}`}
                 className="flex justify-between text-sm text-gray"
               >
-                <span>{item.title || item.name} x{item.quantity || 1}</span>
-                <span>{currency.format(Number(item.price || 0) * Number(item.quantity || 1))}</span>
+                <div>
+                  <span>
+                    {item.title || item.name} x{item.quantity || 1}
+                  </span>
+                  {(item.selectedSize || item.selectedColor) && (
+                    <span className="ml-2 text-xs text-gray-400">
+                      ({[item.selectedSize, item.selectedColor].filter(Boolean).join(" / ")})
+                    </span>
+                  )}
+                </div>
+                <span>
+                  {currency.format(
+                    Number(item.price || 0) * Number(item.quantity || 1)
+                  )}
+                </span>
               </div>
             ))}
           </div>
 
           <SummaryRow label="SUBTOTAL" value={currency.format(subtotal)} />
-          <SummaryRow label="SHIPPING" value={shipping ? currency.format(shipping) : "Free shipping"} />
+          {discount > 0 && (
+            <SummaryRow
+              label={`DISCOUNT${couponCode ? ` (${couponCode})` : ""}`}
+              value={`-${currency.format(discount)}`}
+            />
+          )}
+          <SummaryRow
+            label="SHIPPING"
+            value={shipping ? currency.format(shipping) : "Free shipping"}
+          />
           <SummaryRow label="VAT" value={currency.format(vat)} />
           <SummaryRow label="PAYMENT METHOD" value={paymentMethod} />
           <SummaryRow
@@ -160,25 +205,48 @@ export default function OrderComplete() {
         </div>
 
         <div className="mt-6 border border-gray-200 rounded-md px-6 py-6">
-          <h2 className="text-xs font-semibold text-primary mb-5">BILLING DETAILS</h2>
+          <h2 className="text-xs font-semibold text-primary mb-5">
+            BILLING DETAILS
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-gray-600">
             <OrderMeta label="Name" value={order.username || "Not provided"} />
             <OrderMeta label="Email" value={order.email || "Not provided"} />
             <OrderMeta label="Company" value={billing.company || "Not provided"} />
             <OrderMeta label="Phone" value={billing.phone || "Not provided"} />
-            <OrderMeta label="Address" value={[billing.streetAddress, billing.apartment].filter(Boolean).join(", ") || "Not provided"} />
-            <OrderMeta label="City / Province" value={[billing.city, billing.province].filter(Boolean).join(", ") || "Not provided"} />
+            <OrderMeta
+              label="Address"
+              value={
+                [billing.streetAddress, billing.apartment]
+                  .filter(Boolean)
+                  .join(", ") || "Not provided"
+              }
+            />
+            <OrderMeta
+              label="City / Province"
+              value={
+                [billing.city, billing.province].filter(Boolean).join(", ") ||
+                "Not provided"
+              }
+            />
             <OrderMeta label="Country" value={billing.country || "Not provided"} />
             <OrderMeta label="Postcode" value={billing.postcode || "Not provided"} />
-            {billing.orderNotes && <OrderMeta label="Order Notes" value={billing.orderNotes} />}
+            {billing.orderNotes && (
+              <OrderMeta label="Order Notes" value={billing.orderNotes} />
+            )}
           </div>
         </div>
 
-        {/* Optional: continue shopping button */}
-        <div className="flex justify-center mt-10">
+        {/* Action buttons */}
+        <div className="flex flex-wrap justify-center gap-4 mt-10">
+          <Link
+            to="/profile"
+            className="inline-block border border-gray-900 text-gray-900 text-sm font-semibold px-7 py-3.5 rounded-md hover:bg-gray-50 transition-colors"
+          >
+            TRACK IN DASHBOARD
+          </Link>
           <Link
             to="/shop"
-            className="inline-block bg-gray-900 text-white text-sm font-semibold  px-8 py-3.5 rounded-md hover:bg-gray-800 transition-colors"
+            className="inline-block bg-gray-900 text-white text-sm font-semibold px-8 py-3.5 rounded-md hover:bg-gray-800 transition-colors"
           >
             CONTINUE SHOPPING
           </Link>
@@ -200,18 +268,21 @@ function OrderMeta({ label, value }) {
 function SummaryRow({ label, value, bold, noBorder }) {
   return (
     <div
-      className={`flex justify-between items-center py-3 ${noBorder ? "" : "border-b border-gray-200"
-        }`}
+      className={`flex justify-between items-center py-3 ${
+        noBorder ? "" : "border-b border-gray-200"
+      }`}
     >
       <span
-        className={`text-xs font-semibold  text-primary  ${bold ? "font-semibold" : "font-normal"
-          }`}
+        className={`text-xs font-semibold text-primary ${
+          bold ? "font-semibold" : "font-normal"
+        }`}
       >
         {label}
       </span>
       <span
-        className={`text-gray ${bold ? "text-base font-semibold" : "text-sm"
-          }`}
+        className={`text-gray ${
+          bold ? "text-base font-semibold" : "text-sm"
+        }`}
       >
         {value}
       </span>

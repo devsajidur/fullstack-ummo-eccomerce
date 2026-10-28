@@ -8,7 +8,10 @@ import { auth, db } from "../../../firebase.config";
 import { push, ref, set } from "firebase/database";
 import toast, { Toaster } from "react-hot-toast";
 import { EmptyCart } from "../../slices/cartSlice";
-import { SHIPPING_OPTIONS } from "../cart/cartfirstTotalbox/CartFirstTotalBox";
+import {
+  SHIPPING_OPTIONS,
+  computeCouponDiscount,
+} from "../cart/cartfirstTotalbox/CartFirstTotalBox";
 import { submitBackendOrder } from "../../services/api";
 
 const COUNTRIES = [
@@ -37,6 +40,7 @@ const BillingInformation = () => {
   const shippingMethodId = useSelector(
     (state) => state.cart.shippingMethod || "free"
   );
+  const appliedCoupon = useSelector((state) => state.cart.appliedCoupon);
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
@@ -57,14 +61,35 @@ const BillingInformation = () => {
   const [paymentMethod, setPaymentMethod] = useState("bank-transfer");
   const [submitting, setSubmitting] = useState(false);
 
+  // Auto-fill from saved default address in Customer Dashboard
+  useEffect(() => {
+    try {
+      const savedAddr = localStorage.getItem("ummo_default_address");
+      if (savedAddr) {
+        const parsed = JSON.parse(savedAddr);
+        if (parsed.firstName) setfirstName(parsed.firstName);
+        if (parsed.lastName) setlastName(parsed.lastName);
+        if (parsed.country) setcountry(parsed.country);
+        if (parsed.streetAddress) setstreetAddress(parsed.streetAddress);
+        if (parsed.city) setcity(parsed.city);
+        if (parsed.province) setprovince(parsed.province);
+        if (parsed.postcode) setpostcode(parsed.postcode);
+        if (parsed.phone) setphone(parsed.phone);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const subtotal = ORDER_ITEMS.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0
   );
+  const discount = computeCouponDiscount(subtotal, appliedCoupon);
   const shippingCost =
     SHIPPING_OPTIONS.find((o) => o.id === shippingMethodId)?.price || 0;
   const vat = ORDER_ITEMS.length > 0 ? 19 : 0;
-  const total = subtotal + shippingCost + vat;
+  const total = Math.max(0, subtotal - discount + shippingCost + vat);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -104,6 +129,8 @@ const BillingInformation = () => {
         id: user.uid,
         OrderItems: ORDER_ITEMS,
         subtotal: Number(subtotal.toFixed(2)),
+        discount: Number(discount.toFixed(2)),
+        couponCode: appliedCoupon?.code || null,
         shipping: shippingCost,
         shippingMethod: shippingMethodId,
         vat,
@@ -124,7 +151,6 @@ const BillingInformation = () => {
         },
       };
 
-      // Sync with Enterprise Backend API if running
       try {
         await submitBackendOrder({
           userId: user.uid,
@@ -145,7 +171,6 @@ const BillingInformation = () => {
       const orderRef = push(ref(db, `orders/${user.uid}`));
       await set(orderRef, orderPayload);
 
-      // Clear cart ONLY after order is successfully stored
       dispatch(EmptyCart());
       toast.success("Order placed successfully!");
       navigate(`/ordercomplete?orderId=${orderRef.key}`);
@@ -194,7 +219,6 @@ const BillingInformation = () => {
           </h2>
 
           <div className="space-y-4">
-            {/* First / Last name */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <input
                 className="w-full border border-gray-300 rounded-md px-4 py-3 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900"
@@ -221,7 +245,6 @@ const BillingInformation = () => {
               onChange={(v) => setcompany(v.target.value)}
               className="w-full border border-gray-300 rounded-md px-4 py-3 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900"
             />
-            {/* Country select */}
             <div className="relative">
               <label className="block text-xs text-primary px-1 mb-1 absolute left-5 -top-1.5 z-10 bg-white">
                 Country / Region *
@@ -331,9 +354,9 @@ const BillingInformation = () => {
             </div>
 
             <div className="space-y-2.5 mb-3">
-              {ORDER_ITEMS.map((item) => (
+              {ORDER_ITEMS.map((item, idx) => (
                 <div
-                  key={item.id}
+                  key={`${item.id}-${idx}`}
                   className="flex justify-between text-sm text-gray-600 items-center"
                 >
                   <div className="flex items-center gap-3">
@@ -342,9 +365,14 @@ const BillingInformation = () => {
                       alt={item.title}
                       className="w-16 h-16 object-cover rounded-md"
                     />
-                    <span>
-                      {item.title} × {item.quantity}
-                    </span>
+                    <div>
+                      <span className="block">{item.title}</span>
+                      <span className="text-xs text-gray">
+                        Qty: {item.quantity}
+                        {item.size ? ` • Size: ${item.size}` : ""}
+                        {item.color ? ` • Color: ${item.color}` : ""}
+                      </span>
+                    </div>
                   </div>
                   <span>${(item.price * item.quantity).toFixed(2)}</span>
                 </div>
@@ -357,9 +385,20 @@ const BillingInformation = () => {
               bold
               border
             />
+            {discount > 0 && (
+              <SummaryRow
+                label={`DISCOUNT (${appliedCoupon?.code})`}
+                value={`-$${discount.toFixed(2)}`}
+                border
+              />
+            )}
             <SummaryRow
               label="SHIPPING"
-              value={shippingCost > 0 ? `$${shippingCost.toFixed(2)}` : "Free shipping"}
+              value={
+                shippingCost > 0
+                  ? `$${shippingCost.toFixed(2)}`
+                  : "Free shipping"
+              }
               border
             />
             <SummaryRow label="VAT" value={`$${vat}`} border />
@@ -370,6 +409,7 @@ const BillingInformation = () => {
               large
             />
           </div>
+
           {/* Payment methods */}
           <div className="border border-gray-200 p-6 mt-5">
             <div className="mt-6 space-y-4">
