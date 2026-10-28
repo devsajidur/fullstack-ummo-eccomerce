@@ -75,7 +75,7 @@ export default function CartFirstTotalBox() {
   }
 
   return (
-    <div className="font-jost md:w-105 w-full!">
+    <div className="font-jost w-full lg:w-105 shrink-0">
       <Toaster position="top-center" reverseOrder={false} />
 
       {/* Promo Coupon Box */}
@@ -99,7 +99,7 @@ export default function CartFirstTotalBox() {
       </form>
 
       <div className="border mb-5">
-        <div className="pt-9.5 px-10.25">
+        <div className="pt-7 sm:pt-9.5 px-4 sm:px-8 md:px-10.25">
           {/* Heading */}
           <h2 className="text-primary text-sm uppercase md:text-base font-medium pb-8">
             Cart totals

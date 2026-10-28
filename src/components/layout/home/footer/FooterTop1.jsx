@@ -9,7 +9,7 @@ const FooterTop1 = () => {
 
                     <Image src="./images/logo.png" alt="footerlogo" />
 
-                    <div className='w-70.5 '>
+                    <div className='max-w-70.5 w-full'>
 
                         <p className='text-[14px] font-normal leading-6 text-primary'>1418 River Drive, Suite 35 Cottonhall, CA 9622
                             United States</p>

@@ -22,7 +22,8 @@ const Starting = () => {
       }
     };
     window.addEventListener("ummo:banners-updated", handleUpdate);
-    return () => window.removeEventListener("ummo:banners-updated", handleUpdate);
+    return () =>
+      window.removeEventListener("ummo:banners-updated", handleUpdate);
   }, []);
 
   const leftCard = cards[0] || {
@@ -50,18 +51,18 @@ const Starting = () => {
   }
 
   return (
-    <section className="md:mt-25 mt-3.75">
-      <div className="container">
-        <div className="flex justify-between gap-y-3.75 flex-col md:flex-row md:gap-2">
+    <section className="md:mt-20 mt-6 px-3 sm:px-4 xl:px-0">
+      <div className="container mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
           <div
             style={{ backgroundColor: leftCard.bgColor || "#D6001C" }}
-            className="md:w-172.5 h-50 sm:h-77.5 md:h-99.5 flex justify-between lg:pl-12.5 pl-3 md:pr-2.5 items-end"
+            className="w-full min-h-[210px] sm:h-77.5 md:h-90 lg:h-99.5 flex justify-between lg:pl-10 pl-4 pr-3 items-end overflow-hidden rounded-sm"
           >
-            <div className="mb-12.75">
-              <h3 className="lg:text-[18px] whitespace-nowrap font-medium text-[12px] sm:text-base text-white uppercase">
+            <div className="mb-8 sm:mb-12.75 z-10">
+              <h3 className="lg:text-base font-medium text-xs sm:text-sm text-white uppercase">
                 {leftCard.subtitle}
               </h3>
-              <h2 className="lg:text-[26px] whitespace-nowrap text-[18px] sm:text-[22px] font-medium shrink-0 text-white lg:mb-3.75 lg:mt-2">
+              <h2 className="lg:text-[26px] text-lg sm:text-[22px] font-semibold text-white mb-2 mt-1">
                 {leftCard.title}
               </h2>
               <Link
@@ -69,32 +70,35 @@ const Starting = () => {
                 to={`/shop?category=${encodeURIComponent(
                   leftCard.categoryFilter || "womens-dresses"
                 )}`}
-                className='uppercase text-white text-[10px] lg:text-sm leading-6 after:content-[""] after:w-0 after:duration-300 hover:after:w-12.5 after:h-0.5 after:bg-white after:absolute after:bottom-0 relative after:left-0 font-medium'
+                className='uppercase text-white text-xs lg:text-sm leading-6 after:content-[""] after:w-0 after:duration-300 hover:after:w-12.5 after:h-0.5 after:bg-white after:absolute after:bottom-0 relative after:left-0 font-medium'
               >
                 {leftCard.ctaText || "SHOP NOW"}
               </Link>
             </div>
 
-            <div className="h-full flex items-center">
+            <div className="h-full flex items-end justify-end">
               <Image
-                className="xl:h-full w-full h-30 sm:h-60 md:h-50 lg:h-70 object-cover"
+                className="xl:h-full w-auto max-h-44 sm:max-h-64 md:max-h-72 lg:max-h-88 object-contain"
                 src={leftCard.image || "../images/startingImage1.png"}
                 alt={leftCard.title}
               />
             </div>
           </div>
 
-          <div className="md:w-172.5 h-77.5 md:h-99.5 relative">
+          <div
+            style={{ backgroundColor: rightCard.bgColor || "#f5f5f5" }}
+            className="w-full min-h-[210px] sm:h-77.5 md:h-90 lg:h-99.5 relative overflow-hidden rounded-sm"
+          >
             <Image
               className="w-full h-full object-cover"
               src={rightCard.image || "./images/startingImage2.png"}
               alt={rightCard.title}
             />
-            <div className="absolute bottom-12.75 lg:left-12.5 left-3">
-              <h3 className="lg:text-lg font-medium text-black uppercase">
+            <div className="absolute bottom-8 sm:bottom-12.75 lg:left-10 left-4 z-10">
+              <h3 className="lg:text-base text-xs sm:text-sm font-medium text-black uppercase">
                 {rightCard.subtitle}
               </h3>
-              <h2 className="text-[22px] lg:text-[26px] font-medium text-black lg:mb-3.75 lg:mt-2">
+              <h2 className="text-lg sm:text-[22px] lg:text-[26px] font-semibold text-black mb-2 mt-1">
                 {rightCard.title}
               </h2>
               <Link
@@ -102,7 +106,7 @@ const Starting = () => {
                 to={`/shop?category=${encodeURIComponent(
                   rightCard.categoryFilter || "mens-shoes"
                 )}`}
-                className='uppercase text-black text-[12px] lg:text-sm leading-6 after:content-[""] after:w-0 after:duration-300 hover:after:w-12.5 after:h-0.5 after:bg-black after:absolute after:bottom-0 relative after:left-0 font-medium'
+                className='uppercase text-black text-xs lg:text-sm leading-6 after:content-[""] after:w-0 after:duration-300 hover:after:w-12.5 after:h-0.5 after:bg-black after:absolute after:bottom-0 relative after:left-0 font-medium'
               >
                 {rightCard.ctaText || "SHOP NOW"}
               </Link>

@@ -1,18 +1,18 @@
-import React from 'react'
-import { Outlet } from 'react-router'
-import Header from './Header'
-import Footer from "../Footer"
-import ScrollToTop from './scrolltotop/ScrollToTop'
+import React from "react";
+import { Outlet } from "react-router";
+import Header from "./Header";
+import Footer from "../Footer";
+import ScrollToTop from "./scrolltotop/ScrollToTop";
 
 const Rootlayout = () => {
   return (
-    <main>
-      <ScrollToTop/>
+    <main className="overflow-x-hidden w-full">
+      <ScrollToTop />
       <Header />
-      <Outlet></Outlet>
+      <Outlet />
       <Footer />
     </main>
-  )
-}
+  );
+};
 
-export default Rootlayout
+export default Rootlayout;

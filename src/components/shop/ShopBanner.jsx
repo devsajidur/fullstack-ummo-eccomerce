@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import Image from "../layout/common/Image";
 import shopBg from "../../assets/images/shopBanner.png";
 import { setShopOptions } from "../../slices/productSlice";
+import { getStoredBanners } from "../../services/api";
 
 const SHOP_BANNER_TABS = [
   { id: "all", label: "ALL", category: "" },
@@ -20,6 +21,22 @@ const ShopBanner = () => {
   const activeCategory = useSelector(
     (state) => state.Products.options.category
   );
+  const [shopHeader, setShopHeader] = useState(
+    () => getStoredBanners().shopHeader || {}
+  );
+
+  useEffect(() => {
+    const handleUpdate = (e) => {
+      if (e.detail?.shopHeader) {
+        setShopHeader(e.detail.shopHeader);
+      } else {
+        setShopHeader(getStoredBanners().shopHeader || {});
+      }
+    };
+    window.addEventListener("ummo:banners-updated", handleUpdate);
+    return () =>
+      window.removeEventListener("ummo:banners-updated", handleUpdate);
+  }, []);
 
   const activeTab =
     SHOP_BANNER_TABS.find((t) => t.category === activeCategory) ||
@@ -30,24 +47,35 @@ const ShopBanner = () => {
   }
 
   return (
-    <div className="2xl:px-5 relative">
-      <Image className="w-full hidden lg:block" src={shopBg} alt="shopbg" />
+    <div className="2xl:px-5 relative overflow-hidden rounded-sm">
+      <Image
+        className="w-full min-h-[190px] sm:min-h-[240px] lg:min-h-[280px] max-h-[360px] object-cover"
+        src={shopHeader.image || shopBg}
+        alt={shopHeader.title || "Shop Banner"}
+      />
 
-      <div className="lg:absolute relative lg:top-2/4 lg:left-2/4 lg:-translate-2/4 text-center my-5 lg:mt-0 px-4">
-        <h2 className="font-bold text-[28px] lg:text-[52px] text-black uppercase tracking-tight">
-          {activeTab.label === "ALL" ? "ALL COLLECTIONS" : activeTab.label}
+      <div className="absolute inset-0 bg-white/60 lg:bg-white/35 flex flex-col items-center justify-center text-center px-3 sm:px-6">
+        <h2 className="font-bold text-2xl sm:text-4xl lg:text-[48px] text-black uppercase tracking-tight leading-tight">
+          {activeTab.label === "ALL"
+            ? shopHeader.title || "ALL COLLECTIONS"
+            : activeTab.label}
         </h2>
-        <ul className="flex justify-center flex-wrap gap-x-3 gap-y-2 mt-2">
+        {shopHeader.subtitle && (
+          <p className="text-xs sm:text-sm text-gray-700 max-w-xl mt-1 hidden xs:block">
+            {shopHeader.subtitle}
+          </p>
+        )}
+        <ul className="flex justify-center flex-wrap gap-1.5 sm:gap-x-3 sm:gap-y-2 mt-3 max-w-4xl">
           {SHOP_BANNER_TABS.map((item) => {
             const isSelected = activeCategory === item.category;
             return (
               <li
                 key={item.id}
                 onClick={() => handleSelectCategory(item)}
-                className={`font-bold text-[12px] lg:text-sm whitespace-nowrap cursor-pointer px-2.5 py-1 rounded transition-colors ${
+                className={`font-bold text-[10px] sm:text-xs lg:text-sm whitespace-nowrap cursor-pointer px-2 sm:px-2.5 py-1 rounded transition-colors ${
                   isSelected
                     ? "bg-black text-white"
-                    : "text-black hover:bg-black/10"
+                    : "text-black bg-white/70 sm:bg-transparent hover:bg-black/10"
                 }`}
               >
                 {item.label}

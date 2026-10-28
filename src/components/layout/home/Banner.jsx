@@ -8,7 +8,9 @@ import "swiper/css";
 import "swiper/css/pagination";
 
 const Banner = () => {
-  const [slides, setSlides] = useState(() => getStoredBanners().heroSlides || []);
+  const [slides, setSlides] = useState(
+    () => getStoredBanners().heroSlides || []
+  );
 
   useEffect(() => {
     const handleUpdate = (e) => {
@@ -19,11 +21,12 @@ const Banner = () => {
       }
     };
     window.addEventListener("ummo:banners-updated", handleUpdate);
-    return () => window.removeEventListener("ummo:banners-updated", handleUpdate);
+    return () =>
+      window.removeEventListener("ummo:banners-updated", handleUpdate);
   }, []);
 
   return (
-    <section className="flex relative">
+    <section className="flex relative overflow-hidden">
       <Swiper
         spaceBetween={0}
         pagination={{
@@ -40,36 +43,39 @@ const Banner = () => {
       >
         {slides.map((item, idx) => (
           <SwiperSlide key={item.id || idx}>
-            <div className="relative w-full">
+            <div
+              style={{ backgroundColor: item.bgColor || "#f5e6e0" }}
+              className="relative w-full"
+            >
               <Image
-                className="w-full max-h-[650px] object-cover"
+                className="w-full min-h-[240px] sm:min-h-[360px] md:min-h-[460px] max-h-[650px] object-cover"
                 src={item.image || "../images/banner.png"}
                 alt={item.title || "banner"}
               />
               {(item.title || item.tag) && (
-                <div className=" hidden sm:flex absolute inset-0 bg-gradient-to-r from-black/45 via-black/15 to-transparent items-center">
-                  <div className="container mx-auto px-6 md:px-12">
-                    <div className="max-w-xl text-white space-y-2 md:space-y-3">
+                <div className="flex absolute inset-0 bg-gradient-to-r from-black/55 via-black/25 to-transparent items-center">
+                  <div className="container mx-auto px-4 sm:px-6 md:px-12 pb-6 sm:pb-0">
+                    <div className="max-w-xs sm:max-w-xl text-white space-y-1.5 sm:space-y-2 md:space-y-3">
                       {item.tag && (
-                        <span className="inline-block text-[11px] md:text-xs font-bold uppercase tracking-widest bg-[#B9A16B] text-white px-3 py-1 rounded-sm">
+                        <span className="inline-block text-[10px] sm:text-[11px] md:text-xs font-bold uppercase tracking-widest bg-[#B9A16B] text-white px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-sm">
                           {item.tag}
                         </span>
                       )}
                       {item.title && (
-                        <h2 className="text-2xl md:text-4xl lg:text-5xl font-bold leading-tight drop-shadow">
+                        <h2 className="text-lg xs:text-xl sm:text-3xl md:text-4xl lg:text-5xl font-bold leading-tight drop-shadow">
                           {item.title}
                         </h2>
                       )}
                       {item.subtitle && (
-                        <p className="text-xs md:text-sm text-gray-100 max-w-md drop-shadow">
+                        <p className="text-[11px] sm:text-xs md:text-sm text-gray-100 max-w-md drop-shadow line-clamp-2">
                           {item.subtitle}
                         </p>
                       )}
                       {item.ctaText && (
-                        <div className="pt-2">
+                        <div className="pt-1 sm:pt-2">
                           <Link
                             to={item.ctaLink || "/shop"}
-                            className="inline-block bg-white text-gray-900 hover:bg-gray-900 hover:text-white transition-colors text-xs font-bold uppercase tracking-wider px-6 py-3 rounded-sm"
+                            className="inline-block bg-white text-gray-900 hover:bg-gray-900 hover:text-white transition-colors text-[10px] sm:text-xs font-bold uppercase tracking-wider px-4 py-2 sm:px-6 sm:py-3 rounded-sm"
                           >
                             {item.ctaText}
                           </Link>

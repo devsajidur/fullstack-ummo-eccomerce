@@ -21,10 +21,14 @@ const CartProduct = (props) => {
 
   return (
     <>
-      {/* Desktop cart row */}
+      {/* Desktop / Tablet cart row */}
       <div className="sm:flex lg:gap-15 gap-7 hidden w-full lg:w-150 xl:w-230 items-center py-7.5 border-b border-[#E4E4E4]">
         <div className="flex items-center gap-4 xl:gap-7.5">
-          <Image className="h-30 w-30 object-contain" src={props.image} alt={props.title} />
+          <Image
+            className="h-30 w-30 object-contain shrink-0"
+            src={props.image}
+            alt={props.title}
+          />
           <div className="xl:w-70">
             <h2 className="text-[16px] font-normal text-primary">
               {props.title}
@@ -66,7 +70,8 @@ const CartProduct = (props) => {
           <h2 className="xl:ml-15">
             <button
               type="button"
-              className="cursor-pointer"
+              aria-label="Remove item"
+              className="cursor-pointer p-1"
               onClick={handleRemove}
             >
               <svg
@@ -90,54 +95,29 @@ const CartProduct = (props) => {
         </div>
       </div>
 
-      {/* Mobile responsive cart row */}
-      <div className="flex sm:hidden relative gap-3 w-full items-center py-7 border-b border-[#E4E4E4]">
-        <div className="w-2/4 mxs:w-3/4 mxs:flex mxs:items-center">
-          <Image className="h-24 w-24 object-contain" src={props.image} alt={props.title} />
-          <div>
-            <h2 className="sm:text-[16px] text-[14px] font-normal text-primary w-full">
-              {props.title}
-            </h2>
-            {(props.size || props.color) && (
-              <p className="text-[11px] text-gray-400">
-                {props.size || "M"} / {props.color || "Default"}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="w-2/4">
-          <h3 className="text-[16px] font-normal text-gray">
-            ${Number(props.price || 0).toFixed(2)}
-          </h3>
-          <div className="flex items-center gap-5 mt-5">
-            <div className="px-2 w-15 flex justify-between items-center border-2 border-[#E4E4E4]">
-              <button
-                type="button"
-                className="cursor-pointer text-[16px] text-gray font-normal"
-                onClick={handleDecrease}
-              >
-                -
-              </button>
-              <span className="text-[16px] text-gray font-normal">
-                {props.quantity}
-              </span>
-              <button
-                type="button"
-                className="cursor-pointer text-[16px] text-gray font-normal"
-                onClick={handleIncrease}
-              >
-                +
-              </button>
+      {/* Mobile responsive cart row (< 640px) */}
+      <div className="flex sm:hidden gap-3.5 w-full items-start py-5 border-b border-[#E4E4E4]">
+        <Image
+          className="h-20 w-20 object-contain bg-gray-50 rounded shrink-0"
+          src={props.image}
+          alt={props.title}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="text-sm font-medium text-primary truncate">
+                {props.title}
+              </h2>
+              {(props.size || props.color) && (
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Size: {props.size || "M"} • Color: {props.color || "Default"}
+                </p>
+              )}
             </div>
-            <h3 className="text-[16px] font-medium text-primary">
-              ${(Number(props.quantity || 1) * Number(props.price || 0)).toFixed(2)}
-            </h3>
-          </div>
-
-          <h2 className="absolute right-0 top-10">
             <button
               type="button"
-              className="cursor-pointer"
+              aria-label="Remove item"
+              className="cursor-pointer p-1.5 text-gray-400 hover:text-red-500 shrink-0"
               onClick={handleRemove}
             >
               <svg
@@ -149,15 +129,44 @@ const CartProduct = (props) => {
               >
                 <path
                   d="M0.259435 8.85506L9.11449 0L10 0.885506L1.14494 9.74056L0.259435 8.85506Z"
-                  fill="#767676"
+                  fill="currentColor"
                 />
                 <path
                   d="M0.885506 0.0889838L9.74057 8.94404L8.85506 9.82955L0 0.97449L0.885506 0.0889838Z"
-                  fill="#767676"
+                  fill="currentColor"
                 />
               </svg>
             </button>
-          </h2>
+          </div>
+
+          <p className="text-xs text-gray mt-1">
+            Unit: ${Number(props.price || 0).toFixed(2)}
+          </p>
+
+          <div className="flex items-center justify-between mt-3">
+            <div className="px-2.5 h-8 w-22 flex justify-between items-center border-2 border-[#E4E4E4]">
+              <button
+                type="button"
+                className="cursor-pointer text-sm text-gray font-medium px-1"
+                onClick={handleDecrease}
+              >
+                -
+              </button>
+              <span className="text-sm text-primary font-medium">
+                {props.quantity}
+              </span>
+              <button
+                type="button"
+                className="cursor-pointer text-sm text-gray font-medium px-1"
+                onClick={handleIncrease}
+              >
+                +
+              </button>
+            </div>
+            <h3 className="text-sm font-semibold text-primary">
+              ${(Number(props.quantity || 1) * Number(props.price || 0)).toFixed(2)}
+            </h3>
+          </div>
         </div>
       </div>
     </>

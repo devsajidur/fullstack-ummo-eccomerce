@@ -7,7 +7,7 @@ const FooterBottom = () => {
 
   return (
     <>
-      <div className="container hidden md:flex justify-between items-center pt-8.5 pb-7 px-2">
+      <div className="container hidden md:flex justify-between items-center pt-8.5 pb-7 px-4 xl:px-2">
         <h6 className="text-primary text-[14px] font-normal leading-6">
           ©2026 Uomo
         </h6>
@@ -27,13 +27,13 @@ const FooterBottom = () => {
         </div>
       </div>
 
-      {/* Mobile view */}
-      <div className="container py-7 md:hidden px-3.75 relative">
+      {/* Mobile view with bottom clearance for fixed mobile nav */}
+      <div className="container pt-6 pb-20 md:hidden px-4 relative">
         <h6 className="text-primary text-[14px] font-normal leading-6">
           ©2026 Uomo
         </h6>
 
-        <div className="flex items-center gap-x-6.75">
+        <div className="flex items-center gap-x-5 mt-2">
           <h6 className="text-gray text-[14px] font-normal leading-6">
             Language
           </h6>
@@ -42,7 +42,7 @@ const FooterBottom = () => {
           </h6>
         </div>
 
-        <div className="flex items-center gap-x-7.75 mt-4">
+        <div className="flex items-center gap-x-6 mt-2">
           <h6 className="text-gray text-[14px] font-normal leading-6">
             Currency
           </h6>
@@ -54,7 +54,7 @@ const FooterBottom = () => {
           type="button"
           onClick={scrollToTop}
           aria-label="Scroll to top"
-          className="absolute bottom-0 right-0 p-4 bg-[#EEEEEE] cursor-pointer"
+          className="absolute bottom-16 right-4 p-3.5 bg-[#EEEEEE] rounded-full shadow cursor-pointer"
         >
           <svg
             width="14"

@@ -15,7 +15,13 @@ import {
   fetchCatalogProducts,
   initStoreConfigSync,
 } from "../../services/api";
-import { Heart, Search, ShoppingBag, User as UserIcon, ShieldCheck } from "lucide-react";
+import {
+  Heart,
+  Search,
+  ShoppingBag,
+  User as UserIcon,
+  ShieldCheck,
+} from "lucide-react";
 
 const Header = () => {
   const navigate = useNavigate();
@@ -56,7 +62,8 @@ const Header = () => {
         (item) =>
           item.title?.toLowerCase().includes(q) ||
           item.category?.toLowerCase().includes(q) ||
-          item.brand?.toLowerCase().includes(q)
+          item.brand?.toLowerCase().includes(q) ||
+          String(item.sku || "").toLowerCase().includes(q)
       )
       .slice(0, 6);
   }, [Alldata, Input]);
@@ -86,7 +93,7 @@ const Header = () => {
   }, []);
 
   return (
-    <header className="md:pt-7.25 md:pb-7 py-4 md:px-2.5 relative z-40 bg-white">
+    <header className="md:pt-7.25 md:pb-7 py-4 md:px-2.5 relative z-40 bg-white border-b border-gray-100 md:border-none">
       <nav>
         <div className="container hidden md:block">
           <div className="flex items-center">
@@ -128,7 +135,9 @@ const Header = () => {
                       alt="user avatar"
                     />
                   ) : (
-                    <span>{(User.displayName || User.email || "U")[0].toUpperCase()}</span>
+                    <span>
+                      {(User.displayName || User.email || "U")[0].toUpperCase()}
+                    </span>
                   )}
                 </button>
               ) : (
@@ -185,13 +194,21 @@ const Header = () => {
         </div>
 
         {/* Mobile Responsive Header */}
-        <div className="flex justify-between items-center mx-4 md:hidden">
+        <div className="flex justify-between items-center px-4 md:hidden">
           {menuActive ? (
-            <button type="button" onClick={() => setmenuActive(false)}>
+            <button
+              type="button"
+              aria-label="Close Menu"
+              onClick={() => setmenuActive(false)}
+            >
               <IoCloseSharp size={25} />
             </button>
           ) : (
-            <button type="button" onClick={() => setmenuActive(true)}>
+            <button
+              type="button"
+              aria-label="Open Menu"
+              onClick={() => setmenuActive(true)}
+            >
               <svg
                 width="25"
                 height="18"
@@ -206,91 +223,139 @@ const Header = () => {
             </button>
           )}
 
-          <ul
-            className={`z-50 border-t-2 border-[#bebebe] absolute duration-300 w-full px-4 ${
-              menuActive ? "left-0" : "-left-full"
-            } pt-5 h-screen bg-white top-13.5 overflow-y-auto pb-24`}
-          >
-            <div>
-              <form
-                onSubmit={handleMobileSearchSubmit}
-                className="flex justify-between items-center w-full relative"
-                onClick={() => setsearchOpen(true)}
-              >
-                <input
-                  value={Input}
-                  onChange={(e) => setInput(e.target.value)}
-                  type="text"
-                  placeholder="Search products, brands, categories..."
-                  className="w-full border-2 border-[#E4E4E4] h-10 px-3.5 mb-4 text-sm"
-                />
-                <button type="submit">
-                  <IoSearchOutline
-                    size={22}
-                    className="absolute right-3 top-2.5 text-gray-600"
+          {menuActive && (
+            <ul className="z-50 border-t border-gray-200 fixed left-0 right-0 top-14 bottom-0 px-4 pt-5 bg-white overflow-y-auto pb-28 shadow-xl">
+              <div>
+                <form
+                  onSubmit={handleMobileSearchSubmit}
+                  className="flex justify-between items-center w-full relative"
+                  onClick={() => setsearchOpen(true)}
+                >
+                  <input
+                    value={Input}
+                    onChange={(e) => setInput(e.target.value)}
+                    type="text"
+                    placeholder="Search products, brands, SKU..."
+                    className="w-full border-2 border-[#E4E4E4] h-10 pl-3.5 pr-10 mb-4 text-sm outline-none focus:border-primary"
                   />
-                </button>
-              </form>
+                  <button type="submit" aria-label="Search">
+                    <IoSearchOutline
+                      size={20}
+                      className="absolute right-3 top-2.5 text-gray-600"
+                    />
+                  </button>
+                </form>
 
-              {searchOpen && Input.trim() !== "" && (
-                <div className="mb-4 border border-gray-200 rounded-md p-2 bg-gray-50 space-y-2">
-                  {mobileFilteredProducts.length === 0 ? (
-                    <p className="text-xs text-gray-500 p-2">No results found</p>
-                  ) : (
-                    mobileFilteredProducts.map((product) => (
-                      <div
-                        key={product.id}
-                        onClick={() => handleMobileSelectProduct(product)}
-                        className="flex items-center gap-3 p-1.5 bg-white rounded border border-gray-100 cursor-pointer"
-                      >
-                        <img
-                          src={product.thumbnail}
-                          alt={product.title}
-                          className="w-10 h-10 object-contain rounded"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-gray-900 truncate">
-                            {product.title}
-                          </p>
-                          <p className="text-[11px] text-gray-500">
-                            ${Number(product.price || 0).toFixed(2)}
-                          </p>
+                {searchOpen && Input.trim() !== "" && (
+                  <div className="mb-4 border border-gray-200 rounded-md p-2 bg-gray-50 space-y-2">
+                    {mobileFilteredProducts.length === 0 ? (
+                      <p className="text-xs text-gray-500 p-2">
+                        No results found
+                      </p>
+                    ) : (
+                      mobileFilteredProducts.map((product) => (
+                        <div
+                          key={product.id}
+                          onClick={() => handleMobileSelectProduct(product)}
+                          className="flex items-center gap-3 p-1.5 bg-white rounded border border-gray-100 cursor-pointer"
+                        >
+                          <img
+                            src={product.thumbnail}
+                            alt={product.title}
+                            className="w-10 h-10 object-contain rounded shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold text-gray-900 truncate">
+                              {product.title}
+                            </p>
+                            <p className="text-[11px] text-gray-500">
+                              ${Number(product.price || 0).toFixed(2)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
 
-            {navData?.map((item) => (
-              <Link
-                key={item.id}
-                to={item.path}
-                onClick={() => setmenuActive(false)}
-              >
-                <li className="text-primary leading-10 cursor-pointer text-sm font-medium flex items-center justify-between border-b border-gray-100">
-                  {item?.title}
+              {navData?.map((item) => (
+                <Link
+                  key={item.id}
+                  to={item.path}
+                  onClick={() => setmenuActive(false)}
+                >
+                  <li className="text-primary leading-11 cursor-pointer text-sm font-medium flex items-center justify-between border-b border-gray-100">
+                    {item?.title}
+                    <FaAngleRight />
+                  </li>
+                </Link>
+              ))}
+
+              {/* Quick Account & Admin Links on Mobile */}
+              <div className="mt-6 pt-4 border-t border-gray-200 space-y-2.5">
+                <Link
+                  to={User ? "/profile" : "/login"}
+                  onClick={() => setmenuActive(false)}
+                  className="flex items-center justify-between py-2 text-sm font-medium text-primary"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <UserIcon size={17} />
+                    {User ? "MY ACCOUNT & ORDERS" : "LOGIN / REGISTER"}
+                  </span>
                   <FaAngleRight />
-                </li>
-              </Link>
-            ))}
-          </ul>
+                </Link>
+                <Link
+                  to="/wishlist"
+                  onClick={() => setmenuActive(false)}
+                  className="flex items-center justify-between py-2 text-sm font-medium text-primary"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <Heart size={17} />
+                    MY WISHLIST ({WishProduct.length})
+                  </span>
+                  <FaAngleRight />
+                </Link>
+                <Link
+                  to="/admin"
+                  onClick={() => setmenuActive(false)}
+                  className="flex items-center justify-between py-2 text-sm font-semibold text-emerald-700"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <ShieldCheck size={17} />
+                    ADMIN CONTROL PANEL
+                  </span>
+                  <FaAngleRight />
+                </Link>
+              </div>
+            </ul>
+          )}
 
           <Link to="/">
             <Image src="../images/logo.png" alt="logo" />
           </Link>
 
-          <button
-            type="button"
-            className="relative"
-            onClick={() => navigate("/cart")}
-          >
-            <ShoppingBag size={20} />
-            <span className="block size-4 bg-[#b9a16b] rounded-full text-[10px] font-medium absolute -right-2 -bottom-2 text-white">
-              {CartProduct.length}
-            </span>
-          </button>
+          <div className="flex items-center gap-3.5">
+            <button
+              type="button"
+              aria-label="Admin Panel"
+              onClick={() => navigate("/admin")}
+              className="text-gray-600"
+            >
+              <ShieldCheck size={19} />
+            </button>
+            <button
+              type="button"
+              aria-label="Shopping Cart"
+              className="relative"
+              onClick={() => navigate("/cart")}
+            >
+              <ShoppingBag size={20} />
+              <span className="block size-4 bg-[#b9a16b] rounded-full text-[10px] font-medium absolute -right-2 -bottom-2 text-white">
+                {CartProduct.length}
+              </span>
+            </button>
+          </div>
         </div>
       </nav>
     </header>

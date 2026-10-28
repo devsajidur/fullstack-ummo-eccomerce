@@ -21,10 +21,10 @@ const LimitedEdition = () => {
   }, []);
 
   return (
-    <section className="md:mt-22.75 mt-9.25 px-2 xl:px-0">
-      <div className="container">
+    <section className="md:mt-22.75 mt-9.25 px-3 sm:px-4 xl:px-0">
+      <div className="container mx-auto">
         <Title name="LIMITED" namebold="EDITION" />
-        <div className="relative">
+        <div className="relative mt-4 sm:mt-6">
           <Swiper
             id="my-class"
             modules={[Pagination, Navigation]}
@@ -34,20 +34,20 @@ const LimitedEdition = () => {
             }}
             pagination={{ clickable: true }}
             breakpoints={{
-              300: {
+              0: {
                 slidesPerView: 2,
-                spaceBetween: 30,
-                allowTouchMove: false,
+                spaceBetween: 12,
+                allowTouchMove: true,
               },
               600: {
                 slidesPerView: 3,
-                spaceBetween: 30,
-                allowTouchMove: false,
+                spaceBetween: 20,
+                allowTouchMove: true,
               },
-              1000: {
+              1024: {
                 slidesPerView: 4,
                 spaceBetween: 30,
-                allowTouchMove: false,
+                allowTouchMove: true,
               },
             }}
             className="mySwiper"
@@ -59,9 +59,13 @@ const LimitedEdition = () => {
             ))}
           </Swiper>
           <div>
-            <button className="z-50 bg-white md:bg-transparent rounded-full p-3 md:p-0 custom-prev absolute top-2/4 translate-y-[-50%] left-0 2xl:-left-6 cursor-pointer">
+            <button
+              type="button"
+              aria-label="Previous slide"
+              className="z-30 bg-white/90 md:bg-transparent shadow md:shadow-none rounded-full p-2.5 md:p-0 custom-prev absolute top-2/4 -translate-y-1/2 left-0 2xl:-left-6 cursor-pointer"
+            >
               <svg
-                className="md:w-6.25 md:h-6.25 w-4"
+                className="md:w-6.25 md:h-6.25 w-4 h-4"
                 viewBox="0 0 25 25"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
@@ -72,9 +76,13 @@ const LimitedEdition = () => {
                 />
               </svg>
             </button>
-            <button className="z-50 p-3 bg-white md:bg-transparent md:p-0 rounded-full custom-next absolute top-2/4 translate-y-[-50%] right-0 2xl:-right-6 cursor-pointer">
+            <button
+              type="button"
+              aria-label="Next slide"
+              className="z-30 p-2.5 bg-white/90 md:bg-transparent shadow md:shadow-none md:p-0 rounded-full custom-next absolute top-2/4 -translate-y-1/2 right-0 2xl:-right-6 cursor-pointer"
+            >
               <svg
-                className="md:w-6.25 md:h-6.25 w-4"
+                className="md:w-6.25 md:h-6.25 w-4 h-4"
                 viewBox="0 0 25 25"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"

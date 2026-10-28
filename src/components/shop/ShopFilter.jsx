@@ -85,7 +85,7 @@ export default function ShopFilter({ setCurrentPage = () => {} }) {
     options.maxPrice !== null;
 
   return (
-    <div className="font-jost w-45 lg:w-60 xl:w-80 xl:px-1 text-primary -mt-3 xl:-mt-2 px-2 pt-2 xl:pt-0">
+    <div className="font-jost w-64 sm:w-72 lg:w-60 xl:w-80 xl:px-1 text-primary -mt-3 xl:-mt-2 px-2 pt-2 xl:pt-0">
       {/* Active Filter Reset Banner */}
       {hasActiveFilters && (
         <div className="mb-4 p-3 bg-gray-100 rounded-md flex items-center justify-between">
