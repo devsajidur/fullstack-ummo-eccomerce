@@ -64,6 +64,9 @@ export default function ProductDetails() {
   useEffect(() => {
     setActiveImageIdx(0);
     setQuantity(1);
+  }, [targetId]);
+
+  useEffect(() => {
     if (
       !detailsProduct?.id ||
       (productIdParam && String(detailsProduct.id) !== String(productIdParam))

@@ -145,12 +145,30 @@ export function onUserChanged(callback) {
   const unsubFirebase = onAuthStateChanged(auth, (u) => {
     firebaseUser = u;
     if (u) {
-      syncUserToMongo({
+      const normalized = {
         uid: u.uid,
         email: u.email || "",
         username: u.displayName || u.email?.split("@")[0] || "Customer",
         displayName: u.displayName || u.email?.split("@")[0] || "Customer",
-        profile_picture: u.photoURL || DEFAULT_AVATAR,
+        photoURL: u.photoURL || DEFAULT_AVATAR,
+        role:
+          u.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase()
+            ? "ADMIN"
+            : "CUSTOMER",
+      };
+      try {
+        if (!localStorage.getItem(ACTIVE_USER_KEY)) {
+          localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(normalized));
+        }
+      } catch {
+        // ignore
+      }
+      syncUserToMongo({
+        uid: normalized.uid,
+        email: normalized.email,
+        username: normalized.username,
+        displayName: normalized.displayName,
+        profile_picture: normalized.photoURL,
         lastLoginAt: new Date().toISOString(),
       }).catch(() => {});
     }
@@ -189,8 +207,9 @@ export function getLocalOrders(userUid = null) {
 }
 
 export function saveLocalOrder(order) {
+  const targetId = String(order.orderId || order.id);
   const existing = getLocalOrders().filter(
-    (o) => String(o.orderId) !== String(order.orderId)
+    (o) => String(o.orderId || o.id) !== targetId
   );
   const next = [order, ...existing];
   try {
@@ -206,7 +225,7 @@ export function saveLocalOrder(order) {
 
 export function updateLocalOrderStatus(orderId, newStatus) {
   const next = getLocalOrders().map((o) =>
-    String(o.orderId) === String(orderId)
+    String(o.orderId || o.id) === String(orderId)
       ? { ...o, status: newStatus, updatedAt: new Date().toISOString() }
       : o
   );

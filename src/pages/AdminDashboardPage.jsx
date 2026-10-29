@@ -152,12 +152,7 @@ export default function AdminDashboardPage() {
           if (!initialConfigApplied && data.storeConfig) {
             initialConfigApplied = true;
             applyRemoteStoreConfig(data.storeConfig);
-            if (
-              Array.isArray(data.storeConfig.coupons) &&
-              data.storeConfig.coupons.length
-            ) {
-              setCoupons(data.storeConfig.coupons);
-            }
+            setCoupons(getStoredCoupons());
             fetchCatalogProducts(200).then((list) => {
               if (!active) return;
               setProducts(list);

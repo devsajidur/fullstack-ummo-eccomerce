@@ -46,11 +46,19 @@ export default function CartFirstTotalBox() {
 
   const [couponInput, setCouponInput] = useState("");
   const [cartRules, setCartRules] = useState(() => getStoredCartRules());
+  const [availableCoupons, setAvailableCoupons] = useState(() =>
+    getStoredCoupons()
+  );
 
   useEffect(() => {
     const unsub = initCartRulesSync((rules) => setCartRules(rules));
+    const handleCouponsUpdated = () => {
+      setAvailableCoupons(getStoredCoupons());
+    };
+    window.addEventListener("ummo:coupons-updated", handleCouponsUpdated);
     return () => {
       if (typeof unsub === "function") unsub();
+      window.removeEventListener("ummo:coupons-updated", handleCouponsUpdated);
     };
   }, []);
 
@@ -96,13 +104,15 @@ export default function CartFirstTotalBox() {
     )
   );
 
-  function handleApplyCoupon(e) {
-    e.preventDefault();
-    const code = couponInput.trim().toUpperCase();
+  function applyCouponByCode(rawCode) {
+    const code = String(rawCode || "").trim().toUpperCase();
     if (!code) return;
 
     const allCoupons = getStoredCoupons();
-    const matched = allCoupons.find((c) => c.code === code && c.active);
+    setAvailableCoupons(allCoupons);
+    const matched = allCoupons.find(
+      (c) => String(c.code || "").toUpperCase() === code && c.active !== false
+    );
     if (!matched) {
       toast.error("Invalid or expired coupon code.");
       return;
@@ -117,6 +127,11 @@ export default function CartFirstTotalBox() {
     dispatch(applyCoupon(matched));
     setCouponInput("");
     toast.success(`Coupon ${code} applied!`);
+  }
+
+  function handleApplyCoupon(e) {
+    e.preventDefault();
+    applyCouponByCode(couponInput);
   }
 
   function handleCheckout() {
@@ -198,7 +213,7 @@ export default function CartFirstTotalBox() {
       {/* 3. Promo Coupon Box */}
       <form
         onSubmit={handleApplyCoupon}
-        className="flex border border-primary/30 mb-4"
+        className="flex border border-primary/30 mb-2"
       >
         <input
           type="text"
@@ -214,6 +229,31 @@ export default function CartFirstTotalBox() {
           Apply
         </button>
       </form>
+
+      {availableCoupons.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="text-gray-500 font-medium">Available:</span>
+          {availableCoupons
+            .filter((c) => c.active !== false)
+            .slice(0, 6)
+            .map((cp) => (
+              <button
+                key={cp.code}
+                type="button"
+                onClick={() => applyCouponByCode(cp.code)}
+                className={`px-2 py-0.5 rounded border font-mono font-bold cursor-pointer transition-colors ${
+                  appliedCoupon?.code === cp.code
+                    ? "bg-emerald-700 text-white border-emerald-700"
+                    : "bg-gray-50 hover:bg-gray-100 text-gray-800 border-gray-300"
+                }`}
+                title={cp.description || `Min order $${cp.minOrder || 0}`}
+              >
+                {cp.code} (
+                {cp.type === "percentage" ? `${cp.value}%` : `$${cp.value}`} OFF)
+              </button>
+            ))}
+        </div>
+      )}
 
       {/* 4. Luxury Gift Packaging Option */}
       <div className="mb-4 p-3.5 border border-gray-200 rounded-lg bg-white text-xs">

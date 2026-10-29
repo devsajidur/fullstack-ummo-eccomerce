@@ -15,6 +15,7 @@ import {
   Tag,
 } from "lucide-react";
 import {
+  applyRemoteStoreConfig,
   fetchStoreDataFromMongo,
   fetchUserAddressesFromMongo,
   getStoredCoupons,
@@ -57,7 +58,12 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
+    let pollTimer = null;
     const unsubAuth = onUserChanged((currentUser) => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
       if (!currentUser) {
         setUser(null);
         setLoading(false);
@@ -87,54 +93,61 @@ export default function ProfilePage() {
       }
 
       // Fetch user profile and orders from MongoDB
-      fetchStoreDataFromMongo()
-        .then((store) => {
-          if (
-            Array.isArray(store?.storeConfig?.coupons) &&
-            store.storeConfig.coupons.length
-          ) {
-            setCoupons(store.storeConfig.coupons);
-          }
-          const allUsers = Array.isArray(store?.users) ? store.users : [];
-          const foundUser = allUsers.find(
-            (u) => String(u.uid) === String(currentUser.uid)
-          );
-          if (foundUser) {
-            setProfileForm({
-              username: foundUser.username || currentUser.displayName || "",
-              phone: foundUser.phone || "",
-              bio: foundUser.bio || "",
-            });
-          }
+      const loadCustomerStoreData = (isInitial = false) => {
+        fetchStoreDataFromMongo()
+          .then((store) => {
+            if (store?.storeConfig) {
+              applyRemoteStoreConfig(store.storeConfig);
+              setCoupons(getStoredCoupons());
+            }
+            if (isInitial) {
+              const allUsers = Array.isArray(store?.users) ? store.users : [];
+              const foundUser = allUsers.find(
+                (u) => String(u.uid) === String(currentUser.uid)
+              );
+              if (foundUser) {
+                setProfileForm({
+                  username:
+                    foundUser.username || currentUser.displayName || "",
+                  phone: foundUser.phone || "",
+                  bio: foundUser.bio || "",
+                });
+              }
+            }
 
-          const allOrders = Array.isArray(store?.orders) ? store.orders : [];
-          const userMongoOrders = allOrders.filter(
-            (o) =>
-              String(o.userUid || o.id) === String(currentUser.uid) ||
-              (currentUser.email &&
-                String(o.email || "").toLowerCase() ===
-                  String(currentUser.email).toLowerCase())
-          );
-          const localList = getLocalOrders(currentUser.uid);
-          const mongoIds = new Set(
-            userMongoOrders.map((o) => String(o.orderId || o.id))
-          );
-          const merged = [
-            ...userMongoOrders,
-            ...localList.filter(
-              (o) => !mongoIds.has(String(o.orderId || o.id))
-            ),
-          ].sort(
-            (a, b) =>
-              new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
-          );
-          setOrders(merged);
-          setLoading(false);
-        })
-        .catch(() => {
-          setOrders(getLocalOrders(currentUser.uid));
-          setLoading(false);
-        });
+            const allOrders = Array.isArray(store?.orders) ? store.orders : [];
+            const userMongoOrders = allOrders.filter(
+              (o) =>
+                String(o.userUid || o.id) === String(currentUser.uid) ||
+                (currentUser.email &&
+                  String(o.email || "").toLowerCase() ===
+                    String(currentUser.email).toLowerCase())
+            );
+            const localList = getLocalOrders(currentUser.uid);
+            const mongoIds = new Set(
+              userMongoOrders.map((o) => String(o.orderId || o.id))
+            );
+            const merged = [
+              ...userMongoOrders,
+              ...localList.filter(
+                (o) => !mongoIds.has(String(o.orderId || o.id))
+              ),
+            ].sort(
+              (a, b) =>
+                new Date(b.date || 0).getTime() -
+                new Date(a.date || 0).getTime()
+            );
+            setOrders(merged);
+            setLoading(false);
+          })
+          .catch(() => {
+            setOrders(getLocalOrders(currentUser.uid));
+            setLoading(false);
+          });
+      };
+
+      loadCustomerStoreData(true);
+      pollTimer = setInterval(() => loadCustomerStoreData(false), 15000);
 
       fetchUserAddressesFromMongo(currentUser.uid)
         .then((list) => {
@@ -149,6 +162,7 @@ export default function ProfilePage() {
     });
 
     return () => {
+      if (pollTimer) clearInterval(pollTimer);
       unsubAuth();
     };
   }, []);

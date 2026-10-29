@@ -1,4 +1,8 @@
-import { apiClient, initStoreConfigSync } from "../services/api";
+import {
+  apiClient,
+  initStoreConfigSync,
+  markLocalConfigWrite,
+} from "../services/api";
 import { getProductDiscountState } from "./discountTimer";
 
 const CART_RULES_STORAGE_KEY = "ummo_admin_cart_rules_v2";
@@ -26,6 +30,7 @@ export function getStoredCartRules() {
 }
 
 export async function saveStoredCartRules(rules) {
+  markLocalConfigWrite();
   const merged = {
     ...DEFAULT_CART_RULES,
     ...rules,

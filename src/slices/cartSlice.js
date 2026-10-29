@@ -26,7 +26,36 @@ const loadCarts = () => {
     if (!saved) return [];
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeCartItem).filter(Boolean);
+    const merged = [];
+    for (const rawItem of parsed) {
+      const norm = normalizeCartItem(rawItem);
+      if (!norm) continue;
+      const existing = merged.find(
+        (m) =>
+          String(m.id) === String(norm.id) &&
+          m.size === norm.size &&
+          m.color === norm.color
+      );
+      if (existing) {
+        existing.quantity += norm.quantity;
+        if (norm.price !== undefined) existing.price = Number(norm.price);
+        if (norm.originalPrice !== undefined) {
+          existing.originalPrice = Number(norm.originalPrice);
+        }
+        if (norm.discountPercent !== undefined) {
+          existing.discountPercent = Number(norm.discountPercent);
+        }
+        if (norm.discountEndTime !== undefined) {
+          existing.discountEndTime = norm.discountEndTime;
+        }
+        if (norm.freeGift !== undefined) {
+          existing.freeGift = norm.freeGift;
+        }
+      } else {
+        merged.push(norm);
+      }
+    }
+    return merged;
   } catch {
     return [];
   }

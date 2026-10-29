@@ -240,10 +240,18 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
   let validatedCouponCode = null;
   const submittedCode = asSafeId(body.couponCode, 32).toUpperCase();
   if (submittedCode) {
-    const availableCoupons =
-      Array.isArray(state.storeConfig?.coupons) && state.storeConfig.coupons.length
-        ? state.storeConfig.coupons
-        : DEFAULT_COUPONS;
+    const customCoupons = Array.isArray(state.storeConfig?.coupons)
+      ? state.storeConfig.coupons
+      : [];
+    const customCodeSet = new Set(
+      customCoupons.map((c) => String(c?.code || "").toUpperCase())
+    );
+    const availableCoupons = [
+      ...customCoupons,
+      ...DEFAULT_COUPONS.filter(
+        (d) => !customCodeSet.has(String(d.code).toUpperCase())
+      ),
+    ];
     const matchedCoupon = availableCoupons.find(
       (c) => String(c.code || "").toUpperCase() === submittedCode && c.active !== false
     );

@@ -172,10 +172,34 @@ export function invalidateCatalogCache() {
 // ============================================================================
 // 3. MONGODB ATLAS STORE CONFIG HELPERS
 // ============================================================================
+let lastLocalConfigWriteAt = 0;
+export function markLocalConfigWrite() {
+  lastLocalConfigWriteAt = Date.now();
+}
+
+export function mergeCouponsWithDefaults(customList = []) {
+  const arr = Array.isArray(customList) ? customList : [];
+  const seen = new Set(
+    arr.map((c) => String(c?.code || "").toUpperCase()).filter(Boolean)
+  );
+  const merged = [...arr];
+  for (const def of DEFAULT_COUPONS) {
+    if (!seen.has(def.code.toUpperCase())) {
+      merged.push(def);
+    }
+  }
+  return merged;
+}
+
 export function getStoredCoupons() {
   try {
     const saved = localStorage.getItem("ummo_admin_coupons");
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length) {
+        return mergeCouponsWithDefaults(parsed);
+      }
+    }
   } catch {
     // ignore
   }
@@ -184,6 +208,7 @@ export function getStoredCoupons() {
 }
 
 export function saveStoredCoupons(coupons) {
+  markLocalConfigWrite();
   localStorage.setItem("ummo_admin_coupons", JSON.stringify(coupons));
   window.dispatchEvent(
     new CustomEvent("ummo:coupons-updated", { detail: coupons })
@@ -233,6 +258,7 @@ export function getStoredBanners() {
 }
 
 export function saveStoredBanners(banners) {
+  markLocalConfigWrite();
   const clean = sanitizeBanners(banners);
   localStorage.setItem("ummo_admin_banners_v3", JSON.stringify(clean));
   window.dispatchEvent(
@@ -265,6 +291,7 @@ function notifyCatalogSubscribers() {
 }
 
 export function saveCustomAdminProducts(products) {
+  markLocalConfigWrite();
   localStorage.setItem("ummo_admin_custom_products", JSON.stringify(products));
   notifyCatalogSubscribers();
   return apiClient
@@ -282,12 +309,14 @@ export function getDeletedProductIds() {
 }
 
 export function saveDeletedProductIds(ids) {
+  markLocalConfigWrite();
   localStorage.setItem("ummo_admin_deleted_ids", JSON.stringify(ids));
   notifyCatalogSubscribers();
   return apiClient.post("/store-config", { deletedIds: ids }).catch(() => {});
 }
 
 export function saveStoreConfigPatch(patch = {}) {
+  markLocalConfigWrite();
   if (Array.isArray(patch.customProducts)) {
     localStorage.setItem(
       "ummo_admin_custom_products",
@@ -319,11 +348,16 @@ export function saveStoreConfigPatch(patch = {}) {
 
 export function applyRemoteStoreConfig(val) {
   if (!val || typeof val !== "object") return;
+  if (Date.now() - lastLocalConfigWriteAt < 10000) {
+    // Do not overwrite recent local Admin writes with an older in-flight GET response
+    return;
+  }
 
   if (Array.isArray(val.coupons) && val.coupons.length) {
-    localStorage.setItem("ummo_admin_coupons", JSON.stringify(val.coupons));
+    const mergedCoupons = mergeCouponsWithDefaults(val.coupons);
+    localStorage.setItem("ummo_admin_coupons", JSON.stringify(mergedCoupons));
     window.dispatchEvent(
-      new CustomEvent("ummo:coupons-updated", { detail: val.coupons })
+      new CustomEvent("ummo:coupons-updated", { detail: mergedCoupons })
     );
   }
   if (val.banners && typeof val.banners === "object") {

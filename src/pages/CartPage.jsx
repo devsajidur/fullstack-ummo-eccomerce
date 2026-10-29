@@ -94,15 +94,10 @@ const CartPage = () => {
             ) : (
               cartData.map((item) => (
                 <CartProduct
-                  key={`${item.id}-${item.size || "M"}-${item.color || "Default"}`}
-                  id={item.id}
-                  title={item.title}
-                  quantity={item.quantity}
-                  image={item.image}
-                  price={item.price}
-                  size={item.size || item.selectedSize}
-                  color={item.color || item.selectedColor}
-                  freeGift={item.freeGift}
+                  key={`${item.id}-${item.size || "M"}-${item.color || "Black"}`}
+                  {...item}
+                  size={item.size || item.selectedSize || "M"}
+                  color={item.color || item.selectedColor || "Black"}
                 />
               ))
             )}
@@ -126,15 +121,10 @@ const CartPage = () => {
             ) : (
               cartData.map((item) => (
                 <CartProduct
-                  key={`${item.id}-${item.size || "M"}-${item.color || "Default"}`}
-                  id={item.id}
-                  title={item.title}
-                  quantity={item.quantity}
-                  image={item.image}
-                  price={item.price}
-                  size={item.size || item.selectedSize}
-                  color={item.color || item.selectedColor}
-                  freeGift={item.freeGift}
+                  key={`${item.id}-${item.size || "M"}-${item.color || "Black"}`}
+                  {...item}
+                  size={item.size || item.selectedSize || "M"}
+                  color={item.color || item.selectedColor || "Black"}
                 />
               ))
             )}
