@@ -1,5 +1,4 @@
-import { onValue, ref, set } from "firebase/database";
-import { db } from "../../firebase.config";
+import { apiClient } from "../services/api";
 
 const CART_RULES_STORAGE_KEY = "ummo_admin_cart_rules_v2";
 const RECENTLY_VIEWED_KEY = "ummo_recently_viewed_v1";
@@ -48,7 +47,7 @@ export function saveStoredCartRules(rules) {
   } catch {
     // ignore
   }
-  set(ref(db, "storeConfig/cartRules"), merged).catch(() => {});
+  apiClient.post("/store-config", { cartRules: merged }).catch(() => {});
   return merged;
 }
 
@@ -63,10 +62,10 @@ export function initCartRulesSync(onRulesUpdated) {
 
   if (!cartRulesSubscribed) {
     cartRulesSubscribed = true;
-    try {
-      onValue(ref(db, "storeConfig/cartRules"), (snap) => {
-        if (!snap.exists()) return;
-        const val = snap.val();
+    apiClient
+      .get("/store-data")
+      .then((res) => {
+        const val = res.data?.storeConfig?.cartRules;
         if (val && typeof val === "object") {
           const merged = { ...DEFAULT_CART_RULES, ...val };
           localStorage.setItem(CART_RULES_STORAGE_KEY, JSON.stringify(merged));
@@ -74,10 +73,8 @@ export function initCartRulesSync(onRulesUpdated) {
             new CustomEvent("ummo:cart-rules-updated", { detail: merged })
           );
         }
-      });
-    } catch {
-      // ignore
-    }
+      })
+      .catch(() => {});
   }
 
   return () => {

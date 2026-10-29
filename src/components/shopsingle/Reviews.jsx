@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { onValue, push, ref, set } from "firebase/database";
-import { db } from "../../../firebase.config";
 import { productDetail } from "../../slices/ProductDetailsSlice";
+import {
+  fetchProductReviewsFromMongo,
+  saveProductReviewToMongo,
+} from "../../services/api";
 import toast from "react-hot-toast";
 
 const Star = ({ filled, size = 18 }) => (
@@ -64,7 +66,7 @@ export default function Reviews() {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
 
-  // Load persisted reviews from Firebase Realtime DB (`reviews/{productId}`) + localStorage fallback
+  // Load persisted reviews from MongoDB (`reviews/{productId}`) + localStorage fallback
   useEffect(() => {
     if (!productId) return;
     const localKey = `ummo_reviews_${productId}`;
@@ -75,19 +77,17 @@ export default function Reviews() {
       // ignore
     }
 
-    const unsub = onValue(ref(db, `reviews/${productId}`), (snap) => {
-      if (!snap.exists()) return;
-      const list = Object.entries(snap.val())
-        .map(([id, data]) => ({ id, ...data }))
-        .sort(
+    fetchProductReviewsFromMongo(productId)
+      .then((list) => {
+        if (!Array.isArray(list) || list.length === 0) return;
+        const sorted = [...list].sort(
           (a, b) =>
             new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
         );
-      setPersistedReviews(list);
-      localStorage.setItem(localKey, JSON.stringify(list));
-    });
-
-    return () => unsub();
+        setPersistedReviews(sorted);
+        localStorage.setItem(localKey, JSON.stringify(sorted));
+      })
+      .catch(() => {});
   }, [productId]);
 
   const reviews = useMemo(() => {
@@ -130,8 +130,7 @@ export default function Reviews() {
     );
 
     try {
-      const reviewRef = push(ref(db, `reviews/${productId}`));
-      await set(reviewRef, newReview);
+      await saveProductReviewToMongo(productId, newReview);
     } catch {
       // Stored locally if offline
     }

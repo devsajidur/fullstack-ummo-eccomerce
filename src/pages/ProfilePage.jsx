@@ -2,15 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useSelector } from "react-redux";
 import { Link, useNavigate } from "react-router";
 import { sendPasswordResetEmail, updateProfile } from "firebase/auth";
-import {
-  onValue,
-  push,
-  ref,
-  remove,
-  set,
-  update,
-} from "firebase/database";
-import { auth, db } from "../../firebase.config";
+import { auth } from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
 import {
   Copy,
@@ -22,7 +14,14 @@ import {
   ShieldCheck,
   Tag,
 } from "lucide-react";
-import { getStoredCoupons } from "../services/api";
+import {
+  fetchStoreDataFromMongo,
+  fetchUserAddressesFromMongo,
+  getStoredCoupons,
+  saveUserAddressesToMongo,
+  syncUserToMongo,
+  updateOrderStatusInMongo,
+} from "../services/api";
 import {
   clearSessionUser,
   getLocalOrders,
@@ -58,10 +57,6 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
-    let unsubOrders;
-    let unsubAddresses;
-    let unsubUserProfile;
-
     const unsubAuth = onUserChanged((currentUser) => {
       if (!currentUser) {
         setUser(null);
@@ -91,66 +86,64 @@ export default function ProfilePage() {
         // ignore
       }
 
-      unsubUserProfile = onValue(
-        ref(db, `users/${currentUser.uid}`),
-        (snap) => {
-          const val = snap.val() || {};
-          setProfileForm({
-            username: val.username || currentUser.displayName || "",
-            phone: val.phone || "",
-            bio: val.bio || "",
-          });
-        },
-        () => {}
-      );
+      // Fetch user profile and orders from MongoDB
+      fetchStoreDataFromMongo()
+        .then((store) => {
+          const allUsers = Array.isArray(store?.users) ? store.users : [];
+          const foundUser = allUsers.find(
+            (u) => String(u.uid) === String(currentUser.uid)
+          );
+          if (foundUser) {
+            setProfileForm({
+              username: foundUser.username || currentUser.displayName || "",
+              phone: foundUser.phone || "",
+              bio: foundUser.bio || "",
+            });
+          }
 
-      unsubOrders = onValue(
-        ref(db, `orders/${currentUser.uid}`),
-        (snap) => {
-          const fbList = snap.exists()
-            ? Object.entries(snap.val()).map(([id, data]) => ({ id, ...data }))
-            : [];
+          const allOrders = Array.isArray(store?.orders) ? store.orders : [];
+          const userMongoOrders = allOrders.filter(
+            (o) =>
+              String(o.userUid || o.id) === String(currentUser.uid) ||
+              (currentUser.email &&
+                String(o.email || "").toLowerCase() ===
+                  String(currentUser.email).toLowerCase())
+          );
           const localList = getLocalOrders(currentUser.uid);
-          const fbIds = new Set(fbList.map((o) => String(o.id || o.orderId)));
+          const mongoIds = new Set(
+            userMongoOrders.map((o) => String(o.orderId || o.id))
+          );
           const merged = [
-            ...fbList,
-            ...localList.filter((o) => !fbIds.has(String(o.id || o.orderId))),
+            ...userMongoOrders,
+            ...localList.filter(
+              (o) => !mongoIds.has(String(o.orderId || o.id))
+            ),
           ].sort(
             (a, b) =>
               new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
           );
           setOrders(merged);
           setLoading(false);
-        },
-        () => {
+        })
+        .catch(() => {
           setOrders(getLocalOrders(currentUser.uid));
           setLoading(false);
-        }
-      );
+        });
 
-      unsubAddresses = onValue(
-        ref(db, `addresses/${currentUser.uid}`),
-        (snap) => {
-          if (!snap.exists()) return;
-          const list = Object.entries(snap.val()).map(([id, data]) => ({
-            id,
-            ...data,
-          }));
+      fetchUserAddressesFromMongo(currentUser.uid)
+        .then((list) => {
+          if (!Array.isArray(list) || list.length === 0) return;
           setAddresses(list);
           const def = list.find((a) => a.isDefault) || list[0];
           if (def) {
             localStorage.setItem("ummo_default_address", JSON.stringify(def));
           }
-        },
-        () => {}
-      );
+        })
+        .catch(() => {});
     });
 
     return () => {
       unsubAuth();
-      unsubOrders?.();
-      unsubAddresses?.();
-      unsubUserProfile?.();
     };
   }, []);
 
@@ -174,10 +167,7 @@ export default function ProfilePage() {
       )
     );
     try {
-      await update(ref(db, `orders/${user.uid}/${orderId}`), {
-        status: "CANCELLED",
-        updatedAt: new Date().toISOString(),
-      });
+      await updateOrderStatusInMongo(orderId, user.uid, "CANCELLED");
     } catch {
       // Local order status updated
     }
@@ -199,8 +189,7 @@ export default function ProfilePage() {
       localStorage.setItem("ummo_default_address", JSON.stringify(newAddr));
     }
     try {
-      const newRef = push(ref(db, `addresses/${user.uid}`));
-      await set(newRef, newAddr);
+      await saveUserAddressesToMongo(user.uid, nextAddrs);
     } catch {
       // Saved locally
     }
@@ -220,11 +209,7 @@ export default function ProfilePage() {
       localStorage.setItem("ummo_default_address", JSON.stringify(def));
     }
     try {
-      const updates = {};
-      addresses.forEach((a) => {
-        updates[`${a.id}/isDefault`] = a.id === addrId;
-      });
-      await update(ref(db, `addresses/${user.uid}`), updates);
+      await saveUserAddressesToMongo(user.uid, nextAddrs);
     } catch {
       // Updated locally
     }
@@ -237,7 +222,7 @@ export default function ProfilePage() {
     setAddresses(nextAddrs);
     localStorage.setItem(`ummo_addrs_${user.uid}`, JSON.stringify(nextAddrs));
     try {
-      await remove(ref(db, `addresses/${user.uid}/${addrId}`));
+      await saveUserAddressesToMongo(user.uid, nextAddrs);
     } catch {
       // Removed locally
     }
@@ -257,10 +242,13 @@ export default function ProfilePage() {
           displayName: profileForm.username,
         });
       }
-      await update(ref(db, `users/${user.uid}`), {
+      await syncUserToMongo({
+        uid: user.uid,
+        email: user.email,
         username: profileForm.username,
         phone: profileForm.phone,
         bio: profileForm.bio,
+        role: user.role || "customer",
       });
     } catch {
       // Saved in local session

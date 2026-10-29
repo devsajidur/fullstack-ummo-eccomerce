@@ -4,8 +4,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
 } from "firebase/auth";
-import { ref, update } from "firebase/database";
-import { auth, db } from "../../firebase.config";
+import { auth } from "../../firebase.config";
+import { syncUserToMongo } from "./api";
 
 const ACTIVE_USER_KEY = "ummo_active_user";
 const LOCAL_ORDERS_KEY = "ummo_local_orders";
@@ -53,14 +53,21 @@ export function setSessionUser(user) {
   } catch {
     // ignore
   }
+  syncUserToMongo({
+    uid: normalized.uid,
+    email: normalized.email,
+    username: normalized.username,
+    displayName: normalized.displayName,
+    profile_picture: normalized.photoURL,
+    role: normalized.role,
+    lastLoginAt: new Date().toISOString(),
+  }).catch(() => {});
   return normalized;
 }
 
 /**
  * Signs in the Demo Admin account (`admin@ummo.com` / `Admin@12345`).
- * Also authenticates against Firebase Auth (creating the admin account in Firebase
- * on first run if needed) and elevates `users/{uid}/role = "ADMIN"` in Firebase RTDB
- * so all Admin Panel operations persist in the real database.
+ * Authenticates via Firebase Auth (`ummo-eccomerce` project) and syncs the Admin profile to MongoDB Atlas.
  */
 export async function signInAsDemoAdmin() {
   localStorage.setItem("ummo_admin_unlocked", "true");
@@ -96,18 +103,9 @@ export async function signInAsDemoAdmin() {
         photoURL: DEFAULT_AVATAR,
         role: "ADMIN",
       };
-      await update(ref(db, `users/${cred.user.uid}`), {
-        uid: cred.user.uid,
-        email: adminUser.email,
-        username: "Uomo Store Admin",
-        name: "Uomo Store Admin",
-        role: "ADMIN",
-        profile_picture: DEFAULT_AVATAR,
-        lastLoginAt: new Date().toISOString(),
-      }).catch(() => {});
     }
   } catch {
-    // Continues with Demo Admin session if Firebase Auth is unreachable
+    // Continues with Demo Admin session if offline
   }
 
   return setSessionUser(adminUser);
@@ -146,6 +144,16 @@ export function onUserChanged(callback) {
 
   const unsubFirebase = onAuthStateChanged(auth, (u) => {
     firebaseUser = u;
+    if (u) {
+      syncUserToMongo({
+        uid: u.uid,
+        email: u.email || "",
+        username: u.displayName || u.email?.split("@")[0] || "Customer",
+        displayName: u.displayName || u.email?.split("@")[0] || "Customer",
+        profile_picture: u.photoURL || DEFAULT_AVATAR,
+        lastLoginAt: new Date().toISOString(),
+      }).catch(() => {});
+    }
     emitEffectiveUser();
   });
 

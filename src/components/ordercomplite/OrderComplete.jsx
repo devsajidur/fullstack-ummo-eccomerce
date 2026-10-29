@@ -1,8 +1,7 @@
-import { Check, Printer } from "lucide-react";
+import { Check, Gift, Printer } from "lucide-react";
 import { Link, useSearchParams } from "react-router";
-import { onValue, ref } from "firebase/database";
-import { db } from "../../../firebase.config";
 import { getLocalOrders, onUserChanged } from "../../services/authSession";
+import { fetchStoreDataFromMongo } from "../../services/api";
 import { useEffect, useState } from "react";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -18,7 +17,6 @@ export default function OrderComplete() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let unsubscribeOrder;
     const unsubscribeAuth = onUserChanged((user) => {
       if (!user) {
         setError("Please log in to view your order.");
@@ -40,29 +38,30 @@ export default function OrderComplete() {
         setLoading(false);
       }
 
-      unsubscribeOrder = onValue(
-        ref(db, `orders/${user.uid}/${orderId}`),
-        (snapshot) => {
-          if (snapshot.exists()) {
-            setOrder(snapshot.val());
+      fetchStoreDataFromMongo()
+        .then((store) => {
+          const allOrders = Array.isArray(store?.orders) ? store.orders : [];
+          const found = allOrders.find(
+            (o) => String(o.orderId || o.id) === String(orderId)
+          );
+          if (found) {
+            setOrder(found);
             setError("");
           } else if (!localMatched) {
             setError("We could not find this order.");
           }
           setLoading(false);
-        },
-        () => {
+        })
+        .catch(() => {
           if (!localMatched) {
             setError("We could not load your order. Please try again.");
           }
           setLoading(false);
-        }
-      );
+        });
     });
 
     return () => {
       unsubscribeAuth();
-      unsubscribeOrder?.();
     };
   }, [orderId]);
 
@@ -192,6 +191,19 @@ export default function OrderComplete() {
                 </span>
               </div>
             ))}
+            {Array.isArray(order.freeGifts) &&
+              order.freeGifts.map((gift, gIdx) => (
+                <div
+                  key={`gift-${gIdx}`}
+                  className="flex justify-between items-center text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Gift size={13} className="text-emerald-600" />
+                    FREE GIFT: {gift.totalFreeGiftQty || 1}x {gift.giftName}
+                  </span>
+                  <span className="font-bold text-emerald-700">FREE ($0.00)</span>
+                </div>
+              ))}
           </div>
 
           <SummaryRow label="SUBTOTAL" value={currency.format(subtotal)} />

@@ -2,8 +2,6 @@ import React, { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
-import { db } from "../../../firebase.config";
-import { onValue, push, ref, set } from "firebase/database";
 import { onUserChanged, saveLocalOrder } from "../../services/authSession";
 import toast, { Toaster } from "react-hot-toast";
 import { EmptyCart } from "../../slices/cartSlice";
@@ -16,7 +14,10 @@ import {
   getStoredCartRules,
   initCartRulesSync,
 } from "../../utils/cartPromotions";
-import { submitBackendOrder } from "../../services/api";
+import {
+  fetchUserAddressesFromMongo,
+  submitBackendOrder,
+} from "../../services/api";
 import BillingOrderSummary from "./BillingOrderSummary";
 
 const COUNTRIES = [
@@ -97,16 +98,13 @@ const BillingInformation = () => {
           setfirstName((prev) => prev || parts[0] || "");
           setlastName((prev) => prev || parts.slice(1).join(" ") || "");
         }
-        onValue(
-          ref(db, `addresses/${currentUser.uid}`),
-          (snap) => {
-            if (!snap.exists()) return;
-            const list = Object.values(snap.val());
+        fetchUserAddressesFromMongo(currentUser.uid)
+          .then((list) => {
+            if (!Array.isArray(list) || list.length === 0) return;
             const def = list.find((a) => a.isDefault) || list[0];
             if (def) applySavedAddress(def);
-          },
-          { onlyOnce: true }
-        );
+          })
+          .catch(() => {});
       } else {
         setuser(null);
       }
@@ -200,37 +198,20 @@ const BillingInformation = () => {
         },
       };
 
-      try {
-        await submitBackendOrder({
-          userId: user.uid,
-          email: orderPayload.email,
-          items: ORDER_ITEMS.map((item) => ({
-            productId: item.id,
-            title: item.title,
-            quantity: item.quantity,
-          })),
-          shippingMethod: shippingMethodId,
-          paymentMethod,
-          billing: orderPayload.billing,
-        });
-      } catch {
-        // Continues with Firebase Realtime DB when standalone
-      }
-
-      const orderRef = push(ref(db, `orders/${user.uid}`));
-      const generatedOrderId = orderRef.key || `ORD-${Date.now()}`;
-
-      saveLocalOrder({
+      const generatedOrderId = `ORD-${Date.now()}`;
+      const fullOrder = {
         ...orderPayload,
         id: generatedOrderId,
         orderId: generatedOrderId,
         userUid: user.uid,
-      });
+      };
+
+      saveLocalOrder(fullOrder);
 
       try {
-        await set(orderRef, orderPayload);
+        await submitBackendOrder(fullOrder);
       } catch {
-        // Order saved locally above
+        // Saved locally above if offline
       }
 
       dispatch(EmptyCart());

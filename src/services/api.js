@@ -1,14 +1,14 @@
 import axios from "axios";
-import { onValue, ref, set } from "firebase/database";
-import { db } from "../../firebase.config";
+import {
+  getCloudinaryBannerUrl,
+  getCloudinaryProductImageUrl,
+} from "./cloudinary";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 6000,
-  withCredentials: true,
+  timeout: 8000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -27,7 +27,7 @@ apiClient.interceptors.request.use((config) => {
 });
 
 // ============================================================================
-// 1. DEFAULT COUPONS & CMS BANNERS
+// 1. DEFAULT COUPONS & CLOUDINARY-HOSTED CMS BANNERS
 // ============================================================================
 export const DEFAULT_COUPONS = [
   {
@@ -65,7 +65,7 @@ export const DEFAULT_BANNERS = {
       subtitle: "",
       ctaText: "",
       ctaLink: "/shop",
-      image: "/images/SLIDER.png",
+      image: getCloudinaryBannerUrl("SLIDER"),
     },
     {
       id: 2,
@@ -74,7 +74,7 @@ export const DEFAULT_BANNERS = {
       subtitle: "",
       ctaText: "",
       ctaLink: "/shop",
-      image: "/images/SLIDER2.png",
+      image: getCloudinaryBannerUrl("SLIDER2"),
     },
     {
       id: 3,
@@ -83,7 +83,7 @@ export const DEFAULT_BANNERS = {
       subtitle: "",
       ctaText: "",
       ctaLink: "/shop",
-      image: "/images/SLIDER3.png",
+      image: getCloudinaryBannerUrl("SLIDER3"),
     },
     {
       id: 4,
@@ -92,7 +92,7 @@ export const DEFAULT_BANNERS = {
       subtitle: "",
       ctaText: "",
       ctaLink: "/shop",
-      image: "/images/SLIDER4.png",
+      image: getCloudinaryBannerUrl("SLIDER4"),
     },
   ],
   dealBanner: {
@@ -114,7 +114,7 @@ export const DEFAULT_BANNERS = {
       categoryFilter: "womens-dresses",
       bgColor: "#D6001C",
       textColor: "white",
-      image: "/images/startingImage1.png",
+      image: getCloudinaryBannerUrl("startingImage1"),
     },
     {
       id: 2,
@@ -124,7 +124,7 @@ export const DEFAULT_BANNERS = {
       categoryFilter: "mens-shoes",
       bgColor: "#f5f5f5",
       textColor: "black",
-      image: "/images/startingImage2.png",
+      image: getCloudinaryBannerUrl("startingImage2"),
     },
   ],
   shopHeader: {
@@ -135,12 +135,12 @@ export const DEFAULT_BANNERS = {
 };
 
 // ============================================================================
-// 2. IN-MEMORY CATALOG CACHE & IN-FLIGHT DEDUPLICATION (HIGH-CONCURRENCY SAFE)
+// 2. IN-MEMORY CATALOG CACHE & IN-FLIGHT DEDUPLICATION
 // ============================================================================
 let cachedBaseProducts = null;
 let lastFetchTimestamp = 0;
 let inFlightCatalogPromise = null;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export function invalidateCatalogCache() {
   cachedBaseProducts = null;
@@ -148,7 +148,7 @@ export function invalidateCatalogCache() {
 }
 
 // ============================================================================
-// 3. STORE CONFIG HELPERS (LOCALSTORAGE + FIREBASE REALTIME SYNC)
+// 3. MONGODB ATLAS STORE CONFIG HELPERS
 // ============================================================================
 export function getStoredCoupons() {
   try {
@@ -163,7 +163,7 @@ export function getStoredCoupons() {
 
 export function saveStoredCoupons(coupons) {
   localStorage.setItem("ummo_admin_coupons", JSON.stringify(coupons));
-  set(ref(db, "storeConfig/coupons"), coupons).catch(() => {});
+  apiClient.post("/store-config", { coupons }).catch(() => {});
 }
 
 function sanitizeBanners(raw) {
@@ -171,7 +171,9 @@ function sanitizeBanners(raw) {
   const merged = { ...DEFAULT_BANNERS, ...raw };
   if (Array.isArray(merged.heroSlides)) {
     merged.heroSlides = merged.heroSlides.map((s, idx) => {
-      const fallbackImg = `/images/SLIDER${idx === 0 ? "" : idx + 1}.png`;
+      const fallbackImg = getCloudinaryBannerUrl(
+        `SLIDER${idx === 0 ? "" : idx + 1}`
+      );
       const isBrokenLegacy =
         !s.image ||
         s.image.includes("banner.png") ||
@@ -195,7 +197,7 @@ function sanitizeBanners(raw) {
 
 export function getStoredBanners() {
   try {
-    const saved = localStorage.getItem("ummo_admin_banners_v2");
+    const saved = localStorage.getItem("ummo_admin_banners_v3");
     if (saved) {
       return sanitizeBanners(JSON.parse(saved));
     }
@@ -207,8 +209,8 @@ export function getStoredBanners() {
 
 export function saveStoredBanners(banners) {
   const clean = sanitizeBanners(banners);
-  localStorage.setItem("ummo_admin_banners_v2", JSON.stringify(clean));
-  set(ref(db, "storeConfig/banners"), clean).catch(() => {});
+  localStorage.setItem("ummo_admin_banners_v3", JSON.stringify(clean));
+  apiClient.post("/store-config", { banners: clean }).catch(() => {});
   window.dispatchEvent(
     new CustomEvent("ummo:banners-updated", { detail: clean })
   );
@@ -225,7 +227,7 @@ export function getCustomAdminProducts() {
 
 export function saveCustomAdminProducts(products) {
   localStorage.setItem("ummo_admin_custom_products", JSON.stringify(products));
-  set(ref(db, "storeConfig/customProducts"), products).catch(() => {});
+  apiClient.post("/store-config", { customProducts: products }).catch(() => {});
 }
 
 export function getDeletedProductIds() {
@@ -239,60 +241,68 @@ export function getDeletedProductIds() {
 
 export function saveDeletedProductIds(ids) {
   localStorage.setItem("ummo_admin_deleted_ids", JSON.stringify(ids));
-  set(ref(db, "storeConfig/deletedIds"), ids).catch(() => {});
+  apiClient.post("/store-config", { deletedIds: ids }).catch(() => {});
 }
 
 /**
- * Subscribe to Firebase `storeConfig` so changes made by Admin on one device
- * automatically propagate to all connected visitors in real time.
+ * Syncs store configuration (coupons, banners, customProducts, deletedIds, cartRules)
+ * directly from MongoDB Atlas (`/api/v1/store-data`).
  */
 let storeConfigSubscribed = false;
 export function initStoreConfigSync(onCatalogChanged) {
   if (storeConfigSubscribed) return;
   storeConfigSubscribed = true;
 
-  try {
-    onValue(ref(db, "storeConfig"), (snapshot) => {
-      if (!snapshot.exists()) return;
-      const val = snapshot.val();
-      if (val.coupons && Array.isArray(val.coupons)) {
+  apiClient
+    .get("/store-data")
+    .then((res) => {
+      const val = res.data?.storeConfig;
+      if (!val || typeof val !== "object") return;
+
+      if (Array.isArray(val.coupons) && val.coupons.length) {
         localStorage.setItem("ummo_admin_coupons", JSON.stringify(val.coupons));
       }
       if (val.banners && typeof val.banners === "object") {
         const cleanBanners = sanitizeBanners(val.banners);
         localStorage.setItem(
-          "ummo_admin_banners_v2",
+          "ummo_admin_banners_v3",
           JSON.stringify(cleanBanners)
         );
         window.dispatchEvent(
           new CustomEvent("ummo:banners-updated", { detail: cleanBanners })
         );
       }
-      if (val.customProducts && Array.isArray(val.customProducts)) {
+      if (Array.isArray(val.customProducts)) {
         localStorage.setItem(
           "ummo_admin_custom_products",
           JSON.stringify(val.customProducts)
         );
       }
-      if (val.deletedIds && Array.isArray(val.deletedIds)) {
+      if (Array.isArray(val.deletedIds)) {
         localStorage.setItem(
           "ummo_admin_deleted_ids",
           JSON.stringify(val.deletedIds)
         );
       }
+      if (val.cartRules && typeof val.cartRules === "object") {
+        localStorage.setItem(
+          "ummo_admin_cart_rules_v2",
+          JSON.stringify(val.cartRules)
+        );
+        window.dispatchEvent(
+          new CustomEvent("ummo:cart-rules-updated", { detail: val.cartRules })
+        );
+      }
       if (typeof onCatalogChanged === "function" && cachedBaseProducts) {
         onCatalogChanged(mergeWithAdminCatalog(cachedBaseProducts));
       }
-    });
-  } catch {
-    // Non-blocking if offline
-  }
+    })
+    .catch(() => {});
 }
 
 function getDefaultProductTimer(item, index) {
   const disc = Number(item?.discountPercentage || 0);
   if (disc < 10 && index >= 8) return "";
-  // Deterministic rolling future deadline based on current day + product id
   const dayBucket = Math.floor(Date.now() / (24 * 3600 * 1000));
   const baseMs = (dayBucket + 1) * 24 * 3600 * 1000;
   const offsetHours = ((Number(item?.id || index) * 7) % 36) + 6;
@@ -321,8 +331,19 @@ function mergeWithAdminCatalog(baseProducts) {
         ? 15
         : Number(item.discountPercentage || 0);
 
+    // Every catalog product image is served directly from the user's Cloudinary (`wxjt7d8q`)
+    const cloudinaryThumb = getCloudinaryProductImageUrl(
+      item.id,
+      item.thumbnail
+    );
+
     const enrichedBase = {
       ...item,
+      thumbnail: cloudinaryThumb,
+      images: [
+        cloudinaryThumb,
+        ...(Array.isArray(item.images) ? item.images.slice(1) : []),
+      ],
       discountPercentage: defaultDiscount,
       discountEndTime: defaultTimer,
     };
@@ -346,10 +367,7 @@ function mergeWithAdminCatalog(baseProducts) {
 }
 
 /**
- * Fetches the product catalog with:
- * - In-Memory Cache (5-minute TTL)
- * - In-Flight Promise Deduplication (multiple components mounting simultaneously share 1 request)
- * - Automatic fallback to DummyJSON and Admin Catalog overlay
+ * Fetches the product catalog with Cloudinary-hosted product images and MongoDB Admin overrides.
  */
 export async function fetchCatalogProducts(limit = 200) {
   const now = Date.now();
@@ -363,19 +381,6 @@ export async function fetchCatalogProducts(limit = 200) {
   }
 
   inFlightCatalogPromise = (async () => {
-    try {
-      if (import.meta.env.VITE_API_BASE_URL) {
-        const response = await apiClient.get(`/products?limit=200`);
-        if (response.data?.data?.products?.length) {
-          cachedBaseProducts = response.data.data.products;
-          lastFetchTimestamp = Date.now();
-          return cachedBaseProducts;
-        }
-      }
-    } catch {
-      // Fallback to DummyJSON
-    }
-
     const fallback = await axios.get(
       `https://dummyjson.com/products?limit=200`
     );
@@ -392,16 +397,76 @@ export async function fetchCatalogProducts(limit = 200) {
   }
 }
 
-/**
- * Submits an order to the Enterprise Backend API (server-side price & stock verification)
- */
+// ============================================================================
+// 4. MONGODB ATLAS DATA OPERATIONS (ORDERS, USERS, REVIEWS, ADDRESSES, INBOX)
+// ============================================================================
+export async function fetchStoreDataFromMongo(params = {}) {
+  const response = await apiClient.get("/store-data", { params });
+  return response.data;
+}
+
 export async function submitBackendOrder(orderPayload) {
-  const response = await apiClient.post("/orders/checkout", orderPayload, {
+  const response = await apiClient.post("/orders", orderPayload, {
     headers: {
       "Idempotency-Key": crypto.randomUUID
         ? crypto.randomUUID()
         : `${Date.now()}`,
     },
   });
+  return response.data;
+}
+
+export async function updateOrderStatusInMongo(orderId, status) {
+  const response = await apiClient.patch("/orders/status", { orderId, status });
+  return response.data;
+}
+
+export async function syncUserToMongo(userPayload) {
+  const response = await apiClient.post("/users", userPayload);
+  return response.data;
+}
+
+export async function updateUserRoleInMongo(uid, role) {
+  const response = await apiClient.patch("/users/role", { uid, role });
+  return response.data;
+}
+
+export async function fetchUserAddressesFromMongo(userUid) {
+  const response = await apiClient.get("/addresses", { params: { userUid } });
+  return response.data?.addresses || [];
+}
+
+export async function saveUserAddressesToMongo(userUid, addresses) {
+  const response = await apiClient.post("/addresses", { userUid, addresses });
+  return response.data?.addresses || [];
+}
+
+export async function fetchProductReviewsFromMongo(productId) {
+  const response = await apiClient.get("/reviews", { params: { productId } });
+  return response.data?.reviews || [];
+}
+
+export async function saveProductReviewToMongo(productId, review) {
+  const response = await apiClient.post("/reviews", { productId, review });
+  return response.data?.reviews || [];
+}
+
+export async function submitContactMessageToMongo(messagePayload) {
+  const response = await apiClient.post("/messages", messagePayload);
+  return response.data;
+}
+
+export async function deleteContactMessageFromMongo(id) {
+  const response = await apiClient.delete("/messages", { params: { id } });
+  return response.data;
+}
+
+export async function submitSubscriberToMongo(email) {
+  const response = await apiClient.post("/subscribers", { email });
+  return response.data;
+}
+
+export async function deleteSubscriberFromMongo(id) {
+  const response = await apiClient.delete("/subscribers", { params: { id } });
   return response.data;
 }

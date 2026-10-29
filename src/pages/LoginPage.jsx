@@ -7,8 +7,7 @@ import {
   browserLocalPersistence,
   browserSessionPersistence,
 } from "firebase/auth";
-import { ref, update } from "firebase/database";
-import { auth, db } from "../../firebase.config";
+import { auth } from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router";
 import Google from "../assets/images/Google.png";
@@ -159,20 +158,6 @@ export default function LoginPage() {
         role: "CUSTOMER",
         emailVerified: true,
       });
-
-      try {
-        await update(ref(db, `users/${user.uid}`), {
-          uid: user.uid,
-          email: user.email,
-          profile_picture: user.photoURL,
-          username: user.displayName,
-          name: user.displayName,
-          role: "CUSTOMER",
-          lastLoginAt: new Date().toISOString(),
-        });
-      } catch (dbError) {
-        console.warn("DB sync warning:", dbError.message);
-      }
 
       toast.success("Google Login Successful!");
       setTimeout(() => navigate("/"), 800);

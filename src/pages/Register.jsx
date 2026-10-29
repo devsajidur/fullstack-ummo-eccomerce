@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { ref, set } from "firebase/database";
 import {
   createUserWithEmailAndPassword,
   updateProfile,
   sendEmailVerification,
 } from "firebase/auth";
-import { auth, db } from "../../firebase.config";
+import { auth } from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router";
 import { setSessionUser } from "../services/authSession";
@@ -75,16 +74,6 @@ export default function Register() {
       });
 
       await sendEmailVerification(user).catch(() => {});
-
-      await set(ref(db, `users/${user.uid}`), {
-        uid: user.uid,
-        username: trimmedName,
-        name: trimmedName,
-        email: normalizedEmail,
-        role: "CUSTOMER",
-        profile_picture: DEFAULT_AVATAR,
-        createdAt: new Date().toISOString(),
-      });
 
       setSessionUser({
         uid: user.uid,

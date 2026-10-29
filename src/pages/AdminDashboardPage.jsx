@@ -1,15 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
-import {
-  limitToLast,
-  onValue,
-  query,
-  ref,
-  remove,
-  update,
-} from "firebase/database";
-import { db } from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
 import {
   ExternalLink,
@@ -24,7 +15,10 @@ import {
   Users,
 } from "lucide-react";
 import {
+  deleteContactMessageFromMongo,
+  deleteSubscriberFromMongo,
   fetchCatalogProducts,
+  fetchStoreDataFromMongo,
   getCustomAdminProducts,
   getDeletedProductIds,
   getStoredCoupons,
@@ -32,6 +26,8 @@ import {
   saveCustomAdminProducts,
   saveDeletedProductIds,
   saveStoredCoupons,
+  updateOrderStatusInMongo,
+  updateUserRoleInMongo,
 } from "../services/api";
 import {
   clearSessionUser,
@@ -97,17 +93,6 @@ export default function AdminDashboardPage() {
           localStorage.getItem("ummo_admin_unlocked") === "true"
         ) {
           setIsAdminVerified(true);
-        } else {
-          onValue(
-            ref(db, `users/${user.uid}`),
-            (snap) => {
-              const val = snap.val();
-              if (val?.role === "ADMIN" || val?.role === "SUPER_ADMIN") {
-                setIsAdminVerified(true);
-              }
-            },
-            { onlyOnce: true }
-          );
         }
       }
     });
@@ -127,107 +112,59 @@ export default function AdminDashboardPage() {
     }
   }, [catalogProducts, dispatch]);
 
-  // 3. Real-time Firebase Listeners for Orders, Customers, Messages, Subscribers & Coupons
+  // 3. Load & Sync Orders, Customers, Messages, Subscribers & Coupons from MongoDB Atlas
   useEffect(() => {
     if (!authUser || !isAdminVerified) return;
 
-    const unsubOrders = onValue(
-      query(ref(db, "orders"), limitToLast(100)),
-      (snapshot) => {
-        const fbOrders = [];
-        if (snapshot.exists()) {
-          Object.entries(snapshot.val()).forEach(([userUid, userOrders]) => {
-            if (userOrders && typeof userOrders === "object") {
-              Object.entries(userOrders).forEach(([orderId, orderData]) => {
-                fbOrders.push({
-                  orderId,
-                  userUid,
-                  ...orderData,
-                  status: orderData.status || "PENDING",
-                });
-              });
-            }
-          });
-        }
-        const localList = getLocalOrders();
-        const fbIds = new Set(fbOrders.map((o) => String(o.orderId)));
-        const merged = [
-          ...fbOrders,
-          ...localList.filter((o) => !fbIds.has(String(o.orderId))),
-        ];
-        merged.sort(
-          (a, b) =>
-            new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
-        );
-        setOrders(merged);
-      },
-      () => {
-        setOrders(getLocalOrders());
-      }
-    );
+    let active = true;
+    const syncMongoStoreData = () => {
+      fetchStoreDataFromMongo()
+        .then((data) => {
+          if (!active || !data) return;
 
-    const unsubUsers = onValue(
-      query(ref(db, "users"), limitToLast(100)),
-      (snapshot) => {
-        if (!snapshot.exists()) {
-          setCustomers([]);
-          return;
-        }
-        setCustomers(
-          Object.entries(snapshot.val()).map(([uid, data]) => ({
-            uid,
-            ...data,
-          }))
-        );
-      }
-    );
+          const mongoOrders = Array.isArray(data.orders) ? data.orders : [];
+          const localList = getLocalOrders();
+          const mongoIds = new Set(mongoOrders.map((o) => String(o.orderId)));
+          const mergedOrders = [
+            ...mongoOrders,
+            ...localList.filter((o) => !mongoIds.has(String(o.orderId))),
+          ];
+          mergedOrders.sort(
+            (a, b) =>
+              new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+          );
+          setOrders(mergedOrders);
 
-    const unsubMessages = onValue(
-      query(ref(db, "messages"), limitToLast(50)),
-      (snapshot) => {
-        if (!snapshot.exists()) {
-          setMessages([]);
-          return;
-        }
-        setMessages(
-          Object.entries(snapshot.val())
-            .map(([id, data]) => ({ id, ...data }))
-            .reverse()
-        );
-      }
-    );
+          if (Array.isArray(data.users)) {
+            setCustomers(data.users);
+          }
+          if (Array.isArray(data.messages)) {
+            setMessages(data.messages);
+          }
+          if (Array.isArray(data.subscribers)) {
+            setSubscribers(data.subscribers);
+          }
+          if (
+            Array.isArray(data.storeConfig?.coupons) &&
+            data.storeConfig.coupons.length
+          ) {
+            setCoupons(data.storeConfig.coupons);
+            localStorage.setItem(
+              "ummo_admin_coupons",
+              JSON.stringify(data.storeConfig.coupons)
+            );
+          }
+        })
+        .catch(() => {
+          setOrders(getLocalOrders());
+        });
+    };
 
-    const unsubSubscribers = onValue(
-      query(ref(db, "subscribers"), limitToLast(100)),
-      (snapshot) => {
-        if (!snapshot.exists()) {
-          setSubscribers([]);
-          return;
-        }
-        setSubscribers(
-          Object.entries(snapshot.val())
-            .map(([id, data]) => ({ id, ...data }))
-            .reverse()
-        );
-      }
-    );
-
-    const unsubCoupons = onValue(ref(db, "storeConfig/coupons"), (snapshot) => {
-      if (snapshot.exists() && Array.isArray(snapshot.val())) {
-        setCoupons(snapshot.val());
-        localStorage.setItem(
-          "ummo_admin_coupons",
-          JSON.stringify(snapshot.val())
-        );
-      }
-    });
-
+    syncMongoStoreData();
+    const interval = setInterval(syncMongoStoreData, 12000);
     return () => {
-      unsubOrders();
-      unsubUsers();
-      unsubMessages();
-      unsubSubscribers();
-      unsubCoupons();
+      active = false;
+      clearInterval(interval);
     };
   }, [authUser, isAdminVerified]);
 
@@ -379,14 +316,7 @@ export default function AdminDashboardPage() {
           : item
       )
     );
-    try {
-      await update(ref(db, `orders/${order.userUid}/${order.orderId}`), {
-        status: newStatus,
-        updatedAt: new Date().toISOString(),
-      });
-    } catch {
-      // Local order updated above
-    }
+    await updateOrderStatusInMongo(order.orderId, newStatus).catch(() => {});
     toast.success(`Order #${String(order.orderId).slice(-6)} → ${newStatus}`);
   }
 
@@ -426,17 +356,17 @@ export default function AdminDashboardPage() {
       prev.map((c) => (c.uid === customer.uid ? { ...c, role: nextRole } : c))
     );
     try {
-      await update(ref(db, `users/${customer.uid}`), { role: nextRole });
+      await updateUserRoleInMongo(customer.uid, nextRole);
       toast.success(`${customer.email || customer.username} is now ${nextRole}`);
     } catch {
-      toast.error("Could not update user role in database.");
+      toast.error("Could not update user role in MongoDB.");
     }
   }
 
   async function handleDeleteMessage(msgId) {
     setMessages((prev) => prev.filter((m) => m.id !== msgId));
     try {
-      await remove(ref(db, `messages/${msgId}`));
+      await deleteContactMessageFromMongo(msgId);
       toast.success("Inquiry message deleted.");
     } catch {
       toast.error("Could not delete message.");
@@ -446,7 +376,7 @@ export default function AdminDashboardPage() {
   async function handleDeleteSubscriber(subId) {
     setSubscribers((prev) => prev.filter((s) => s.id !== subId));
     try {
-      await remove(ref(db, `subscribers/${subId}`));
+      await deleteSubscriberFromMongo(subId);
       toast.success("Subscriber removed.");
     } catch {
       toast.error("Could not remove subscriber.");
@@ -477,9 +407,7 @@ export default function AdminDashboardPage() {
       setSessionUser(elevated);
       setAuthUser(elevated);
       setIsAdminVerified(true);
-      await update(ref(db, `users/${authUser.uid}`), { role: "ADMIN" }).catch(
-        () => {}
-      );
+      await updateUserRoleInMongo(authUser.uid, "ADMIN").catch(() => {});
       toast.success("Admin role activated!");
     } else {
       const adminUser = await signInAsDemoAdmin();

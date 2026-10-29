@@ -1,10 +1,21 @@
 import React, { useMemo, useState } from "react";
-import { Clock, Edit3, Gift, Plus, RotateCcw, Search, Trash2, Zap } from "lucide-react";
+import {
+  Clock,
+  Edit3,
+  Gift,
+  Plus,
+  RotateCcw,
+  Search,
+  Trash2,
+  UploadCloud,
+  Zap,
+} from "lucide-react";
 import {
   getProductDiscountState,
   pad2,
   useNowTick,
 } from "../../utils/discountTimer";
+import { uploadImageToCloudinary } from "../../services/cloudinary";
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -31,6 +42,8 @@ export default function AdminProductsTab({
   const [editingProduct, setEditingProduct] = useState(null);
   const [bulkDiscount, setBulkDiscount] = useState("25");
   const [bulkHours, setBulkHours] = useState("24");
+  const [uploadingField, setUploadingField] = useState("");
+  const [uploadStatusMsg, setUploadStatusMsg] = useState("");
 
   const now = useNowTick(true);
 
@@ -50,9 +63,29 @@ export default function AdminProductsTab({
     stock: "25",
     sku: "",
     thumbnail:
-      "https://cdn.dummyjson.com/products/images/womens-dresses/Black%20Women's%20Gown/thumbnail.png",
+      "https://res.cloudinary.com/wxjt7d8q/image/upload/v1/ummo_products/product_1.webp",
     description: "",
   });
+
+  async function handleCloudinaryFileUpload(file, fieldName, folder = "ummo_products") {
+    if (!file) return;
+    setUploadingField(fieldName);
+    setUploadStatusMsg("Uploading to Cloudinary...");
+    try {
+      const uploaded = await uploadImageToCloudinary(file, folder);
+      if (uploaded?.url) {
+        setProductForm((prev) => ({
+          ...prev,
+          [fieldName]: uploaded.url,
+        }));
+        setUploadStatusMsg("Uploaded to Cloudinary ✓");
+      }
+    } catch (err) {
+      setUploadStatusMsg(err?.message || "Cloudinary upload failed.");
+    } finally {
+      setUploadingField("");
+    }
+  }
 
   const filteredProducts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -80,6 +113,7 @@ export default function AdminProductsTab({
 
   function openAddModal() {
     setEditingProduct(null);
+    setUploadStatusMsg("");
     const defaultEnd = new Date(now + 24 * 3600 * 1000).toISOString();
     setProductForm({
       title: "",
@@ -97,7 +131,7 @@ export default function AdminProductsTab({
       stock: "30",
       sku: `UMMO-${Math.floor(1000 + Math.random() * 9000)}`,
       thumbnail:
-        "https://cdn.dummyjson.com/products/images/womens-dresses/Black%20Women's%20Gown/thumbnail.png",
+        "https://res.cloudinary.com/wxjt7d8q/image/upload/v1/ummo_products/product_1.webp",
       description: "",
     });
     setShowModal(true);
@@ -105,6 +139,7 @@ export default function AdminProductsTab({
 
   function openEditModal(product) {
     setEditingProduct(product);
+    setUploadStatusMsg("");
     const fg = product.freeGift || {};
     setProductForm({
       title: product.title || "",
@@ -663,12 +698,33 @@ export default function AdminProductsTab({
                         />
                       </div>
                       <div className="col-span-2">
-                        <label className="block font-semibold text-gray-700 mb-1">
-                          Free Gift Image URL (Optional)
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block font-semibold text-gray-700">
+                            Free Gift Image URL (Optional)
+                          </label>
+                          <label className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 hover:text-emerald-950 cursor-pointer">
+                            <UploadCloud size={12} />
+                            {uploadingField === "freeGiftImage"
+                              ? "Uploading..."
+                              : "Upload to Cloudinary"}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={Boolean(uploadingField)}
+                              onChange={(e) =>
+                                handleCloudinaryFileUpload(
+                                  e.target.files?.[0],
+                                  "freeGiftImage",
+                                  "ummo_gifts"
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
                         <input
                           type="text"
-                          placeholder="https://... (optional gift photo)"
+                          placeholder="https://res.cloudinary.com/wxjt7d8q/..."
                           value={productForm.freeGiftImage}
                           onChange={(e) =>
                             setProductForm({
@@ -720,21 +776,56 @@ export default function AdminProductsTab({
               </div>
 
               <div>
-                <label className="block font-semibold text-gray-700 mb-1">
-                  Thumbnail Image URL *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={productForm.thumbnail}
-                  onChange={(e) =>
-                    setProductForm({
-                      ...productForm,
-                      thumbnail: e.target.value,
-                    })
-                  }
-                  className="w-full border border-gray-300 rounded px-3 py-2"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-gray-700">
+                    Thumbnail Image URL (Hosted on Cloudinary `wxjt7d8q`) *
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 bg-gray-900 hover:bg-black text-white px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer">
+                    <UploadCloud size={12} />
+                    {uploadingField === "thumbnail"
+                      ? "Uploading to Cloudinary..."
+                      : "☁️ Upload Image to Cloudinary"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={Boolean(uploadingField)}
+                      onChange={(e) =>
+                        handleCloudinaryFileUpload(
+                          e.target.files?.[0],
+                          "thumbnail",
+                          "ummo_products"
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  {productForm.thumbnail && (
+                    <img
+                      src={productForm.thumbnail}
+                      alt="Preview"
+                      className="w-11 h-11 rounded object-contain border border-gray-200 bg-gray-50 shrink-0"
+                    />
+                  )}
+                  <input
+                    type="text"
+                    required
+                    value={productForm.thumbnail}
+                    onChange={(e) =>
+                      setProductForm({
+                        ...productForm,
+                        thumbnail: e.target.value,
+                      })
+                    }
+                    className="w-full border border-gray-300 rounded px-3 py-2"
+                  />
+                </div>
+                {uploadStatusMsg && (
+                  <p className="text-[11px] font-semibold text-emerald-700 mt-1">
+                    {uploadStatusMsg}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block font-semibold text-gray-700 mb-1">

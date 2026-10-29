@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { push, ref } from "firebase/database";
-import { db } from "../../../firebase.config";
+import { submitContactMessageToMongo } from "../../services/api";
 import toast, { Toaster } from "react-hot-toast";
 
 const ContactForm = () => {
@@ -15,7 +14,7 @@ const ContactForm = () => {
 
     setSending(true);
     try {
-      await push(ref(db, "messages"), {
+      await submitContactMessageToMongo({
         name: name.trim(),
         email: email.trim(),
         message: message.trim(),

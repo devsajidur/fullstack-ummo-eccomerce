@@ -2,9 +2,8 @@ import React, { useEffect, useState } from "react";
 import Image from "../../common/Image";
 import footerImage from "../../../../assets/images/footerimage.png";
 import { useNavigate } from "react-router";
-import { db } from "../../../../../firebase.config";
 import { onUserChanged } from "../../../../services/authSession";
-import { push, ref } from "firebase/database";
+import { submitSubscriberToMongo } from "../../../../services/api";
 import { useSelector } from "react-redux";
 import toast from "react-hot-toast";
 
@@ -34,12 +33,7 @@ const FooterTop5 = () => {
     e.preventDefault();
     if (!subEmail.trim()) return;
     try {
-      const nowIso = new Date().toISOString();
-      await push(ref(db, "subscribers"), {
-        email: subEmail.trim().toLowerCase(),
-        date: nowIso,
-        subscribedAt: nowIso,
-      });
+      await submitSubscriberToMongo(subEmail.trim().toLowerCase());
     } catch {
       // ignore offline
     }

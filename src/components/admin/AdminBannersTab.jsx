@@ -1,14 +1,32 @@
 import React, { useState } from "react";
-import { Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import { Plus, RotateCcw, Save, Trash2, UploadCloud } from "lucide-react";
 import {
   DEFAULT_BANNERS,
   getStoredBanners,
   saveStoredBanners,
 } from "../../services/api";
+import { uploadImageToCloudinary } from "../../services/cloudinary";
 import toast from "react-hot-toast";
 
 export default function AdminBannersTab() {
   const [banners, setBanners] = useState(() => getStoredBanners());
+  const [uploadingKey, setUploadingKey] = useState("");
+
+  async function handleCloudinaryBannerUpload(file, key, onUploaded) {
+    if (!file) return;
+    setUploadingKey(key);
+    try {
+      const res = await uploadImageToCloudinary(file, "ummo_banners");
+      if (res?.url) {
+        onUploaded(res.url);
+        toast.success("Banner uploaded to Cloudinary!");
+      }
+    } catch (err) {
+      toast.error(err?.message || "Cloudinary upload failed.");
+    } finally {
+      setUploadingKey("");
+    }
+  }
 
   function handleSaveAll() {
     saveStoredBanners(banners);
@@ -38,7 +56,8 @@ export default function AdminBannersTab() {
         subtitle: "",
         ctaText: "SHOP NOW",
         ctaLink: "/shop",
-        image: "/images/SLIDER.png",
+        image:
+          "https://res.cloudinary.com/wxjt7d8q/image/upload/v1/ummo_banners/SLIDER.webp",
       },
     ];
     setBanners({ ...banners, heroSlides: nextSlides });
@@ -142,16 +161,37 @@ export default function AdminBannersTab() {
                 </button>
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-gray-500 mb-1">
-                  Banner Image URL
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-semibold text-gray-500">
+                    Banner Image URL (Cloudinary)
+                  </label>
+                  <label className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-900 hover:underline cursor-pointer">
+                    <UploadCloud size={12} />
+                    {uploadingKey === `slide_${idx}`
+                      ? "Uploading..."
+                      : "☁️ Upload"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={Boolean(uploadingKey)}
+                      onChange={(e) =>
+                        handleCloudinaryBannerUpload(
+                          e.target.files?.[0],
+                          `slide_${idx}`,
+                          (url) => handleSlideChange(idx, "image", url)
+                        )
+                      }
+                    />
+                  </label>
+                </div>
                 <input
                   type="text"
                   value={slide.image || ""}
                   onChange={(e) =>
                     handleSlideChange(idx, "image", e.target.value)
                   }
-                  placeholder="/images/SLIDER.png"
+                  placeholder="https://res.cloudinary.com/wxjt7d8q/..."
                   className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs bg-white"
                 />
               </div>
@@ -401,9 +441,30 @@ export default function AdminBannersTab() {
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block font-semibold text-gray-600 mb-1">
-                    Card Image URL
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-gray-600">
+                      Card Image URL (Cloudinary)
+                    </label>
+                    <label className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-900 hover:underline cursor-pointer">
+                      <UploadCloud size={12} />
+                      {uploadingKey === `promo_${idx}`
+                        ? "Uploading..."
+                        : "☁️ Upload to Cloudinary"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={Boolean(uploadingKey)}
+                        onChange={(e) =>
+                          handleCloudinaryBannerUpload(
+                            e.target.files?.[0],
+                            `promo_${idx}`,
+                            (url) => handlePromoCardChange(idx, "image", url)
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
                   <input
                     type="text"
                     value={card.image || ""}
