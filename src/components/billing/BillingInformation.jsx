@@ -13,6 +13,7 @@ import {
   computeCartPromotions,
   getStoredCartRules,
   initCartRulesSync,
+  resolveCartItemPricing,
 } from "../../utils/cartPromotions";
 import {
   fetchUserAddressesFromMongo,
@@ -119,8 +120,19 @@ const BillingInformation = () => {
     };
   }, []);
 
+  const pricedOrderItems = (ORDER_ITEMS || []).map((item) => {
+    const pricing = resolveCartItemPricing(item, catalogProducts);
+    return {
+      ...item,
+      quantity: Math.max(1, Number(item.quantity || 1)),
+      price: pricing.unitPrice,
+      originalPrice: pricing.originalPrice,
+      discountPercent: pricing.discountPercent,
+    };
+  });
+
   const promotions = computeCartPromotions(
-    ORDER_ITEMS,
+    pricedOrderItems,
     cartRules,
     catalogProducts
   );
@@ -134,8 +146,8 @@ const BillingInformation = () => {
     SHIPPING_OPTIONS.find((o) => o.id === shippingMethodId)?.price || 0;
   const shippingCost = promotions.freeShippingUnlocked ? 0 : rawShippingCost;
   const giftWrapCost =
-    giftWrap && ORDER_ITEMS.length > 0 ? promotions.giftWrapFee : 0;
-  const vat = ORDER_ITEMS.length > 0 ? 19 : 0;
+    giftWrap && pricedOrderItems.length > 0 ? promotions.giftWrapFee : 0;
+  const vat = pricedOrderItems.length > 0 ? 19 : 0;
   const total = Math.max(
     0,
     subtotal -
@@ -155,7 +167,7 @@ const BillingInformation = () => {
       return;
     }
 
-    if (ORDER_ITEMS.length === 0) {
+    if (pricedOrderItems.length === 0) {
       toast.error("Your cart is empty. Please add products first.");
       return;
     }
@@ -168,7 +180,7 @@ const BillingInformation = () => {
         lastName: lastName.trim(),
         email: email.trim(),
         id: user.uid,
-        OrderItems: ORDER_ITEMS,
+        OrderItems: pricedOrderItems,
         freeGifts: promotions.unlockedFreeGifts || [],
         subtotal: Number(subtotal.toFixed(2)),
         tieredDiscount: Number(tieredDiscount.toFixed(2)),
@@ -209,7 +221,15 @@ const BillingInformation = () => {
       saveLocalOrder(fullOrder);
 
       try {
-        await submitBackendOrder(fullOrder);
+        const res = await submitBackendOrder(fullOrder);
+        if (res?.data?.orderId) {
+          saveLocalOrder({
+            ...fullOrder,
+            ...res.data,
+            id: res.data.orderId,
+            orderId: res.data.orderId,
+          });
+        }
       } catch {
         // Saved locally above if offline
       }
@@ -361,7 +381,7 @@ const BillingInformation = () => {
         </div>
 
         <BillingOrderSummary
-          orderItems={ORDER_ITEMS}
+          orderItems={pricedOrderItems}
           subtotal={subtotal}
           promotions={promotions}
           tieredDiscount={tieredDiscount}

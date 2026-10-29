@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router";
-import { CheckCircle2, Clock, Package, Truck, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Gift, Package, Truck, XCircle } from "lucide-react";
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -38,7 +38,8 @@ export default function ProfileOrdersTab({ orders, onCancelOrder }) {
 
   return (
     <div className="space-y-5">
-      {orders.map((order) => {
+      {orders.map((order, orderIdx) => {
+        const resolvedOrderId = order.orderId || order.id || `ORD-${orderIdx}`;
         const status = order.status || "PENDING";
         const isCancelled = status === "CANCELLED";
         const currentStep = getStepIndex(status);
@@ -48,13 +49,13 @@ export default function ProfileOrdersTab({ orders, onCancelOrder }) {
 
         return (
           <div
-            key={order.id}
+            key={resolvedOrderId}
             className="bg-white border border-gray-200 rounded-xl p-6 shadow-xs"
           >
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-4 mb-4">
               <div>
                 <span className="font-mono text-xs font-bold text-gray-900">
-                  Order #{order.id}
+                  Order #{resolvedOrderId}
                 </span>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Placed on{" "}
@@ -63,12 +64,23 @@ export default function ProfileOrdersTab({ orders, onCancelOrder }) {
                     : "Recent"}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                {Number(order.tieredDiscount || 0) > 0 && (
+                  <span className="text-[11px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">
+                    VIP -{currency.format(Number(order.tieredDiscount))}
+                  </span>
+                )}
+                {Number(order.discount || 0) > 0 && (
+                  <span className="text-[11px] font-semibold bg-amber-50 text-amber-800 px-2 py-0.5 rounded">
+                    {order.couponCode || "Coupon"} -
+                    {currency.format(Number(order.discount))}
+                  </span>
+                )}
                 <span className="text-base font-bold text-gray-900">
                   {currency.format(Number(order.total || 0))}
                 </span>
                 <Link
-                  to={`/ordercomplete?orderId=${order.id}`}
+                  to={`/ordercomplete?orderId=${resolvedOrderId}`}
                   className="text-xs font-semibold underline text-gray-700 hover:text-black"
                 >
                   View Invoice
@@ -76,7 +88,7 @@ export default function ProfileOrdersTab({ orders, onCancelOrder }) {
                 {status === "PENDING" && (
                   <button
                     type="button"
-                    onClick={() => onCancelOrder(order.id)}
+                    onClick={() => onCancelOrder(resolvedOrderId)}
                     className="text-xs font-semibold text-red-600 border border-red-200 px-3 py-1 rounded hover:bg-red-50 cursor-pointer"
                   >
                     Cancel Order
@@ -114,35 +126,51 @@ export default function ProfileOrdersTab({ orders, onCancelOrder }) {
               </div>
             )}
 
-            {/* Line Items */}
+            {/* Line Items + Free Gifts */}
             <div className="divide-y divide-gray-100 text-xs">
-              {items.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="py-2 flex items-center justify-between"
-                >
-                  <div>
-                    <span className="font-semibold text-gray-900">
-                      {item.title || item.name}
-                    </span>{" "}
-                    <span className="text-gray-500">×{item.quantity || 1}</span>
-                    {(item.selectedSize || item.selectedColor) && (
-                      <span className="ml-2 text-gray-400">
-                        (
-                        {[item.selectedSize, item.selectedColor]
-                          .filter(Boolean)
-                          .join(" / ")}
-                        )
-                      </span>
-                    )}
+              {items.map((item, idx) => {
+                const sz = item.size || item.selectedSize;
+                const col = item.color || item.selectedColor;
+                return (
+                  <div
+                    key={idx}
+                    className="py-2 flex items-center justify-between"
+                  >
+                    <div>
+                      <span className="font-semibold text-gray-900">
+                        {item.title || item.name}
+                      </span>{" "}
+                      <span className="text-gray-500">×{item.quantity || 1}</span>
+                      {(sz || col) && (
+                        <span className="ml-2 text-gray-400">
+                          ({[sz, col].filter(Boolean).join(" / ")})
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-medium text-gray-900">
+                      {currency.format(
+                        Number(item.price || 0) * Number(item.quantity || 1)
+                      )}
+                    </span>
                   </div>
-                  <span className="font-medium text-gray-900">
-                    {currency.format(
-                      Number(item.price || 0) * Number(item.quantity || 1)
-                    )}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
+              {Array.isArray(order.freeGifts) &&
+                order.freeGifts.map((fg, gIdx) => (
+                  <div
+                    key={`fg-${gIdx}`}
+                    className="py-2 flex items-center justify-between text-emerald-800 font-semibold"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Gift size={13} className="text-emerald-600" />
+                      FREE GIFT: {fg.earnedGiftQty || fg.totalFreeGiftQty || 1}×{" "}
+                      {fg.giftName}
+                    </span>
+                    <span className="text-emerald-700 font-bold">
+                      FREE ($0.00)
+                    </span>
+                  </div>
+                ))}
             </div>
           </div>
         );

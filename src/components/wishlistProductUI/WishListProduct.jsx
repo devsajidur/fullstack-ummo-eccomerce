@@ -5,10 +5,12 @@ import { MdOutlineShoppingBag } from "react-icons/md";
 import { useDispatch } from "react-redux";
 import { deleteWishEndevisual } from "../../slices/wishListSlice";
 import { addToCart } from "../../slices/cartSlice";
+import { getProductDiscountState } from "../../utils/discountTimer";
 import toast from "react-hot-toast";
 
 const WishListProduct = ({ product }) => {
   const dispatch = useDispatch();
+  const discountState = getProductDiscountState(product);
 
   const handleDeleteWishProduct = (item) => {
     dispatch(deleteWishEndevisual(item));
@@ -16,15 +18,26 @@ const WishListProduct = ({ product }) => {
   };
 
   function handleAddtoCart(Citem) {
+    const latestDiscount = getProductDiscountState(Citem);
     dispatch(
       addToCart({
         id: Citem.id,
         title: Citem.title,
-        price: Number(Citem.price || 0),
+        price: latestDiscount.effectivePrice,
+        originalPrice: latestDiscount.originalPrice,
+        discountPercent: latestDiscount.discountPercent,
+        discountPercentage: Citem.discountPercentage,
+        discountEndTime: Citem.discountEndTime || null,
+        freeGift: Citem.freeGift || null,
         image: Citem.thumbnail,
+        quantity: 1,
+        size: "M",
+        color: "Black",
       })
     );
-    toast.success(`"${Citem.title}" added to cart!`);
+    toast.success(
+      `"${Citem.title}" added to cart at $${latestDiscount.effectivePrice.toFixed(2)}!`
+    );
   }
 
   const rating = Number(product?.rating || 4.8);
@@ -92,9 +105,25 @@ const WishListProduct = ({ product }) => {
 
           {/* Price */}
           <div className="mt-3 flex items-center gap-2">
-            <span className="text-base font-medium sm:text-lg">
-              ${Number(product?.price || 0).toFixed(2)}
+            <span
+              className={`text-base font-semibold sm:text-lg ${
+                discountState.isDiscountActive
+                  ? "text-[#D6001C]"
+                  : "text-primary"
+              }`}
+            >
+              ${discountState.effectivePrice.toFixed(2)}
             </span>
+            {discountState.isDiscountActive && (
+              <>
+                <span className="text-xs text-gray-400 line-through">
+                  ${discountState.originalPrice.toFixed(2)}
+                </span>
+                <span className="text-[10px] font-bold bg-red-50 text-[#D6001C] px-1.5 py-0.5 rounded">
+                  -{discountState.discountPercent}% OFF
+                </span>
+              </>
+            )}
           </div>
         </div>
 

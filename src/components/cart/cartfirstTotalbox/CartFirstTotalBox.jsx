@@ -80,6 +80,9 @@ export default function CartFirstTotalBox() {
   const totalSavings = Number(
     (promo.tieredDiscount + couponDiscount).toFixed(2)
   );
+  const totalCustomerSavings = Number(
+    (totalSavings + Number(promo.productDiscountSavings || 0)).toFixed(2)
+  );
   const total = Math.max(
     0,
     Number(
@@ -245,6 +248,16 @@ export default function CartFirstTotalBox() {
             Cart totals
           </h2>
 
+          {/* Original Price & Product Discounts */}
+          {promo.productDiscountSavings > 0 && (
+            <div className="grid grid-cols-2 gap-4 pb-2 text-xs text-[#D6001C] font-semibold">
+              <span className="uppercase">Product Flash/Sale Discounts</span>
+              <span className="text-right">
+                -${promo.productDiscountSavings.toFixed(2)}
+              </span>
+            </div>
+          )}
+
           {/* Subtotal */}
           <div className="grid grid-cols-2 gap-4 pb-3">
             <span className="text-primary text-sm font-medium leading-6 uppercase">
@@ -361,9 +374,9 @@ export default function CartFirstTotalBox() {
             </span>
           </div>
 
-          {totalSavings > 0 && (
+          {totalCustomerSavings > 0 && (
             <div className="mb-4 p-2.5 rounded bg-emerald-50 border border-emerald-200 text-center text-xs font-bold text-emerald-800">
-              🎉 You are saving ${totalSavings.toFixed(2)} on this order!
+              🎉 You are saving ${totalCustomerSavings.toFixed(2)} on this order!
             </div>
           )}
         </div>

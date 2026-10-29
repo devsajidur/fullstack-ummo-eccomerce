@@ -1,4 +1,5 @@
 import { apiClient, initStoreConfigSync } from "../services/api";
+import { getProductDiscountState } from "./discountTimer";
 
 const CART_RULES_STORAGE_KEY = "ummo_admin_cart_rules_v2";
 const RECENTLY_VIEWED_KEY = "ummo_recently_viewed_v1";
@@ -118,8 +119,70 @@ export function evaluateCartItemFreeGift(cartItem, catalogProducts = []) {
 }
 
 /**
+ * Resolves the live discounted unit price and original price of a cart item,
+ * dynamically checking catalogProducts (and countdown timer expiration) first.
+ */
+export function resolveCartItemPricing(cartItem, catalogProducts = []) {
+  if (!cartItem) {
+    return {
+      unitPrice: 0,
+      originalPrice: 0,
+      discountPercent: 0,
+      isDiscountActive: false,
+      savingsPerUnit: 0,
+    };
+  }
+  const liveMatch = Array.isArray(catalogProducts)
+    ? catalogProducts.find((p) => String(p.id) === String(cartItem.id))
+    : null;
+
+  if (liveMatch) {
+    const state = getProductDiscountState(liveMatch);
+    return {
+      unitPrice: state.effectivePrice,
+      originalPrice: state.originalPrice,
+      discountPercent: state.discountPercent,
+      isDiscountActive: state.isDiscountActive,
+      savingsPerUnit: state.savingsAmount,
+    };
+  }
+
+  const baseOriginal = Number(cartItem.originalPrice || cartItem.price || 0);
+  const rawPct = Number(
+    cartItem.discountPercentage ?? cartItem.discountPercent ?? 0
+  );
+  if (baseOriginal > 0 && rawPct > 0) {
+    const state = getProductDiscountState({
+      price: baseOriginal,
+      discountPercentage: rawPct,
+      discountEndTime: cartItem.discountEndTime || null,
+    });
+    return {
+      unitPrice: state.effectivePrice,
+      originalPrice: state.originalPrice,
+      discountPercent: state.discountPercent,
+      isDiscountActive: state.isDiscountActive,
+      savingsPerUnit: state.savingsAmount,
+    };
+  }
+
+  const unitPrice = Number(Number(cartItem.price || 0).toFixed(2));
+  const originalPrice = Number(
+    Math.max(unitPrice, Number(cartItem.originalPrice || unitPrice)).toFixed(2)
+  );
+  return {
+    unitPrice,
+    originalPrice,
+    discountPercent: 0,
+    isDiscountActive: originalPrice > unitPrice,
+    savingsPerUnit: Number((originalPrice - unitPrice).toFixed(2)),
+  };
+}
+
+/**
  * Computes all active cart promotions:
- * - Subtotal & Total Unit Count
+ * - Subtotal & Total Unit Count (always using live discounted unit prices)
+ * - Total Product-Level Discount Savings
  * - Free Shipping threshold progress & automatic free delivery unlock
  * - Per-Product Free Gifts unlocked by items in the cart
  * - Tiered Spend automatic VIP discount
@@ -130,18 +193,24 @@ export function computeCartPromotions(
   catalogProducts = []
 ) {
   const items = Array.isArray(cartItems) ? cartItems : [];
-  const subtotal = Number(
-    items
-      .reduce(
-        (sum, item) =>
-          sum + Number(item.price || 0) * Number(item.quantity || 1),
-        0
-      )
-      .toFixed(2)
+  let rawSubtotal = 0;
+  let rawOriginalSubtotal = 0;
+
+  items.forEach((item) => {
+    const qty = Math.max(1, Number(item?.quantity || 1));
+    const pricing = resolveCartItemPricing(item, catalogProducts);
+    rawSubtotal += pricing.unitPrice * qty;
+    rawOriginalSubtotal += pricing.originalPrice * qty;
+  });
+
+  const subtotal = Number(rawSubtotal.toFixed(2));
+  const originalSubtotal = Number(rawOriginalSubtotal.toFixed(2));
+  const productDiscountSavings = Number(
+    Math.max(0, originalSubtotal - subtotal).toFixed(2)
   );
 
   const totalUnits = items.reduce(
-    (sum, item) => sum + Number(item.quantity || 1),
+    (sum, item) => sum + Math.max(1, Number(item?.quantity || 1)),
     0
   );
 
@@ -189,6 +258,8 @@ export function computeCartPromotions(
 
   return {
     subtotal,
+    originalSubtotal,
+    productDiscountSavings,
     totalUnits,
     freeShippingEnabled: Boolean(rules.freeShippingEnabled),
     freeShippingThreshold: threshold,

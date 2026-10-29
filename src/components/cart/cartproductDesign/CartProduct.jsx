@@ -6,7 +6,10 @@ import {
   RemoveItem,
 } from "../../../slices/cartSlice";
 import { Gift } from "lucide-react";
-import { evaluateCartItemFreeGift } from "../../../utils/cartPromotions";
+import {
+  evaluateCartItemFreeGift,
+  resolveCartItemPricing,
+} from "../../../utils/cartPromotions";
 
 const EMPTY_LIST = [];
 
@@ -26,6 +29,8 @@ const CartProduct = (props) => {
   };
 
   const freeGiftState = evaluateCartItemFreeGift(props, catalogProducts);
+  const pricing = resolveCartItemPricing(props, catalogProducts);
+  const qty = Math.max(1, Number(props.quantity || 1));
 
   return (
     <>
@@ -81,9 +86,27 @@ const CartProduct = (props) => {
           </div>
         </div>
         <div className="flex items-center w-2/4 justify-between">
-          <h3 className="xl:mr-15 text-[16px] font-normal text-gray">
-            ${Number(props.price || 0).toFixed(2)}
-          </h3>
+          <div className="xl:mr-15">
+            <h3
+              className={`text-[16px] font-medium ${
+                pricing.isDiscountActive ? "text-[#D6001C]" : "text-gray"
+              }`}
+            >
+              ${pricing.unitPrice.toFixed(2)}
+            </h3>
+            {pricing.isDiscountActive && (
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className="text-xs text-gray-400 line-through">
+                  ${pricing.originalPrice.toFixed(2)}
+                </span>
+                {pricing.discountPercent > 0 && (
+                  <span className="text-[10px] font-bold bg-red-50 text-[#D6001C] px-1 rounded">
+                    -{pricing.discountPercent}%
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
           <div className="xl:h-12.5 xl:w-27.5 h-10 w-20 xl:mr-20.5 leading-12.5 flex justify-between items-center lg:px-3.75 border-3 border-[#E4E4E4]">
             <button
               type="button"
@@ -93,7 +116,7 @@ const CartProduct = (props) => {
               -
             </button>
             <span className="text-[16px] text-gray font-normal">
-              {props.quantity}
+              {qty}
             </span>
             <button
               type="button"
@@ -104,10 +127,7 @@ const CartProduct = (props) => {
             </button>
           </div>
           <h3 className="text-[16px] font-medium text-primary">
-            $
-            {(Number(props.quantity || 1) * Number(props.price || 0)).toFixed(
-              2
-            )}
+            ${(qty * pricing.unitPrice).toFixed(2)}
           </h3>
 
           <h2 className="xl:ml-15">
@@ -182,9 +202,20 @@ const CartProduct = (props) => {
             </button>
           </div>
 
-          <p className="text-xs text-gray mt-1">
-            Unit: ${Number(props.price || 0).toFixed(2)}
-          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <p
+              className={`text-xs font-medium ${
+                pricing.isDiscountActive ? "text-[#D6001C]" : "text-gray"
+              }`}
+            >
+              Unit: ${pricing.unitPrice.toFixed(2)}
+            </p>
+            {pricing.isDiscountActive && (
+              <span className="text-[11px] text-gray-400 line-through">
+                ${pricing.originalPrice.toFixed(2)}
+              </span>
+            )}
+          </div>
 
           {freeGiftState.hasFreeGiftRule && freeGiftState.unlocked && (
             <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded">
@@ -214,7 +245,7 @@ const CartProduct = (props) => {
                 -
               </button>
               <span className="text-sm text-primary font-medium">
-                {props.quantity}
+                {qty}
               </span>
               <button
                 type="button"
@@ -225,10 +256,7 @@ const CartProduct = (props) => {
               </button>
             </div>
             <h3 className="text-sm font-semibold text-primary">
-              $
-              {(Number(props.quantity || 1) * Number(props.price || 0)).toFixed(
-                2
-              )}
+              ${(qty * pricing.unitPrice).toFixed(2)}
             </h3>
           </div>
         </div>

@@ -24,6 +24,7 @@ import {
   deductOrderInventory,
   validateAndBuildServerOrder,
 } from "../api/orderService.js";
+import { getProductDiscountState } from "../src/utils/discountTimer.js";
 import handler from "../api/index.js";
 
 function createMockReqRes({
@@ -720,6 +721,95 @@ test("Phase 7: End-to-End Admin Dashboard (Products, Banners, Coupons, Cart Rule
       db.collection("subscribers").deleteOne({ id: testSubId }).catch(() => {}),
     ]);
   }
+});
+
+test("Phase 5.4: Discount Timer Engine, Multi-Quantity Cart Addition & Per-Product Free Gift Calculation", async () => {
+  const futureIso = new Date(Date.now() + 12 * 3600 * 1000).toISOString();
+  const pastIso = new Date(Date.now() - 3600 * 1000).toISOString();
+
+  // 1. Active countdown discount calculation
+  const activeState = getProductDiscountState({
+    price: 100,
+    discountPercentage: 25,
+    discountEndTime: futureIso,
+  });
+  assert.equal(activeState.originalPrice, 100);
+  assert.equal(activeState.effectivePrice, 75);
+  assert.equal(activeState.savingsAmount, 25);
+  assert.equal(activeState.discountPercent, 25);
+  assert.equal(activeState.isDiscountActive, true);
+  assert.equal(activeState.hasActiveTimer, true);
+  assert.equal(activeState.timerExpired, false);
+
+  // 2. Expired countdown timer automatically reverts to original price
+  const expiredState = getProductDiscountState({
+    price: 100,
+    discountPercentage: 25,
+    discountEndTime: pastIso,
+  });
+  assert.equal(expiredState.originalPrice, 100);
+  assert.equal(expiredState.effectivePrice, 100);
+  assert.equal(expiredState.savingsAmount, 0);
+  assert.equal(expiredState.discountPercent, 0);
+  assert.equal(expiredState.isDiscountActive, false);
+  assert.equal(expiredState.hasActiveTimer, false);
+  assert.equal(expiredState.timerExpired, true);
+
+  // 3. Multi-quantity order (qty=4) with 25% discount + per-product free gift (minBuyQty=2 -> 2x gift) + VIP + coupon
+  const mockState = createInitialMemoryState();
+  mockState.storeConfig.customProducts = [
+    {
+      id: "PROD-MULTI-QTY",
+      title: "Premium Olive Oil 1L",
+      price: 100,
+      discountPercentage: 25,
+      discountEndTime: futureIso,
+      stock: 20,
+      freeGift: {
+        enabled: true,
+        minBuyQty: 2,
+        giftQty: 1,
+        giftName: "Executive Pen",
+      },
+    },
+  ];
+
+  const order = validateAndBuildServerOrder(
+    {
+      userUid: "cust-multi",
+      email: "multi@ummo.test",
+      couponCode: "WELCOME10",
+      shippingMethod: "flat",
+      OrderItems: [
+        {
+          id: "PROD-MULTI-QTY",
+          title: "Premium Olive Oil 1L",
+          price: 75,
+          quantity: 4,
+          size: "L",
+          color: "Olive",
+        },
+      ],
+    },
+    mockState,
+    { uid: "cust-multi", email: "multi@ummo.test", isAdmin: false }
+  );
+
+  // 4 * $75 = $300 subtotal
+  assert.equal(order.subtotal, 300);
+  assert.equal(order.OrderItems[0].quantity, 4);
+  assert.equal(order.OrderItems[0].price, 75);
+  assert.equal(order.OrderItems[0].size, "L");
+  assert.equal(order.OrderItems[0].color, "Olive");
+  // Free gift unlocked: floor(4 / 2) * 1 = 2
+  assert.equal(order.freeGifts.length, 1);
+  assert.equal(order.freeGifts[0].earnedGiftQty, 2);
+  assert.equal(order.freeGifts[0].totalFreeGiftQty, 2);
+  // VIP 10% off $300 = $30, Coupon WELCOME10 10% off ($300 - $30) = $27
+  assert.equal(order.tieredDiscount, 30);
+  assert.equal(order.discount, 27);
+  assert.equal(order.freeShippingUnlocked, true);
+  assert.equal(order.shipping, 0);
 });
 
 test.after(async () => {

@@ -56,25 +56,37 @@ export default function AdminOrdersTab({ orders, onUpdateOrderStatus }) {
         </p>
       ) : (
         <div className="space-y-4">
-          {filteredOrders.map((order) => {
+          {filteredOrders.map((order, orderIdx) => {
+            const resolvedOrderId = order.orderId || order.id || `ORD-${orderIdx}`;
             const items = Array.isArray(order.OrderItems)
               ? order.OrderItems
               : Object.values(order.OrderItems || {});
             return (
               <div
-                key={`${order.userUid}-${order.orderId}`}
+                key={`${order.userUid || "guest"}-${resolvedOrderId}`}
                 className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-all"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-3 mb-3">
                   <div>
                     <span className="font-mono text-xs font-bold text-gray-900">
-                      Order #{order.orderId}
+                      Order #{resolvedOrderId}
                     </span>
                     <span className="text-xs text-gray-500 ml-3">
-                      {order.username} ({order.email})
+                      {order.username || "Customer"} ({order.email || "No email"})
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
+                    {Number(order.tieredDiscount || 0) > 0 && (
+                      <span className="text-[11px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">
+                        VIP -{currency.format(Number(order.tieredDiscount))}
+                      </span>
+                    )}
+                    {Number(order.discount || 0) > 0 && (
+                      <span className="text-[11px] font-semibold bg-amber-50 text-amber-800 px-2 py-0.5 rounded">
+                        {order.couponCode || "Coupon"} -
+                        {currency.format(Number(order.discount))}
+                      </span>
+                    )}
                     <span className="text-sm font-bold text-gray-900">
                       {currency.format(Number(order.total || 0))}
                     </span>
@@ -94,22 +106,26 @@ export default function AdminOrdersTab({ orders, onUpdateOrderStatus }) {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {items.map((it, idx) => (
-                    <span
-                      key={idx}
-                      className="text-xs bg-gray-50 border border-gray-200 rounded px-2.5 py-1 text-gray-700"
-                    >
-                      {it.title || it.name} ×{it.quantity || 1}
-                      {it.selectedSize ? ` (${it.selectedSize})` : ""}
-                    </span>
-                  ))}
+                  {items.map((it, idx) => {
+                    const sz = it.size || it.selectedSize;
+                    return (
+                      <span
+                        key={idx}
+                        className="text-xs bg-gray-50 border border-gray-200 rounded px-2.5 py-1 text-gray-700"
+                      >
+                        {it.title || it.name} ×{it.quantity || 1}
+                        {sz ? ` (${sz})` : ""}
+                      </span>
+                    );
+                  })}
                   {Array.isArray(order.freeGifts) &&
                     order.freeGifts.map((fg, gIdx) => (
                       <span
                         key={`fg-${gIdx}`}
                         className="text-xs bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1 text-emerald-800 font-semibold"
                       >
-                        🎁 FREE GIFT: {fg.earnedGiftQty}× {fg.giftName}
+                        🎁 FREE GIFT: {fg.earnedGiftQty || fg.totalFreeGiftQty || 1}×{" "}
+                        {fg.giftName}
                       </span>
                     ))}
                 </div>

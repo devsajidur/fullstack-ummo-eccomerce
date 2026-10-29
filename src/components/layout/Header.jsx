@@ -31,6 +31,14 @@ const Header = () => {
   const [menuActive, setmenuActive] = useState(false);
   const CartProduct = useSelector((state) => state.cart.products);
   const WishProduct = useSelector((state) => state.wishList.wishProduct);
+  const totalCartCount = useMemo(
+    () =>
+      (CartProduct || []).reduce(
+        (sum, item) => sum + Math.max(1, Number(item?.quantity || 1)),
+        0
+      ),
+    [CartProduct]
+  );
   const [User, setuser] = useState(null);
   const [searchOpen, setsearchOpen] = useState(false);
   const [Input, setInput] = useState("");
@@ -212,7 +220,7 @@ const Header = () => {
               >
                 <ShoppingBag size={20} />
                 <span className="absolute -bottom-1.5 -right-2 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">
-                  {CartProduct.length}
+                  {totalCartCount}
                 </span>
               </button>
 
@@ -393,7 +401,7 @@ const Header = () => {
             >
               <ShoppingBag size={20} />
               <span className="block size-4 bg-[#b9a16b] rounded-full text-[10px] font-medium absolute -right-2 -bottom-2 text-white">
-                {CartProduct.length}
+                {totalCartCount}
               </span>
             </button>
           </div>

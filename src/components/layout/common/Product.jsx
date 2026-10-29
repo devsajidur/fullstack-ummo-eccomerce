@@ -60,15 +60,21 @@ const Product = memo(function Product({ item }) {
       toast.error("Sorry, this product is currently out of stock.");
       return;
     }
+    const latestDiscount = getProductDiscountState(Citem);
     dispatch(
       addToCart({
         id: Citem.id,
         title: Citem.title,
-        price: discountState.effectivePrice,
-        originalPrice: discountState.originalPrice,
-        discountPercent: discountState.discountPercent,
+        price: latestDiscount.effectivePrice,
+        originalPrice: latestDiscount.originalPrice,
+        discountPercent: latestDiscount.discountPercent,
+        discountPercentage: Citem.discountPercentage,
+        discountEndTime: Citem.discountEndTime || null,
         freeGift: Citem.freeGift || null,
         image: Citem.thumbnail,
+        quantity: 1,
+        size: "M",
+        color: "Black",
       })
     );
     if (hasFreeGift) {
@@ -77,7 +83,7 @@ const Product = memo(function Product({ item }) {
       );
     } else {
       toast.success(
-        `"${Citem.title}" added to cart at $${discountState.effectivePrice.toFixed(2)}!`
+        `"${Citem.title}" added to cart at $${latestDiscount.effectivePrice.toFixed(2)}!`
       );
     }
   }

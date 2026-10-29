@@ -3,6 +3,7 @@ import { asSafeEmail, asSafeId } from "./security.js";
 const SHIPPING_RATES = {
   flat: 8,
   pickup: 0,
+  free: 0,
   express: 15,
 };
 
@@ -173,24 +174,46 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
       const giftPerBundle = Math.max(1, Number(fg.giftQty || 1));
       if (qty >= minBuy) {
         const multiplier = Math.floor(qty / minBuy);
+        const earnedQty = multiplier * giftPerBundle;
+        const safeParentTitle = asSafeId(
+          catalogOverride?.title || rawItem?.title || "Product",
+          160
+        );
         unlockedFreeGifts.push({
           parentProductId: itemId,
-          parentTitle: asSafeId(catalogOverride?.title || rawItem?.title || "Product", 160),
+          parentTitle: safeParentTitle,
+          parentProductTitle: safeParentTitle,
           giftName: asSafeId(fg.giftName, 120),
           giftImage: asSafeId(fg.giftImage || "", 300),
-          totalFreeGiftQty: multiplier * giftPerBundle,
+          totalFreeGiftQty: earnedQty,
+          earnedGiftQty: earnedQty,
         });
       }
     }
 
+    const resolvedThumb = asSafeId(
+      catalogOverride?.thumbnail || rawItem?.image || rawItem?.thumbnail || "",
+      300
+    );
+    const resolvedSize = asSafeId(
+      rawItem?.size || rawItem?.selectedSize || "M",
+      32
+    );
+    const resolvedColor = asSafeId(
+      rawItem?.color || rawItem?.selectedColor || "Black",
+      32
+    );
     validatedItems.push({
       id: itemId,
       title: asSafeId(catalogOverride?.title || rawItem?.title || `Product #${itemId}`, 160),
       price: unitPrice,
       quantity: qty,
-      thumbnail: asSafeId(catalogOverride?.thumbnail || rawItem?.thumbnail || "", 300),
-      selectedSize: asSafeId(rawItem?.selectedSize || "", 32),
-      selectedColor: asSafeId(rawItem?.selectedColor || "", 32),
+      image: resolvedThumb,
+      thumbnail: resolvedThumb,
+      size: resolvedSize,
+      color: resolvedColor,
+      selectedSize: resolvedSize,
+      selectedColor: resolvedColor,
     });
   }
 

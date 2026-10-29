@@ -33,16 +33,24 @@ function stopSharedTickerIfIdle() {
   }
 }
 
+/**
+ * Computes the active discount and countdown timer state for a product.
+ * When `discountEndTime` is in the past, the discount automatically expires
+ * and `effectivePrice` reverts to `originalPrice`.
+ */
 export function getProductDiscountState(product, nowMs = Date.now()) {
   const basePrice = Number(product?.price || 0);
-  const rawDiscount = Number(product?.discountPercentage || 0);
-  const endTimeRaw = product?.discountEndTime || null;
+  const rawDiscount = Math.max(
+    0,
+    Math.min(95, Number(product?.discountPercentage || 0))
+  );
+  const endTimeRaw = product?.discountEndTime;
 
   let hasTimer = false;
   let timerExpired = false;
   let remainingMs = 0;
 
-  if (endTimeRaw) {
+  if (endTimeRaw && endTimeRaw !== "none") {
     const endMs = new Date(endTimeRaw).getTime();
     if (!Number.isNaN(endMs) && endMs > 0) {
       hasTimer = true;
@@ -51,18 +59,14 @@ export function getProductDiscountState(product, nowMs = Date.now()) {
     }
   }
 
-  const isDiscountActive = rawDiscount > 0 && (!hasTimer || !timerExpired);
-  const effectiveDiscountPercent = isDiscountActive
-    ? Math.round(rawDiscount)
-    : 0;
+  const isDiscountActive = rawDiscount >= 1 && !timerExpired;
+  const discountPercent = isDiscountActive ? Math.round(rawDiscount) : 0;
 
-  const discountedPrice = isDiscountActive
+  const originalPrice = Number(basePrice.toFixed(2));
+  const effectivePrice = isDiscountActive
     ? Number((basePrice * (1 - rawDiscount / 100)).toFixed(2))
-    : Number(basePrice.toFixed(2));
-
-  const originalPrice = isDiscountActive
-    ? Number((basePrice / (1 - Math.min(rawDiscount, 90) / 100)).toFixed(2))
-    : Number(basePrice.toFixed(2));
+    : originalPrice;
+  const savingsAmount = Number((originalPrice - effectivePrice).toFixed(2));
 
   const totalSeconds = Math.floor(remainingMs / 1000);
   const days = Math.floor(totalSeconds / 86400);
@@ -72,17 +76,19 @@ export function getProductDiscountState(product, nowMs = Date.now()) {
 
   return {
     isDiscountActive,
-    discountPercent: effectiveDiscountPercent,
-    hasActiveTimer: isDiscountActive && hasTimer && !timerExpired,
+    hasActiveTimer: isDiscountActive && hasTimer && remainingMs > 0,
     timerExpired,
+    discountPercent,
+    originalPrice,
+    effectivePrice,
+    discountedPrice: effectivePrice,
+    savingsAmount,
     remainingMs,
     days,
     hours,
     minutes,
     seconds,
-    effectivePrice: Number(basePrice.toFixed(2)),
-    originalPrice,
-    discountedPrice,
+    discountEndTime: endTimeRaw || "",
   };
 }
 

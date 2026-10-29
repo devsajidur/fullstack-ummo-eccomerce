@@ -1,9 +1,32 @@
 import { createSlice } from "@reduxjs/toolkit";
 
+const getNormalizedSize = (obj) => obj?.size || obj?.selectedSize || "M";
+const getNormalizedColor = (obj) => {
+  const raw = obj?.color || obj?.selectedColor || "Black";
+  return raw === "Default" ? "Black" : raw;
+};
+
+const normalizeCartItem = (item) => {
+  if (!item || typeof item !== "object") return null;
+  const size = getNormalizedSize(item);
+  const color = getNormalizedColor(item);
+  return {
+    ...item,
+    quantity: Math.max(1, Number(item.quantity) || 1),
+    size,
+    color,
+    selectedSize: size,
+    selectedColor: color,
+  };
+};
+
 const loadCarts = () => {
   try {
     const saved = localStorage.getItem("carts");
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeCartItem).filter(Boolean);
   } catch {
     return [];
   }
@@ -19,9 +42,15 @@ const loadCoupon = () => {
 };
 
 const isSameVariant = (item, target) =>
-  String(item.id) === String(target.id) &&
-  (item.size || "M") === (target.size || "M") &&
-  (item.color || "Default") === (target.color || "Default");
+  String(item?.id) === String(target?.id) &&
+  getNormalizedSize(item) === getNormalizedSize(target) &&
+  getNormalizedColor(item) === getNormalizedColor(target);
+
+const findCartTarget = (products, payload) => {
+  const exact = products.find((item) => isSameVariant(item, payload));
+  if (exact) return exact;
+  return products.find((item) => String(item?.id) === String(payload?.id));
+};
 
 const initialState = {
   products: loadCarts(),
@@ -36,22 +65,32 @@ export const cartSlice = createSlice({
   initialState,
   reducers: {
     addToCart: (state, action) => {
-      const incomingQty = Number(action.payload.quantity) || 1;
-      const incomingSize =
-        action.payload.size || action.payload.selectedSize || "M";
-      const incomingColor =
-        action.payload.color || action.payload.selectedColor || "Default";
+      const incomingQty = Math.max(1, Number(action.payload?.quantity) || 1);
+      const incomingSize = getNormalizedSize(action.payload);
+      const incomingColor = getNormalizedColor(action.payload);
 
       const existing = state.products.find((fitem) =>
         isSameVariant(fitem, {
-          id: action.payload.id,
+          id: action.payload?.id,
           size: incomingSize,
           color: incomingColor,
         })
       );
 
       if (existing) {
-        existing.quantity += incomingQty;
+        existing.quantity = Math.max(1, Number(existing.quantity) || 1) + incomingQty;
+        if (action.payload.price !== undefined) {
+          existing.price = Number(action.payload.price);
+        }
+        if (action.payload.originalPrice !== undefined) {
+          existing.originalPrice = Number(action.payload.originalPrice);
+        }
+        if (action.payload.discountPercent !== undefined) {
+          existing.discountPercent = Number(action.payload.discountPercent);
+        }
+        if (action.payload.discountEndTime !== undefined) {
+          existing.discountEndTime = action.payload.discountEndTime;
+        }
         if (action.payload.freeGift !== undefined) {
           existing.freeGift = action.payload.freeGift;
         }
@@ -68,32 +107,31 @@ export const cartSlice = createSlice({
       localStorage.setItem("carts", JSON.stringify(state.products));
     },
     quentityIncrease: (state, action) => {
-      const found = state.products.find((item) =>
-        isSameVariant(item, action.payload)
-      );
+      const found = findCartTarget(state.products, action.payload);
       if (found) {
-        found.quantity++;
+        found.quantity = Math.max(1, Number(found.quantity) || 1) + 1;
         localStorage.setItem("carts", JSON.stringify(state.products));
       }
     },
     quentityDecrease: (state, action) => {
-      const found = state.products.find((item) =>
-        isSameVariant(item, action.payload)
-      );
+      const found = findCartTarget(state.products, action.payload);
       if (found) {
-        found.quantity--;
+        found.quantity = Math.max(0, (Number(found.quantity) || 1) - 1);
         if (found.quantity < 1) {
-          state.products = state.products.filter(
-            (item) => !isSameVariant(item, action.payload)
-          );
+          state.products = state.products.filter((item) => item !== found);
         }
         localStorage.setItem("carts", JSON.stringify(state.products));
       }
     },
     RemoveItem: (state, action) => {
-      state.products = state.products.filter(
-        (item) => !isSameVariant(item, action.payload)
-      );
+      const found = findCartTarget(state.products, action.payload);
+      if (found) {
+        state.products = state.products.filter((item) => item !== found);
+      } else {
+        state.products = state.products.filter(
+          (item) => !isSameVariant(item, action.payload)
+        );
+      }
       localStorage.setItem("carts", JSON.stringify(state.products));
     },
     EmptyCart: (state) => {

@@ -63,6 +63,7 @@ export default function ProductDetails() {
 
   useEffect(() => {
     setActiveImageIdx(0);
+    setQuantity(1);
     if (
       !detailsProduct?.id ||
       (productIdParam && String(detailsProduct.id) !== String(productIdParam))
@@ -101,14 +102,20 @@ export default function ProductDetails() {
       toast.error("Sorry, this product is currently out of stock.");
       return;
     }
-    const finalQty = customQty !== null ? customQty : quantity;
+    const finalQty = Math.max(
+      1,
+      Number(customQty !== null ? customQty : quantity) || 1
+    );
+    const latestDiscount = getProductDiscountState(liveProduct);
     dispatch(
       addToCart({
         id: liveProduct.id,
         title: liveProduct.title,
-        price: discountState.effectivePrice,
-        originalPrice: discountState.originalPrice,
-        discountPercent: discountState.discountPercent,
+        price: latestDiscount.effectivePrice,
+        originalPrice: latestDiscount.originalPrice,
+        discountPercent: latestDiscount.discountPercent,
+        discountPercentage: liveProduct.discountPercentage,
+        discountEndTime: liveProduct.discountEndTime || null,
         freeGift: liveProduct.freeGift || null,
         image: liveProduct.thumbnail,
         quantity: finalQty,
@@ -125,7 +132,7 @@ export default function ProductDetails() {
       );
     } else {
       toast.success(
-        `Added ${finalQty} × ${liveProduct.title} ($${discountState.effectivePrice.toFixed(2)}) to cart!`
+        `Added ${finalQty} × ${liveProduct.title} ($${(latestDiscount.effectivePrice * finalQty).toFixed(2)}) to cart!`
       );
     }
     if (redirectToCheckout) {
@@ -388,7 +395,11 @@ export default function ProductDetails() {
                   onClick={() => handleAddToCart(false)}
                   className="cursor-pointer bg-primary px-8 h-12 text-sm uppercase tracking-wider font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                 >
-                  {stockCount <= 0 ? "Out of Stock" : "Add to Cart"}
+                  {stockCount <= 0
+                    ? "Out of Stock"
+                    : quantity > 1
+                      ? `Add ${quantity} to Cart ($${(discountState.effectivePrice * quantity).toFixed(2)})`
+                      : "Add to Cart"}
                 </button>
 
                 <button

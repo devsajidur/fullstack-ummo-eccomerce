@@ -90,12 +90,18 @@ export default function OrderComplete() {
         0
       )
   );
+  const tieredDiscount = Number(order.tieredDiscount || 0);
   const discount = Number(order.discount || 0);
   const couponCode = order.couponCode || null;
   const shipping = Number(order.shipping || 0);
+  const giftWrapCost = Number(order.giftWrapCost || 0);
   const vat = Number(order.vat || 0);
   const total = Number(
-    order.total ?? Math.max(0, subtotal - discount) + shipping + vat
+    order.total ??
+      Math.max(0, subtotal - tieredDiscount - discount) +
+        shipping +
+        giftWrapCost +
+        vat
   );
   const billing = order.billing || {};
   const status = order.status || "PENDING";
@@ -178,9 +184,19 @@ export default function OrderComplete() {
                   <span>
                     {item.title || item.name} x{item.quantity || 1}
                   </span>
-                  {(item.selectedSize || item.selectedColor) && (
+                  {(item.size ||
+                    item.selectedSize ||
+                    item.color ||
+                    item.selectedColor) && (
                     <span className="ml-2 text-xs text-gray-400">
-                      ({[item.selectedSize, item.selectedColor].filter(Boolean).join(" / ")})
+                      (
+                      {[
+                        item.size || item.selectedSize,
+                        item.color || item.selectedColor,
+                      ]
+                        .filter(Boolean)
+                        .join(" / ")}
+                      )
                     </span>
                   )}
                 </div>
@@ -199,7 +215,8 @@ export default function OrderComplete() {
                 >
                   <span className="flex items-center gap-1.5">
                     <Gift size={13} className="text-emerald-600" />
-                    FREE GIFT: {gift.totalFreeGiftQty || 1}x {gift.giftName}
+                    FREE GIFT: {gift.earnedGiftQty || gift.totalFreeGiftQty || 1}x{" "}
+                    {gift.giftName}
                   </span>
                   <span className="font-bold text-emerald-700">FREE ($0.00)</span>
                 </div>
@@ -207,10 +224,22 @@ export default function OrderComplete() {
           </div>
 
           <SummaryRow label="SUBTOTAL" value={currency.format(subtotal)} />
+          {tieredDiscount > 0 && (
+            <SummaryRow
+              label="VIP SPEND DISCOUNT"
+              value={`-${currency.format(tieredDiscount)}`}
+            />
+          )}
           {discount > 0 && (
             <SummaryRow
-              label={`DISCOUNT${couponCode ? ` (${couponCode})` : ""}`}
+              label={`COUPON DISCOUNT${couponCode ? ` (${couponCode})` : ""}`}
               value={`-${currency.format(discount)}`}
+            />
+          )}
+          {giftWrapCost > 0 && (
+            <SummaryRow
+              label="LUXURY GIFT PACKAGING"
+              value={`+${currency.format(giftWrapCost)}`}
             />
           )}
           <SummaryRow
