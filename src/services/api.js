@@ -23,6 +23,26 @@ apiClient.interceptors.request.use((config) => {
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
+  try {
+    if (typeof localStorage !== "undefined") {
+      const rawUser = localStorage.getItem("ummo_active_user");
+      const activeUser = rawUser ? JSON.parse(rawUser) : null;
+      if (activeUser?.uid) {
+        config.headers["X-User-Uid"] = String(activeUser.uid);
+      }
+      if (activeUser?.email) {
+        config.headers["X-User-Email"] = String(activeUser.email);
+      }
+      const isAdminUnlocked =
+        localStorage.getItem("ummo_admin_unlocked") === "true" ||
+        String(activeUser?.role || "").toUpperCase() === "ADMIN";
+      if (isAdminUnlocked) {
+        config.headers["X-Admin-Key"] = "UMMO_ADMIN_SHIELD_2026";
+      }
+    }
+  } catch {
+    // ignore storage access errors
+  }
   return config;
 });
 
@@ -416,7 +436,8 @@ export async function submitBackendOrder(orderPayload) {
   return response.data;
 }
 
-export async function updateOrderStatusInMongo(orderId, status) {
+export async function updateOrderStatusInMongo(orderId, statusOrUid, maybeStatus) {
+  const status = maybeStatus !== undefined ? maybeStatus : statusOrUid;
   const response = await apiClient.patch("/orders/status", { orderId, status });
   return response.data;
 }

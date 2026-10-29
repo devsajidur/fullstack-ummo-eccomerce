@@ -1,291 +1,254 @@
 import crypto from "node:crypto";
-import { MongoClient } from "mongodb";
+import {
+  CLOUDINARY_API_KEY,
+  CLOUDINARY_CLOUD_NAME,
+  DB_NAME,
+  getCloudinarySecret,
+  getFullState,
+  getMongoDb,
+  saveCloudMirrorState,
+} from "./db.js";
+import {
+  asSafeEmail,
+  asSafeId,
+  canAccessUser,
+  MASTER_ADMIN_EMAIL,
+  MASTER_ADMIN_UID,
+  parseJsonBody,
+  resolveCaller,
+  sendJson,
+} from "./security.js";
+import {
+  deductOrderInventory,
+  validateAndBuildServerOrder,
+} from "./orderService.js";
 
-// ============================================================================
-// 1. MONGODB ATLAS & CLOUDINARY CREDENTIALS
-// ============================================================================
-const MONGODB_REPLICA_URI =
-  process.env.MONGODB_URI ||
-  "mongodb://sajidhasan164_db_user:Ekcz6Nt7Mu1PfwgB@ac-xcv7f8m-shard-00-00.qcq1q7v.mongodb.net:27017,ac-xcv7f8m-shard-00-01.qcq1q7v.mongodb.net:27017,ac-xcv7f8m-shard-00-02.qcq1q7v.mongodb.net:27017/ummo_ecommerce?ssl=true&replicaSet=atlas-vsjtwx-shard-0&authSource=admin&retryWrites=true&w=majority";
+const ALLOWED_ORDER_STATUSES = new Set([
+  "PENDING",
+  "PROCESSING",
+  "SHIPPED",
+  "DELIVERED",
+  "CANCELLED",
+]);
 
-const MONGODB_SRV_URI =
-  "mongodb+srv://sajidhasan164_db_user:Ekcz6Nt7Mu1PfwgB@cluster0.qcq1q7v.mongodb.net/ummo_ecommerce?retryWrites=true&w=majority";
+const ALLOWED_UPLOAD_FOLDERS = new Set([
+  "ummo_products",
+  "ummo_banners",
+  "ummo_gifts",
+]);
 
-const DB_NAME = "ummo_ecommerce";
+const ALLOWED_IMAGE_MIMES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+]);
 
-const CLOUDINARY_CLOUD_NAME =
-  process.env.CLOUDINARY_CLOUD_NAME || "wxjt7d8q";
-const CLOUDINARY_API_KEY =
-  process.env.CLOUDINARY_API_KEY || "791685979462932";
-const CLOUDINARY_API_SECRET =
-  process.env.CLOUDINARY_API_SECRET || "s6TJSmCrjAMjwOkTX_W7N7PkPFo";
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 
-// ============================================================================
-// 2. CONNECTION POOLING + CLOUDINARY STATE MIRROR (ZERO-DOWNTIME FALLBACK)
-// ============================================================================
-let cachedMongoClient = null;
-let cachedDb = null;
-let lastMongoAttempt = 0;
-
-let inMemoryState = {
-  storeConfig: {
-    coupons: null,
-    banners: null,
-    customProducts: [],
-    deletedIds: [],
-    cartRules: null,
-  },
-  orders: [],
-  users: [],
-  addresses: {},
-  reviews: {},
-  messages: [],
-  subscribers: [],
-  hydrated: false,
-};
-
-async function getMongoDb() {
-  if (cachedDb) return cachedDb;
-  const now = Date.now();
-  if (now - lastMongoAttempt < 15000) return null;
-  lastMongoAttempt = now;
-
-  for (const uri of [MONGODB_REPLICA_URI, MONGODB_SRV_URI]) {
-    try {
-      const client = new MongoClient(uri, {
-        serverSelectionTimeoutMS: 3500,
-        connectTimeoutMS: 3500,
-        maxPoolSize: 10,
-      });
-      await client.connect();
-      const db = client.db(DB_NAME);
-      await db.command({ ping: 1 });
-      cachedMongoClient = client;
-      cachedDb = db;
-      return cachedDb;
-    } catch {
-      // Try next URI or fallback mirror
-    }
-  }
-  return null;
-}
-
-async function loadCloudMirrorState() {
-  if (inMemoryState.hydrated) return inMemoryState;
-  try {
-    const res = await fetch(
-      `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/raw/upload/ummo_db/database_state_v1.json?t=${Date.now()}`
-    );
-    if (res.ok) {
-      const data = await res.json();
-      if (data && typeof data === "object") {
-        inMemoryState = {
-          ...inMemoryState,
-          ...data,
-          storeConfig: {
-            ...inMemoryState.storeConfig,
-            ...(data.storeConfig || {}),
-          },
-          hydrated: true,
-        };
-      }
-    }
-  } catch {
-    // Use default state if not yet created
-  }
-  inMemoryState.hydrated = true;
-  return inMemoryState;
-}
-
-async function saveCloudMirrorState(state) {
-  try {
-    const jsonStr = JSON.stringify(state);
-    const b64 = `data:application/json;base64,${Buffer.from(jsonStr).toString("base64")}`;
-    const timestamp = Math.floor(Date.now() / 1000);
-    const folder = "ummo_db";
-    const public_id = "database_state_v1.json";
-    const toSign = `folder=${folder}&invalidate=true&overwrite=true&public_id=${public_id}&timestamp=${timestamp}${CLOUDINARY_API_SECRET}`;
-    const signature = crypto.createHash("sha1").update(toSign).digest("hex");
-
-    const body = new URLSearchParams({
-      file: b64,
-      api_key: CLOUDINARY_API_KEY,
-      timestamp: String(timestamp),
-      folder,
-      public_id,
-      overwrite: "true",
-      invalidate: "true",
-      signature,
-    });
-
-    await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`,
-      {
-        method: "POST",
-        body,
-      }
-    );
-  } catch {
-    // Non-blocking
-  }
-}
-
-async function getFullState() {
-  const state = await loadCloudMirrorState();
-  const db = await getMongoDb();
-  if (!db) return { state, source: "cloud-mirror" };
-
-  try {
-    const [
-      cfgDoc,
-      ordersList,
-      usersList,
-      addressesList,
-      reviewsList,
-      messagesList,
-      subscribersList,
-    ] = await Promise.all([
-      db.collection("store_config").findOne({ _id: "global" }),
-      db.collection("orders").find({}).sort({ date: -1 }).limit(200).toArray(),
-      db.collection("users").find({}).limit(200).toArray(),
-      db.collection("addresses").find({}).limit(200).toArray(),
-      db.collection("reviews").find({}).limit(200).toArray(),
-      db.collection("messages").find({}).sort({ createdAt: -1 }).limit(100).toArray(),
-      db.collection("subscribers").find({}).sort({ createdAt: -1 }).limit(200).toArray(),
-    ]);
-
-    if (cfgDoc) {
-      state.storeConfig = {
-        ...state.storeConfig,
-        coupons: cfgDoc.coupons ?? state.storeConfig.coupons,
-        banners: cfgDoc.banners ?? state.storeConfig.banners,
-        customProducts: cfgDoc.customProducts ?? state.storeConfig.customProducts,
-        deletedIds: cfgDoc.deletedIds ?? state.storeConfig.deletedIds,
-        cartRules: cfgDoc.cartRules ?? state.storeConfig.cartRules,
-      };
-    }
-    if (ordersList.length) state.orders = ordersList;
-    if (usersList.length) state.users = usersList;
-    if (messagesList.length) state.messages = messagesList;
-    if (subscribersList.length) state.subscribers = subscribersList;
-
-    addressesList.forEach((doc) => {
-      if (doc.userUid) state.addresses[doc.userUid] = doc.items || [];
-    });
-    reviewsList.forEach((doc) => {
-      if (doc.productId) state.reviews[doc.productId] = doc.items || [];
-    });
-
-    return { state, source: "mongodb-atlas" };
-  } catch {
-    return { state, source: "cloud-mirror" };
-  }
-}
-
-// ============================================================================
-// 3. REQUEST PARSER & CORS HELPER
-// ============================================================================
-async function parseJsonBody(req) {
-  if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.body === "string" && req.body.trim()) {
-    try {
-      return JSON.parse(req.body);
-    } catch {
-      return {};
-    }
-  }
-  return new Promise((resolve) => {
-    let raw = "";
-    req.on("data", (chunk) => {
-      raw += chunk;
-    });
-    req.on("end", () => {
-      if (!raw) return resolve({});
-      try {
-        resolve(JSON.parse(raw));
-      } catch {
-        resolve({});
-      }
-    });
-    req.on("error", () => resolve({}));
-  });
-}
-
-function sendJson(res, statusCode, payload) {
-  res.statusCode = statusCode;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, Idempotency-Key"
-  );
-  res.end(JSON.stringify(payload));
-}
-
-// ============================================================================
-// 4. MAIN SERVERLESS / VITE API HANDLER
-// ============================================================================
 export default async function handler(req, res) {
-  if (req.method === "OPTIONS") {
-    return sendJson(res, 200, { ok: true });
+  const method = (req.method || "GET").toUpperCase();
+  if (method === "OPTIONS") {
+    return sendJson(req, res, 200, { ok: true });
   }
 
   const urlObj = new URL(req.url || "/", "http://localhost");
-  const path = urlObj.pathname.replace(/^\/api\/v1/, "").replace(/^\/api/, "") || "/";
-  const method = (req.method || "GET").toUpperCase();
+  const path =
+    urlObj.pathname.replace(/^\/api\/v1/, "").replace(/^\/api/, "") || "/";
 
   try {
-    // 1. Health & Connectivity Check
-    if (path === "/health" && method === "GET") {
+    // 1. Health & Readiness Check (GET /health)
+    if (path === "/health") {
+      if (method !== "GET") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
       const db = await getMongoDb();
-      return sendJson(res, 200, {
+      return sendJson(req, res, 200, {
         status: "ok",
+        ready: true,
         mongodbConnected: Boolean(db),
-        database: "ummo_ecommerce (MongoDB Atlas)",
+        database: `${DB_NAME} (MongoDB Atlas)`,
         cloudinaryCloudName: CLOUDINARY_CLOUD_NAME,
         firebaseAuthProject: "ummo-eccomerce",
       });
     }
 
-    // 2. Get Full Store Data (Config, Orders, Users, Messages, Subscribers, Reviews, Addresses)
-    if (path === "/store-data" && method === "GET") {
-      const { state, source } = await getFullState();
-      const userUid = urlObj.searchParams.get("userUid");
-      const productId = urlObj.searchParams.get("productId");
+    // 2. Server-Side Cloudinary Upload Signature (POST /cloudinary-sign)
+    if (path === "/cloudinary-sign") {
+      if (method !== "POST") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const { sanitized: body, hadOperator } = await parseJsonBody(req);
+      if (hadOperator) {
+        return sendJson(req, res, 400, { error: "Invalid request parameters" });
+      }
+      const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
+      if (!caller.isAdmin) {
+        return sendJson(req, res, 403, {
+          error: "Admin authorization required to upload media assets.",
+        });
+      }
 
-      return sendJson(res, 200, {
+      const folder = asSafeId(body.folder || "ummo_products", 64);
+      if (!ALLOWED_UPLOAD_FOLDERS.has(folder)) {
+        return sendJson(req, res, 400, { error: "Disallowed upload folder." });
+      }
+
+      if (body.mimeType !== undefined) {
+        const mime = String(body.mimeType || "").toLowerCase().trim();
+        if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+          return sendJson(req, res, 400, {
+            error: "Unsupported or unsafe image MIME type. SVG and executable files are prohibited.",
+          });
+        }
+      }
+
+      if (body.fileSize !== undefined) {
+        const size = Number(body.fileSize);
+        if (!Number.isFinite(size) || size <= 0 || size > MAX_UPLOAD_BYTES) {
+          return sendJson(req, res, 400, {
+            error: "File size exceeds maximum limit of 5MB.",
+          });
+        }
+      }
+
+      const timestamp = Math.floor(Date.now() / 1000);
+      const customPublicId = asSafeId(body.publicId || "", 96).replace(
+        /[^a-zA-Z0-9_-]/g,
+        ""
+      );
+      const paramsToSign = {
+        folder,
+        timestamp: String(timestamp),
+      };
+      if (customPublicId) {
+        paramsToSign.overwrite = "true";
+        paramsToSign.public_id = customPublicId;
+      }
+
+      const sortedKeys = Object.keys(paramsToSign).sort();
+      const stringToSign =
+        sortedKeys.map((k) => `${k}=${paramsToSign[k]}`).join("&") +
+        getCloudinarySecret();
+      const signature = crypto
+        .createHash("sha1")
+        .update(stringToSign)
+        .digest("hex");
+
+      return sendJson(req, res, 200, {
         status: "ok",
-        source,
-        storeConfig: state.storeConfig,
-        orders: userUid
-          ? state.orders.filter((o) => String(o.userUid || o.id) === String(userUid))
-          : state.orders,
-        users: state.users,
-        addresses: userUid ? state.addresses[userUid] || [] : state.addresses,
-        reviews: productId ? state.reviews[productId] || [] : state.reviews,
-        messages: state.messages,
-        subscribers: state.subscribers,
+        cloudName: CLOUDINARY_CLOUD_NAME,
+        apiKey: CLOUDINARY_API_KEY,
+        timestamp,
+        folder,
+        publicId: customPublicId || undefined,
+        signature,
       });
     }
 
-    // 3. Update Store Config (Coupons, Banners, Custom Products, Deleted IDs, Cart Rules)
-    if (path === "/store-config" && (method === "POST" || method === "PUT")) {
-      const body = await parseJsonBody(req);
+    // 3. Get Store Data with Strict Object-Level Authorization (GET /store-data)
+    if (path === "/store-data") {
+      if (method !== "GET") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const { state, source } = await getFullState();
+      const caller = resolveCaller(req, state);
+      const requestedUid = asSafeId(urlObj.searchParams.get("userUid"), 128);
+      const productId = asSafeId(urlObj.searchParams.get("productId"), 64);
+
+      if (caller.isAdmin) {
+        return sendJson(req, res, 200, {
+          status: "ok",
+          source,
+          storeConfig: state.storeConfig,
+          orders: requestedUid
+            ? state.orders.filter(
+                (o) => String(o.userUid || o.id) === requestedUid
+              )
+            : state.orders,
+          users: state.users,
+          addresses: requestedUid
+            ? state.addresses[requestedUid] || []
+            : state.addresses,
+          reviews: productId ? state.reviews[productId] || [] : state.reviews,
+          messages: state.messages,
+          subscribers: state.subscribers,
+        });
+      }
+
+      // Customer / Public scoped response (prevents IDOR & PII data leak)
+      const effectiveUid =
+        requestedUid && canAccessUser(caller, requestedUid)
+          ? requestedUid
+          : caller.uid || "";
+
+      const scopedOrders = effectiveUid
+        ? state.orders.filter(
+            (o) =>
+              String(o.userUid || o.id) === effectiveUid ||
+              (caller.email &&
+                String(o.email || "").toLowerCase() === caller.email)
+          )
+        : [];
+
+      const scopedUsers = effectiveUid
+        ? state.users.filter((u) => String(u.uid) === effectiveUid)
+        : [];
+
+      const scopedAddresses = effectiveUid
+        ? state.addresses[effectiveUid] || []
+        : [];
+
+      return sendJson(req, res, 200, {
+        status: "ok",
+        source,
+        storeConfig: state.storeConfig,
+        orders: scopedOrders,
+        users: scopedUsers,
+        addresses: scopedAddresses,
+        reviews: productId ? state.reviews[productId] || [] : state.reviews,
+        messages: [],
+        subscribers: [],
+      });
+    }
+
+    // 4. Update Store Config — Admin Only (POST/PUT /store-config)
+    if (path === "/store-config") {
+      if (method !== "POST" && method !== "PUT") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const { sanitized: body, hadOperator } = await parseJsonBody(req);
+      if (hadOperator) {
+        return sendJson(req, res, 400, {
+          error: "Disallowed query operators in payload.",
+        });
+      }
       const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
+      if (!caller.isAdmin) {
+        return sendJson(req, res, 403, {
+          error: "Admin authorization required to modify store configuration.",
+        });
+      }
 
       const updatedConfig = {
         ...state.storeConfig,
-        ...(body.coupons !== undefined ? { coupons: body.coupons } : {}),
-        ...(body.banners !== undefined ? { banners: body.banners } : {}),
-        ...(body.customProducts !== undefined
+        ...(Array.isArray(body.coupons) ? { coupons: body.coupons } : {}),
+        ...(body.banners && typeof body.banners === "object"
+          ? { banners: body.banners }
+          : {}),
+        ...(Array.isArray(body.customProducts)
           ? { customProducts: body.customProducts }
           : {}),
-        ...(body.deletedIds !== undefined ? { deletedIds: body.deletedIds } : {}),
-        ...(body.cartRules !== undefined ? { cartRules: body.cartRules } : {}),
+        ...(Array.isArray(body.deletedIds)
+          ? { deletedIds: body.deletedIds.map((id) => asSafeId(id, 64)).filter(Boolean) }
+          : {}),
+        ...(body.cartRules && typeof body.cartRules === "object"
+          ? { cartRules: body.cartRules }
+          : {}),
         updatedAt: new Date().toISOString(),
       };
 
@@ -304,63 +267,144 @@ export default async function handler(req, res) {
       }
       await saveCloudMirrorState(state);
 
-      return sendJson(res, 200, {
+      return sendJson(req, res, 200, {
         status: "ok",
         storeConfig: updatedConfig,
       });
     }
 
-    // 4. Create Order (POST /orders or /orders/checkout)
-    if (
-      (path === "/orders" || path === "/orders/checkout") &&
-      method === "POST"
-    ) {
-      const body = await parseJsonBody(req);
+    // 5. Create Order with Server-Side Price & Stock Validation (POST /orders)
+    if (path === "/orders" || path === "/orders/checkout") {
+      if (method !== "POST") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const { sanitized: body, hadOperator } = await parseJsonBody(req);
+      if (hadOperator) {
+        return sendJson(req, res, 400, {
+          error: "Disallowed query operators in order payload.",
+        });
+      }
       const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
+      const idempotencyKey = asSafeId(
+        req.headers?.["idempotency-key"] || req.headers?.["Idempotency-Key"] || "",
+        128
+      );
 
-      const orderId = body.orderId || body.id || `ORD-${Date.now()}`;
-      const newOrder = {
-        ...body,
-        orderId,
-        id: orderId,
-        userUid: body.userUid || body.id || "guest",
-        status: body.status || "PENDING",
-        date: body.date || new Date().toISOString(),
-      };
+      // Idempotency check to prevent duplicate checkout / replay
+      if (idempotencyKey || body.orderId) {
+        const existingOrder = state.orders.find(
+          (o) =>
+            (idempotencyKey && o.idempotencyKey === idempotencyKey) ||
+            (body.orderId && String(o.orderId) === String(body.orderId))
+        );
+        if (existingOrder) {
+          return sendJson(req, res, 200, {
+            status: "ok",
+            idempotentReplay: true,
+            order: existingOrder,
+          });
+        }
+      }
 
+      const newOrder = validateAndBuildServerOrder(
+        body,
+        state,
+        caller,
+        idempotencyKey
+      );
+
+      deductOrderInventory(state, newOrder.OrderItems);
       state.orders = [
         newOrder,
-        ...state.orders.filter((o) => String(o.orderId) !== String(orderId)),
+        ...state.orders.filter(
+          (o) => String(o.orderId) !== String(newOrder.orderId)
+        ),
       ];
 
       const db = await getMongoDb();
       if (db) {
-        await db
-          .collection("orders")
-          .updateOne(
-            { orderId },
-            { $set: newOrder },
-            { upsert: true }
-          )
-          .catch(() => {});
+        await Promise.all([
+          db
+            .collection("orders")
+            .updateOne(
+              { orderId: newOrder.orderId },
+              { $set: newOrder },
+              { upsert: true }
+            )
+            .catch(() => {}),
+          db
+            .collection("store_config")
+            .updateOne(
+              { _id: "global" },
+              { $set: state.storeConfig },
+              { upsert: true }
+            )
+            .catch(() => {}),
+        ]);
       }
       await saveCloudMirrorState(state);
 
-      return sendJson(res, 201, {
+      return sendJson(req, res, 201, {
         status: "ok",
         order: newOrder,
       });
     }
 
-    // 5. Update Order Status (PATCH /orders/status)
-    if (path === "/orders/status" && (method === "PATCH" || method === "POST")) {
-      const body = await parseJsonBody(req);
-      const { orderId, status } = body;
-      const { state } = await getFullState();
+    // 6. Update Order Status with Ownership & Role Enforcement (PATCH/POST /orders/status)
+    if (path === "/orders/status") {
+      if (method !== "PATCH" && method !== "POST") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const { sanitized: body, hadOperator } = await parseJsonBody(req);
+      if (hadOperator) {
+        return sendJson(req, res, 400, { error: "Invalid request parameters" });
+      }
+      const orderId = asSafeId(body.orderId, 64);
+      const nextStatus = asSafeId(body.status, 32).toUpperCase();
+      if (!orderId || !ALLOWED_ORDER_STATUSES.has(nextStatus)) {
+        return sendJson(req, res, 400, {
+          error: "Valid orderId and allowed status are required.",
+        });
+      }
 
+      const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
+      const targetOrder = state.orders.find(
+        (o) => String(o.orderId || o.id) === orderId
+      );
+
+      if (!targetOrder) {
+        return sendJson(req, res, 404, { error: "Order not found." });
+      }
+
+      if (!caller.isAdmin) {
+        // Non-admin customers can ONLY cancel their own PENDING order
+        if (!caller.uid || String(targetOrder.userUid) !== caller.uid) {
+          return sendJson(req, res, 403, {
+            error: "Forbidden: You cannot modify another customer's order.",
+          });
+        }
+        if (nextStatus !== "CANCELLED") {
+          return sendJson(req, res, 403, {
+            error: "Forbidden: Only administrators can advance order fulfillment status.",
+          });
+        }
+        if (
+          targetOrder.status &&
+          targetOrder.status !== "PENDING" &&
+          targetOrder.status !== "CANCELLED"
+        ) {
+          return sendJson(req, res, 400, {
+            error: "Order can no longer be cancelled once processing has started.",
+          });
+        }
+      }
+
+      const updatedAt = new Date().toISOString();
       state.orders = state.orders.map((o) =>
-        String(o.orderId) === String(orderId)
-          ? { ...o, status, updatedAt: new Date().toISOString() }
+        String(o.orderId || o.id) === orderId
+          ? { ...o, status: nextStatus, updatedAt }
           : o
       );
 
@@ -370,55 +414,114 @@ export default async function handler(req, res) {
           .collection("orders")
           .updateOne(
             { orderId },
-            { $set: { status, updatedAt: new Date().toISOString() } }
+            { $set: { status: nextStatus, updatedAt } }
           )
           .catch(() => {});
       }
       await saveCloudMirrorState(state);
 
-      return sendJson(res, 200, { status: "ok", orderId, newStatus: status });
+      return sendJson(req, res, 200, {
+        status: "ok",
+        orderId,
+        newStatus: nextStatus,
+      });
     }
 
-    // 6. Sync User Profile to MongoDB (POST /users)
-    if (path === "/users" && method === "POST") {
-      const body = await parseJsonBody(req);
-      if (!body.uid) {
-        return sendJson(res, 400, { error: "Missing uid" });
+    // 7. Sync User Profile — Prevents Privilege Escalation (POST /users)
+    if (path === "/users") {
+      if (method !== "POST") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
       }
+      const { sanitized: body, hadOperator } = await parseJsonBody(req);
+      if (hadOperator) {
+        return sendJson(req, res, 400, { error: "Invalid user parameters" });
+      }
+      const uid = asSafeId(body.uid, 128);
+      if (!uid) {
+        return sendJson(req, res, 400, { error: "Valid string uid is required" });
+      }
+
       const { state } = await getFullState();
-      const existing = state.users.find((u) => u.uid === body.uid);
+      const caller = resolveCaller(req, state);
+      const existing = state.users.find((u) => String(u.uid) === uid);
+
+      // Prevent horizontal account takeover when an existing user record belongs to someone else
+      if (existing && caller.uid && caller.uid !== uid && !caller.isAdmin) {
+        return sendJson(req, res, 403, {
+          error: "Forbidden: Cannot overwrite another user's profile.",
+        });
+      }
+
+      // Vertical Privilege Escalation Protection:
+      // Only a verified Admin or the Master Admin account can hold role="ADMIN"
+      const isMasterAccount =
+        uid === MASTER_ADMIN_UID &&
+        asSafeEmail(body.email) === MASTER_ADMIN_EMAIL &&
+        caller.isAdmin;
+
+      const authoritativeRole =
+        caller.isAdmin && (body.role === "ADMIN" || isMasterAccount)
+          ? "ADMIN"
+          : existing?.role === "ADMIN"
+            ? "ADMIN"
+            : "CUSTOMER";
+
       const userDoc = {
-        ...existing,
-        ...body,
-        role: body.role || existing?.role || "CUSTOMER",
+        uid,
+        email: asSafeEmail(body.email) || existing?.email || "",
+        username: asSafeId(body.username || body.displayName || existing?.username || "Customer", 100),
+        displayName: asSafeId(body.displayName || body.username || existing?.displayName || "Customer", 100),
+        phone: asSafeId(body.phone ?? existing?.phone ?? "", 40),
+        bio: asSafeId(body.bio ?? existing?.bio ?? "", 400),
+        profile_picture: asSafeId(body.profile_picture ?? existing?.profile_picture ?? "", 300),
+        role: authoritativeRole,
         updatedAt: new Date().toISOString(),
       };
 
       state.users = [
         userDoc,
-        ...state.users.filter((u) => u.uid !== body.uid),
+        ...state.users.filter((u) => String(u.uid) !== uid),
       ];
 
       const db = await getMongoDb();
       if (db) {
         await db
           .collection("users")
-          .updateOne({ uid: body.uid }, { $set: userDoc }, { upsert: true })
+          .updateOne({ uid }, { $set: userDoc }, { upsert: true })
           .catch(() => {});
       }
       await saveCloudMirrorState(state);
 
-      return sendJson(res, 200, { status: "ok", user: userDoc });
+      return sendJson(req, res, 200, { status: "ok", user: userDoc });
     }
 
-    // 7. Toggle User Role (PATCH /users/role)
-    if (path === "/users/role" && (method === "PATCH" || method === "POST")) {
-      const body = await parseJsonBody(req);
-      const { uid, role } = body;
+    // 8. Toggle User Role — Admin Only (PATCH/POST /users/role)
+    if (path === "/users/role") {
+      if (method !== "PATCH" && method !== "POST") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const { sanitized: body, hadOperator } = await parseJsonBody(req);
+      if (hadOperator) {
+        return sendJson(req, res, 400, { error: "Invalid request parameters" });
+      }
       const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
+      if (!caller.isAdmin) {
+        return sendJson(req, res, 403, {
+          error: "Forbidden: Admin privileges required to change user roles.",
+        });
+      }
+
+      const uid = asSafeId(body.uid, 128);
+      const role = asSafeId(body.role, 32).toUpperCase();
+      if (!uid || !["ADMIN", "CUSTOMER"].includes(role)) {
+        return sendJson(req, res, 400, {
+          error: "Valid uid and role (ADMIN or CUSTOMER) are required.",
+        });
+      }
 
       state.users = state.users.map((u) =>
-        u.uid === uid ? { ...u, role } : u
+        String(u.uid) === uid ? { ...u, role } : u
       );
 
       const db = await getMongoDb();
@@ -430,24 +533,48 @@ export default async function handler(req, res) {
       }
       await saveCloudMirrorState(state);
 
-      return sendJson(res, 200, { status: "ok", uid, role });
+      return sendJson(req, res, 200, { status: "ok", uid, role });
     }
 
-    // 8. Customer Addresses (GET / POST / DELETE /addresses)
+    // 9. Customer Addresses — Ownership Enforced (GET/POST /addresses)
     if (path === "/addresses") {
       const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
+
       if (method === "GET") {
-        const userUid = urlObj.searchParams.get("userUid");
-        return sendJson(res, 200, {
+        const userUid = asSafeId(urlObj.searchParams.get("userUid"), 128);
+        if (!userUid) {
+          return sendJson(req, res, 400, { error: "userUid parameter is required." });
+        }
+        if (!canAccessUser(caller, userUid)) {
+          return sendJson(req, res, 403, {
+            error: "Forbidden: Cannot access another customer's address book.",
+          });
+        }
+        return sendJson(req, res, 200, {
           status: "ok",
-          addresses: userUid ? state.addresses[userUid] || [] : state.addresses,
+          addresses: state.addresses[userUid] || [],
         });
       }
+
       if (method === "POST") {
-        const body = await parseJsonBody(req);
-        const { userUid, addresses } = body;
-        if (!userUid) return sendJson(res, 400, { error: "Missing userUid" });
-        state.addresses[userUid] = Array.isArray(addresses) ? addresses : [];
+        const { sanitized: body, hadOperator } = await parseJsonBody(req);
+        if (hadOperator) {
+          return sendJson(req, res, 400, { error: "Invalid address payload." });
+        }
+        const userUid = asSafeId(body.userUid, 128);
+        if (!userUid) {
+          return sendJson(req, res, 400, { error: "Valid userUid is required." });
+        }
+        if (!canAccessUser(caller, userUid)) {
+          return sendJson(req, res, 403, {
+            error: "Forbidden: Cannot modify another customer's address book.",
+          });
+        }
+        const safeList = Array.isArray(body.addresses)
+          ? body.addresses.slice(0, 20)
+          : [];
+        state.addresses[userUid] = safeList;
 
         const db = await getMongoDb();
         if (db) {
@@ -455,37 +582,62 @@ export default async function handler(req, res) {
             .collection("addresses")
             .updateOne(
               { userUid },
-              { $set: { userUid, items: state.addresses[userUid] } },
+              { $set: { userUid, items: safeList } },
               { upsert: true }
             )
             .catch(() => {});
         }
         await saveCloudMirrorState(state);
-        return sendJson(res, 200, {
+        return sendJson(req, res, 200, {
           status: "ok",
-          addresses: state.addresses[userUid],
+          addresses: safeList,
         });
       }
+
+      return sendJson(req, res, 405, { error: "Method not allowed" });
     }
 
-    // 9. Product Reviews (GET / POST /reviews)
+    // 10. Product Reviews (GET/POST /reviews)
     if (path === "/reviews") {
       const { state } = await getFullState();
       if (method === "GET") {
-        const productId = String(urlObj.searchParams.get("productId") || "");
-        return sendJson(res, 200, {
+        const productId = asSafeId(urlObj.searchParams.get("productId"), 64);
+        return sendJson(req, res, 200, {
           status: "ok",
           reviews: productId ? state.reviews[productId] || [] : state.reviews,
         });
       }
       if (method === "POST") {
-        const body = await parseJsonBody(req);
-        const productId = String(body.productId || "");
-        if (!productId || !body.review) {
-          return sendJson(res, 400, { error: "Missing productId or review" });
+        const { sanitized: body, hadOperator } = await parseJsonBody(req);
+        if (hadOperator) {
+          return sendJson(req, res, 400, { error: "Invalid review payload." });
         }
+        const productId = asSafeId(body.productId, 64);
+        const rev = body.review;
+        if (!productId || !rev || typeof rev !== "object") {
+          return sendJson(req, res, 400, {
+            error: "Valid productId and review object are required.",
+          });
+        }
+        const rating = Number(rev.rating);
+        if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+          return sendJson(req, res, 400, {
+            error: "Rating must be between 1 and 5.",
+          });
+        }
+        const cleanReview = {
+          id: asSafeId(rev.id || `REV-${Date.now()}`, 64),
+          reviewerName: asSafeId(rev.reviewerName || "Customer", 80),
+          rating: Math.round(rating),
+          comment: asSafeId(rev.comment, 1000),
+          date: new Date().toISOString(),
+        };
+        if (!cleanReview.comment) {
+          return sendJson(req, res, 400, { error: "Review comment is required." });
+        }
+
         const current = state.reviews[productId] || [];
-        const updated = [body.review, ...current];
+        const updated = [cleanReview, ...current].slice(0, 100);
         state.reviews[productId] = updated;
 
         const db = await getMongoDb();
@@ -500,56 +652,87 @@ export default async function handler(req, res) {
             .catch(() => {});
         }
         await saveCloudMirrorState(state);
-        return sendJson(res, 201, { status: "ok", reviews: updated });
+        return sendJson(req, res, 201, { status: "ok", reviews: updated });
       }
+      return sendJson(req, res, 405, { error: "Method not allowed" });
     }
 
-    // 10. Contact Messages (POST / DELETE /messages)
+    // 11. Contact Messages (POST / DELETE /messages)
     if (path === "/messages") {
       const { state } = await getFullState();
       if (method === "POST") {
-        const body = await parseJsonBody(req);
+        const { sanitized: body, hadOperator } = await parseJsonBody(req);
+        if (hadOperator) {
+          return sendJson(req, res, 400, { error: "Invalid message payload." });
+        }
+        const name = asSafeId(body.name, 100);
+        const email = asSafeEmail(body.email);
+        const message = asSafeId(body.message, 2000);
+        if (!name || !email || !message) {
+          return sendJson(req, res, 400, {
+            error: "Valid name, email, and message are required.",
+          });
+        }
         const msg = {
-          id: body.id || `MSG-${Date.now()}`,
-          name: body.name || "",
-          email: body.email || "",
-          message: body.message || "",
-          createdAt: body.createdAt || new Date().toISOString(),
+          id: asSafeId(body.id || `MSG-${Date.now()}`, 64),
+          name,
+          email,
+          message,
+          createdAt: new Date().toISOString(),
         };
-        state.messages = [msg, ...state.messages];
+        state.messages = [msg, ...state.messages].slice(0, 200);
         const db = await getMongoDb();
         if (db) {
           await db.collection("messages").insertOne(msg).catch(() => {});
         }
         await saveCloudMirrorState(state);
-        return sendJson(res, 201, { status: "ok", message: msg });
+        return sendJson(req, res, 201, { status: "ok", message: msg });
       }
       if (method === "DELETE") {
-        const id = urlObj.searchParams.get("id");
-        state.messages = state.messages.filter((m) => String(m.id) !== String(id));
+        const caller = resolveCaller(req, state);
+        if (!caller.isAdmin) {
+          return sendJson(req, res, 403, {
+            error: "Forbidden: Admin privileges required to delete messages.",
+          });
+        }
+        const id = asSafeId(urlObj.searchParams.get("id"), 64);
+        if (!id) {
+          return sendJson(req, res, 400, { error: "Valid message id is required." });
+        }
+        state.messages = state.messages.filter((m) => String(m.id) !== id);
         const db = await getMongoDb();
         if (db) {
           await db.collection("messages").deleteOne({ id }).catch(() => {});
         }
         await saveCloudMirrorState(state);
-        return sendJson(res, 200, { status: "ok" });
+        return sendJson(req, res, 200, { status: "ok" });
       }
+      return sendJson(req, res, 405, { error: "Method not allowed" });
     }
 
-    // 11. Newsletter Subscribers (POST / DELETE /subscribers)
+    // 12. Newsletter Subscribers (POST / DELETE /subscribers)
     if (path === "/subscribers") {
       const { state } = await getFullState();
       if (method === "POST") {
-        const body = await parseJsonBody(req);
+        const { sanitized: body, hadOperator } = await parseJsonBody(req);
+        if (hadOperator) {
+          return sendJson(req, res, 400, { error: "Invalid subscriber payload." });
+        }
+        const email = asSafeEmail(body.email);
+        if (!email) {
+          return sendJson(req, res, 400, {
+            error: "A valid email address is required.",
+          });
+        }
         const sub = {
-          id: body.id || `SUB-${Date.now()}`,
-          email: body.email || "",
-          createdAt: body.createdAt || new Date().toISOString(),
+          id: asSafeId(body.id || `SUB-${Date.now()}`, 64),
+          email,
+          createdAt: new Date().toISOString(),
         };
         state.subscribers = [
           sub,
           ...state.subscribers.filter((s) => s.email !== sub.email),
-        ];
+        ].slice(0, 500);
         const db = await getMongoDb();
         if (db) {
           await db
@@ -558,26 +741,44 @@ export default async function handler(req, res) {
             .catch(() => {});
         }
         await saveCloudMirrorState(state);
-        return sendJson(res, 201, { status: "ok", subscriber: sub });
+        return sendJson(req, res, 201, { status: "ok", subscriber: sub });
       }
       if (method === "DELETE") {
-        const id = urlObj.searchParams.get("id");
-        state.subscribers = state.subscribers.filter(
-          (s) => String(s.id) !== String(id)
-        );
+        const caller = resolveCaller(req, state);
+        if (!caller.isAdmin) {
+          return sendJson(req, res, 403, {
+            error: "Forbidden: Admin privileges required to delete subscribers.",
+          });
+        }
+        const id = asSafeId(urlObj.searchParams.get("id"), 64);
+        if (!id) {
+          return sendJson(req, res, 400, {
+            error: "Valid subscriber id is required.",
+          });
+        }
+        state.subscribers = state.subscribers.filter((s) => String(s.id) !== id);
         const db = await getMongoDb();
         if (db) {
           await db.collection("subscribers").deleteOne({ id }).catch(() => {});
         }
         await saveCloudMirrorState(state);
-        return sendJson(res, 200, { status: "ok" });
+        return sendJson(req, res, 200, { status: "ok" });
       }
+      return sendJson(req, res, 405, { error: "Method not allowed" });
     }
 
-    return sendJson(res, 404, { error: `API endpoint not found: ${path}` });
+    return sendJson(req, res, 404, { error: `API endpoint not found: ${path}` });
   } catch (err) {
-    return sendJson(res, 500, {
-      error: err?.message || "Internal server error",
+    const statusCode =
+      err?.statusCode && err.statusCode >= 400 && err.statusCode < 600
+        ? err.statusCode
+        : 500;
+    const safeMessage =
+      statusCode < 500
+        ? err.message
+        : "An internal server error occurred. Please try again.";
+    return sendJson(req, res, statusCode, {
+      error: safeMessage,
     });
   }
 }
