@@ -25,8 +25,10 @@ const isSameVariant = (item, target) =>
 
 const initialState = {
   products: loadCarts(),
-  shippingMethod: localStorage.getItem("shippingMethod") || "free",
+  shippingMethod: localStorage.getItem("shippingMethod") || "flat",
   appliedCoupon: loadCoupon(),
+  giftWrap: localStorage.getItem("ummo_gift_wrap") === "true",
+  giftNote: localStorage.getItem("ummo_gift_note") || "",
 };
 
 export const cartSlice = createSlice({
@@ -94,8 +96,12 @@ export const cartSlice = createSlice({
     EmptyCart: (state) => {
       state.products = [];
       state.appliedCoupon = null;
+      state.giftWrap = false;
+      state.giftNote = "";
       localStorage.setItem("carts", JSON.stringify(state.products));
       localStorage.removeItem("appliedCoupon");
+      localStorage.removeItem("ummo_gift_wrap");
+      localStorage.removeItem("ummo_gift_note");
     },
     setShippingMethod: (state, action) => {
       state.shippingMethod = action.payload;
@@ -109,6 +115,14 @@ export const cartSlice = createSlice({
       state.appliedCoupon = null;
       localStorage.removeItem("appliedCoupon");
     },
+    setGiftWrap: (state, action) => {
+      state.giftWrap = Boolean(action.payload);
+      localStorage.setItem("ummo_gift_wrap", String(state.giftWrap));
+    },
+    setGiftNote: (state, action) => {
+      state.giftNote = String(action.payload || "");
+      localStorage.setItem("ummo_gift_note", state.giftNote);
+    },
   },
 });
 
@@ -121,6 +135,8 @@ export const {
   setShippingMethod,
   applyCoupon,
   removeCoupon,
+  setGiftWrap,
+  setGiftNote,
 } = cartSlice.actions;
 
 export default cartSlice.reducer;

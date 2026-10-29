@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { FaRegHeart } from "react-icons/fa6";
 import { LuShare2 } from "react-icons/lu";
-import { ShieldCheck, RotateCcw, Truck, Zap } from "lucide-react";
+import { Gift, ShieldCheck, RotateCcw, Ruler, Truck, X, Zap } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, useSearchParams } from "react-router";
 import toast, { Toaster } from "react-hot-toast";
@@ -17,6 +17,11 @@ import {
   pad2,
   useNowTick,
 } from "../../utils/discountTimer";
+import {
+  getStoredCartRules,
+  initCartRulesSync,
+  recordRecentlyViewedProduct,
+} from "../../utils/cartPromotions";
 
 const SIZES = ["XS", "S", "M", "L", "XL"];
 const COLORS = [
@@ -41,12 +46,27 @@ export default function ProductDetails() {
   const [selectedColor, setSelectedColor] = useState("Black");
   const [quantity, setQuantity] = useState(1);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [showSizeGuide, setShowSizeGuide] = useState(false);
+  const [cartRules, setCartRules] = useState(() => getStoredCartRules());
 
   // Always prefer the freshest product from catalogProducts so Admin timer/price edits reflect live
   const targetId = productIdParam || detailsProduct?.id;
   const liveProduct =
     (catalogProducts || []).find((p) => String(p.id) === String(targetId)) ||
     detailsProduct;
+
+  useEffect(() => {
+    const unsub = initCartRulesSync((rules) => setCartRules(rules));
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (liveProduct?.id) {
+      recordRecentlyViewedProduct(liveProduct);
+    }
+  }, [liveProduct?.id, liveProduct]);
 
   useEffect(() => {
     setActiveImageIdx(0);
@@ -107,6 +127,35 @@ export default function ProductDetails() {
     if (redirectToCheckout) {
       navigate("/billing");
     }
+  }
+
+  function handleBogoBundleAdd() {
+    if (!liveProduct?.id) return;
+    if (stockCount <= 0) {
+      toast.error("Sorry, this product is currently out of stock.");
+      return;
+    }
+    const buyCount = Math.max(1, Number(cartRules?.bogoBuyCount || 2));
+    const freeCount = Math.max(1, Number(cartRules?.bogoFreeCount || 1));
+    const bundleTotalQty = buyCount + freeCount;
+    dispatch(
+      addToCart({
+        id: liveProduct.id,
+        title: liveProduct.title,
+        price: discountState.effectivePrice,
+        originalPrice: discountState.originalPrice,
+        discountPercent: discountState.discountPercent,
+        image: liveProduct.thumbnail,
+        quantity: bundleTotalQty,
+        size: selectedSize,
+        color: selectedColor,
+      })
+    );
+    toast.success(
+      `🎁 Added ${bundleTotalQty} units (Buy ${buyCount} Get ${freeCount} FREE — You save $${(
+        discountState.effectivePrice * freeCount
+      ).toFixed(2)} in cart)!`
+    );
   }
 
   function handleWishList() {
@@ -279,9 +328,19 @@ export default function ProductDetails() {
 
               {/* Size Selector */}
               <div className="mt-5">
-                <span className="text-xs font-semibold uppercase tracking-wider text-gray block mb-2">
-                  Size: <strong className="text-primary">{selectedSize}</strong>
-                </span>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-gray">
+                    Size: <strong className="text-primary">{selectedSize}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSizeGuide(true)}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline hover:text-gray cursor-pointer"
+                  >
+                    <Ruler size={13} />
+                    Size Guide
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   {SIZES.map((sz) => (
                     <button
@@ -366,6 +425,41 @@ export default function ProductDetails() {
                   Buy Now
                 </button>
               </div>
+
+              {/* 1-Click Buy X Get Y Free Bundle Offer */}
+              {cartRules?.bogoEnabled && stockCount >= 3 && (
+                <div className="mt-4 p-3.5 rounded-lg border border-amber-300 bg-amber-50/70 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 text-xs text-amber-900">
+                    <Gift size={18} className="text-amber-600 shrink-0" />
+                    <div>
+                      <p className="font-bold uppercase tracking-wide">
+                        Special Offer: Buy {cartRules.bogoBuyCount || 2} Get{" "}
+                        {cartRules.bogoFreeCount || 1} FREE
+                      </p>
+                      <p className="text-[11px] text-amber-800">
+                        Get {(cartRules.bogoBuyCount || 2) + (cartRules.bogoFreeCount || 1)} units for only $
+                        {(
+                          discountState.effectivePrice *
+                          (cartRules.bogoBuyCount || 2)
+                        ).toFixed(2)}{" "}
+                        (Save $
+                        {(
+                          discountState.effectivePrice *
+                          (cartRules.bogoFreeCount || 1)
+                        ).toFixed(2)}
+                        !)
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleBogoBundleAdd}
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded cursor-pointer transition-colors"
+                  >
+                    + Add Bundle ({(cartRules.bogoBuyCount || 2) + (cartRules.bogoFreeCount || 1)} Units)
+                  </button>
+                </div>
+              )}
 
               <div className="mt-5 flex items-center gap-6 font-medium leading-6 text-[13px] text-primary">
                 <button
@@ -467,6 +561,75 @@ export default function ProductDetails() {
           </div>
         )}
       </div>
+
+      {/* International Size Guide Modal */}
+      {showSizeGuide && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setShowSizeGuide(false)}
+        >
+          <div
+            className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
+                <Ruler size={16} />
+                International Size Guide (US / UK / EU)
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSizeGuide(false)}
+                className="text-gray-400 hover:text-gray-900 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 text-gray-800 uppercase">
+                    <th className="p-2.5 border border-gray-200">Size</th>
+                    <th className="p-2.5 border border-gray-200">US</th>
+                    <th className="p-2.5 border border-gray-200">EU</th>
+                    <th className="p-2.5 border border-gray-200">Chest (in)</th>
+                    <th className="p-2.5 border border-gray-200">Waist (in)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { s: "XS", us: "2–4", eu: "34", chest: "32–34", waist: "25–27" },
+                    { s: "S", us: "4–6", eu: "36", chest: "35–37", waist: "28–30" },
+                    { s: "M", us: "8–10", eu: "38–40", chest: "38–40", waist: "31–33" },
+                    { s: "L", us: "12–14", eu: "42", chest: "41–43", waist: "34–36" },
+                    { s: "XL", us: "16–18", eu: "44–46", chest: "44–46", waist: "37–40" },
+                  ].map((row) => (
+                    <tr
+                      key={row.s}
+                      className={
+                        selectedSize === row.s
+                          ? "bg-amber-50 font-semibold"
+                          : "hover:bg-gray-50"
+                      }
+                    >
+                      <td className="p-2.5 border border-gray-200 font-bold">
+                        {row.s}
+                      </td>
+                      <td className="p-2.5 border border-gray-200">{row.us}</td>
+                      <td className="p-2.5 border border-gray-200">{row.eu}</td>
+                      <td className="p-2.5 border border-gray-200">{row.chest}</td>
+                      <td className="p-2.5 border border-gray-200">{row.waist}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-3">
+              Tip: If you are between two sizes, choose the smaller size for a tailored fit or the larger size for a relaxed fit.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

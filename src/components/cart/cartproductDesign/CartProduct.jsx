@@ -5,6 +5,7 @@ import {
   quentityIncrease,
   RemoveItem,
 } from "../../../slices/cartSlice";
+import { Gift } from "lucide-react";
 
 const CartProduct = (props) => {
   const dispatch = useDispatch();
@@ -18,6 +19,14 @@ const CartProduct = (props) => {
   const handleRemove = () => {
     dispatch(RemoveItem(props));
   };
+
+  const qty = Number(props.quantity || 1);
+  const bogoBuy = Number(props.bogoBuyCount || 2);
+  const bogoFree = Number(props.bogoFreeCount || 1);
+  const bogoGroup = bogoBuy + bogoFree;
+  const bogoActive = Boolean(props.bogoEnabled ?? true);
+  const canClaimFreeSameItem = bogoActive && qty > 0 && qty % bogoGroup === bogoBuy;
+  const freeSameItemCount = bogoActive ? Math.floor(qty / bogoGroup) * bogoFree : 0;
 
   return (
     <>
@@ -37,6 +46,20 @@ const CartProduct = (props) => {
               <p className="text-xs text-gray-400 mt-1">
                 Size: {props.size || "M"} | Color: {props.color || "Default"}
               </p>
+            )}
+            {canClaimFreeSameItem && (
+              <button
+                type="button"
+                onClick={handleIncrease}
+                className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded cursor-pointer transition-colors"
+              >
+                <Gift size={12} /> Buy {bogoBuy} Get {bogoFree} Free: + Add {bogoFree} FREE Unit ($0.00)
+              </button>
+            )}
+            {freeSameItemCount > 0 && (
+              <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-600 text-white px-2.5 py-0.5 rounded">
+                <Gift size={11} /> {freeSameItemCount} Unit FREE (Buy {bogoBuy} Get {bogoFree})
+              </span>
             )}
           </div>
         </div>
@@ -142,6 +165,21 @@ const CartProduct = (props) => {
           <p className="text-xs text-gray mt-1">
             Unit: ${Number(props.price || 0).toFixed(2)}
           </p>
+
+          {canClaimFreeSameItem && (
+            <button
+              type="button"
+              onClick={handleIncrease}
+              className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-1 rounded cursor-pointer"
+            >
+              <Gift size={11} /> + Claim {bogoFree} FREE Unit ($0.00)
+            </button>
+          )}
+          {freeSameItemCount > 0 && (
+            <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded">
+              <Gift size={10} /> {freeSameItemCount} FREE Unit Included
+            </span>
+          )}
 
           <div className="flex items-center justify-between mt-3">
             <div className="px-2.5 h-8 w-22 flex justify-between items-center border-2 border-[#E4E4E4]">

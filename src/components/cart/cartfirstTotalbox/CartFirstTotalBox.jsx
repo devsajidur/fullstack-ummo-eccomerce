@@ -1,18 +1,26 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
 import toast, { Toaster } from "react-hot-toast";
+import { Gift, Sparkles, Truck } from "lucide-react";
 import {
   setShippingMethod,
   applyCoupon,
   removeCoupon,
+  setGiftWrap,
+  setGiftNote,
 } from "../../../slices/cartSlice";
 import { getStoredCoupons } from "../../../services/api";
+import {
+  computeCartPromotions,
+  getStoredCartRules,
+  initCartRulesSync,
+} from "../../../utils/cartPromotions";
 
 export const SHIPPING_OPTIONS = [
-  { id: "free", label: "Free shipping", price: 0 },
-  { id: "flat", label: "Flat rate: $49", price: 49 },
-  { id: "pickup", label: "Local pickup: $8", price: 8 },
+  { id: "flat", label: "Standard Express: $15", price: 15 },
+  { id: "pickup", label: "Local store pickup: $8", price: 8 },
+  { id: "free", label: "Economy shipping: Free", price: 0 },
 ];
 
 export function computeCouponDiscount(subtotal, coupon) {
@@ -25,21 +33,64 @@ export function computeCouponDiscount(subtotal, coupon) {
 
 export default function CartFirstTotalBox() {
   const dispatch = useDispatch();
-  const cartProduct = useSelector((state) => state.cart.products);
-  const shipping = useSelector((state) => state.cart.shippingMethod || "free");
-  const appliedCoupon = useSelector((state) => state.cart.appliedCoupon);
-  const [couponInput, setCouponInput] = useState("");
-
-  const subtotal = cartProduct.reduce(
-    (pre, curr) => pre + curr.price * curr.quantity,
-    0
-  );
   const navigate = useNavigate();
-  const vat = cartProduct.length > 0 ? 19 : 0;
-  const shippingCost =
+  const cartProduct = useSelector((state) => state.cart.products);
+  const shipping = useSelector((state) => state.cart.shippingMethod || "flat");
+  const appliedCoupon = useSelector((state) => state.cart.appliedCoupon);
+  const giftWrap = useSelector((state) => state.cart.giftWrap);
+  const giftNote = useSelector((state) => state.cart.giftNote);
+
+  const [couponInput, setCouponInput] = useState("");
+  const [cartRules, setCartRules] = useState(() => getStoredCartRules());
+
+  useEffect(() => {
+    initCartRulesSync();
+    const handleRulesUpdate = (e) => {
+      setCartRules(e.detail || getStoredCartRules());
+    };
+    window.addEventListener("ummo:cart-rules-updated", handleRulesUpdate);
+    return () =>
+      window.removeEventListener("ummo:cart-rules-updated", handleRulesUpdate);
+  }, []);
+
+  const promo = computeCartPromotions(cartProduct, cartRules);
+  const subtotal = promo.subtotal;
+
+  const netSubtotalAfterAutoPromos = Math.max(
+    0,
+    subtotal - promo.bogoDiscount - promo.tieredDiscount
+  );
+  const couponDiscount = computeCouponDiscount(
+    netSubtotalAfterAutoPromos,
+    appliedCoupon
+  );
+
+  const rawShippingCost =
     SHIPPING_OPTIONS.find((o) => o.id === shipping)?.price || 0;
-  const discount = computeCouponDiscount(subtotal, appliedCoupon);
-  const total = Math.max(0, subtotal - discount + vat + shippingCost);
+  const effectiveShippingCost =
+    cartProduct.length === 0 || promo.freeShippingUnlocked
+      ? 0
+      : rawShippingCost;
+
+  const giftWrapCost =
+    cartProduct.length > 0 && giftWrap ? Number(cartRules.giftWrapFee || 5) : 0;
+  const vat = cartProduct.length > 0 ? 19 : 0;
+
+  const totalSavings = Number(
+    (promo.bogoDiscount + promo.tieredDiscount + couponDiscount).toFixed(2)
+  );
+  const total = Math.max(
+    0,
+    Number(
+      (
+        subtotal -
+        totalSavings +
+        effectiveShippingCost +
+        giftWrapCost +
+        vat
+      ).toFixed(2)
+    )
+  );
 
   function handleApplyCoupon(e) {
     e.preventDefault();
@@ -78,7 +129,80 @@ export default function CartFirstTotalBox() {
     <div className="font-jost w-full lg:w-105 shrink-0">
       <Toaster position="top-center" reverseOrder={false} />
 
-      {/* Promo Coupon Box */}
+      {/* 1. Free Shipping Progress Bar */}
+      {promo.freeShippingEnabled && (
+        <div className="mb-4 p-4 rounded-lg border border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between text-xs font-semibold text-gray-800 mb-2">
+            <span className="flex items-center gap-1.5">
+              <Truck size={15} className="text-emerald-600 shrink-0" />
+              {promo.freeShippingUnlocked ? (
+                <span className="text-emerald-700 font-bold">
+                  🎉 Unlocked FREE Express Delivery!
+                </span>
+              ) : (
+                <span>
+                  Add{" "}
+                  <strong className="text-[#D6001C]">
+                    ${promo.amountNeededForFreeShipping.toFixed(2)}
+                  </strong>{" "}
+                  more for <strong>FREE Delivery</strong>
+                </span>
+              )}
+            </span>
+            <span className="text-[11px] font-bold text-gray-500">
+              {promo.freeShippingProgress}%
+            </span>
+          </div>
+          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-500 rounded-full ${
+                promo.freeShippingUnlocked ? "bg-emerald-600" : "bg-primary"
+              }`}
+              style={{ width: `${promo.freeShippingProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 2. Buy X Get Y Free (BOGO) Status Banner */}
+      {promo.bogoEnabled && (
+        <div
+          className={`mb-4 p-3.5 rounded-lg border text-xs ${
+            promo.bogoFreeUnitsCount > 0
+              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+              : "bg-amber-50 border-amber-200 text-amber-900"
+          }`}
+        >
+          <div className="flex items-start gap-2">
+            <Gift size={15} className="shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold uppercase tracking-wider text-[11px]">
+                Storewide Offer: Buy {promo.bogoBuyCount} Get{" "}
+                {promo.bogoFreeCount} FREE
+              </p>
+              {promo.bogoFreeUnitsCount > 0 ? (
+                <p className="mt-0.5">
+                  Applied! You are getting{" "}
+                  <strong>{promo.bogoFreeUnitsCount} item(s) FREE</strong>{" "}
+                  (Saving <strong>${promo.bogoDiscount.toFixed(2)}</strong>).
+                </p>
+              ) : (
+                <p className="mt-0.5">
+                  Add{" "}
+                  <strong>
+                    {promo.unitsNeededForNextBogo || promo.bogoGroupSize} more
+                    item(s)
+                  </strong>{" "}
+                  to your bag to get{" "}
+                  <strong>{promo.bogoFreeCount} item 100% FREE!</strong>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Promo Coupon Box */}
       <form
         onSubmit={handleApplyCoupon}
         className="flex border border-primary/30 mb-4"
@@ -98,26 +222,78 @@ export default function CartFirstTotalBox() {
         </button>
       </form>
 
+      {/* 4. Luxury Gift Packaging Option */}
+      <div className="mb-4 p-3.5 border border-gray-200 rounded-lg bg-white text-xs">
+        <label className="flex items-center justify-between cursor-pointer">
+          <span className="flex items-center gap-2 font-semibold text-gray-800">
+            <input
+              type="checkbox"
+              checked={Boolean(giftWrap)}
+              onChange={(e) => dispatch(setGiftWrap(e.target.checked))}
+              className="w-4 h-4 accent-primary cursor-pointer"
+            />
+            Add Luxury Gift Packaging & Ribbon
+          </span>
+          <span className="font-bold text-primary">
+            +${Number(cartRules.giftWrapFee || 5).toFixed(2)}
+          </span>
+        </label>
+        {giftWrap && (
+          <input
+            type="text"
+            value={giftNote}
+            onChange={(e) => dispatch(setGiftNote(e.target.value))}
+            placeholder="Write a complimentary gift message..."
+            className="mt-2.5 w-full border border-gray-300 rounded px-3 py-1.5 text-xs outline-none focus:border-primary"
+          />
+        )}
+      </div>
+
       <div className="border mb-5">
         <div className="pt-7 sm:pt-9.5 px-4 sm:px-8 md:px-10.25">
-          {/* Heading */}
-          <h2 className="text-primary text-sm uppercase md:text-base font-medium pb-8">
+          <h2 className="text-primary text-sm uppercase md:text-base font-medium pb-6">
             Cart totals
           </h2>
 
           {/* Subtotal */}
-          <div className="grid grid-cols-2 gap-4 pb-3.25">
+          <div className="grid grid-cols-2 gap-4 pb-3">
             <span className="text-primary text-sm font-medium leading-6 uppercase">
-              Subtotal
+              Subtotal ({promo.totalUnits} items)
             </span>
-            <span className="text-primary text-sm font-medium leading-6">
+            <span className="text-primary text-sm font-medium leading-6 text-right">
               ${subtotal.toFixed(2)}
             </span>
           </div>
 
-          {/* Discount Row */}
+          {/* Buy X Get Y Free Discount Row */}
+          {promo.bogoDiscount > 0 && (
+            <div className="grid grid-cols-2 gap-4 py-2.5 border-t border-primary/10 text-emerald-700">
+              <span className="text-xs font-semibold uppercase flex items-center gap-1.5">
+                <Gift size={13} /> Buy {promo.bogoBuyCount} Get{" "}
+                {promo.bogoFreeCount} Free ({promo.bogoFreeUnitsCount} Free)
+              </span>
+              <span className="text-sm font-bold text-right">
+                -${promo.bogoDiscount.toFixed(2)}
+              </span>
+            </div>
+          )}
+
+          {/* Tiered Spend VIP Discount Row */}
+          {promo.tieredDiscount > 0 && (
+            <div className="grid grid-cols-2 gap-4 py-2.5 border-t border-primary/10 text-emerald-700">
+              <span className="text-xs font-semibold uppercase flex items-center gap-1.5">
+                <Sparkles size={13} /> VIP Spend Discount (
+                {promo.tieredDiscountPercent}% OFF)
+              </span>
+              <span className="text-sm font-bold text-right">
+                -${promo.tieredDiscount.toFixed(2)}
+              </span>
+            </div>
+          )}
+
+          {/* Coupon Discount Row */}
           {appliedCoupon && (
-            <div className="grid grid-cols-2 gap-4 py-3 border-t border-primary/10 text-emerald-700">
+            <div className="grid grid-cols-2 gap-4 py-2.5 border-t border-primary/10 text-emerald-700">
               <span className="text-xs font-semibold uppercase flex items-center gap-2">
                 Coupon ({appliedCoupon.code})
                 <button
@@ -128,8 +304,8 @@ export default function CartFirstTotalBox() {
                   Remove
                 </button>
               </span>
-              <span className="text-sm font-semibold">
-                -${discount.toFixed(2)}
+              <span className="text-sm font-bold text-right">
+                -${couponDiscount.toFixed(2)}
               </span>
             </div>
           )}
@@ -139,49 +315,70 @@ export default function CartFirstTotalBox() {
             <span className="text-primary text-sm font-medium leading-6 uppercase">
               Shipping
             </span>
-            <div className="flex flex-col gap-3">
-              {SHIPPING_OPTIONS.map((option) => (
-                <label
-                  key={option.id}
-                  className="flex items-center gap-3 cursor-pointer text-primary font-normal leading-6 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={shipping === option.id}
-                    onChange={() => dispatch(setShippingMethod(option.id))}
-                    className="h-4 w-4 rounded-none border border-primary/40 text-primary accent-primary cursor-pointer"
-                  />
-                  {option.label}
-                </label>
-              ))}
-
-              <p className="text-primary font-normal leading-6 text-sm">
-                Shipping to AL.
-              </p>
+            <div className="flex flex-col gap-2.5">
+              {promo.freeShippingUnlocked ? (
+                <div className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded">
+                  FREE Express Delivery Unlocked ($0.00)
+                </div>
+              ) : (
+                SHIPPING_OPTIONS.map((option) => (
+                  <label
+                    key={option.id}
+                    className="flex items-center gap-2.5 cursor-pointer text-primary font-normal leading-5 text-xs sm:text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={shipping === option.id}
+                      onChange={() => dispatch(setShippingMethod(option.id))}
+                      className="h-4 w-4 rounded-none border border-primary/40 text-primary accent-primary cursor-pointer"
+                    />
+                    {option.label}
+                  </label>
+                ))
+              )}
             </div>
           </div>
 
+          {/* Gift Wrap Row */}
+          {giftWrapCost > 0 && (
+            <div className="grid grid-cols-2 gap-4 py-3 border-t border-primary/10">
+              <span className="text-primary text-xs font-medium uppercase">
+                Luxury Gift Packaging
+              </span>
+              <span className="text-primary font-medium text-sm text-right">
+                +${giftWrapCost.toFixed(2)}
+              </span>
+            </div>
+          )}
+
           {/* VAT */}
-          <div className="grid grid-cols-2 gap-4 py-3.5 border-t border-primary/10">
+          <div className="grid grid-cols-2 gap-4 py-3 border-t border-primary/10">
             <span className="text-primary text-sm font-medium uppercase">
               Vat
             </span>
-            <span className="text-primary font-medium leading-6 text-sm">
-              ${vat}
+            <span className="text-primary font-medium leading-6 text-sm text-right">
+              ${vat.toFixed(2)}
             </span>
           </div>
 
           {/* Total */}
           <div className="grid grid-cols-2 gap-4 py-4 border-t border-primary/10">
-            <span className="text-primary text-sm font-medium leading-6 uppercase">
+            <span className="text-primary text-sm font-bold leading-6 uppercase">
               Total
             </span>
-            <span className="text-primary leading-6 font-medium text-sm">
+            <span className="text-primary leading-6 font-bold text-base text-right">
               ${total.toFixed(2)}
             </span>
           </div>
+
+          {totalSavings > 0 && (
+            <div className="mb-4 p-2.5 rounded bg-emerald-50 border border-emerald-200 text-center text-xs font-bold text-emerald-800">
+              🎉 You are saving ${totalSavings.toFixed(2)} on this order!
+            </div>
+          )}
         </div>
       </div>
+
       <button
         onClick={handleCheckout}
         className="w-full bg-primary cursor-pointer text-white text-sm font-medium uppercase py-5 hover:bg-primary/90 transition-colors"

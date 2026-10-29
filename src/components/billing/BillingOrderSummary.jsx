@@ -29,9 +29,14 @@ function SummaryRow({ label, value, border }) {
 export default function BillingOrderSummary({
   orderItems,
   subtotal,
+  promotions,
+  bogoDiscount = 0,
+  tieredDiscount = 0,
   discount,
   appliedCoupon,
   shippingCost,
+  giftWrapCost = 0,
+  giftNote = "",
   vat,
   total,
   paymentMethod,
@@ -81,17 +86,44 @@ export default function BillingOrderSummary({
           value={`$${subtotal.toFixed(2)}`}
           border
         />
+        {bogoDiscount > 0 && (
+          <SummaryRow
+            label={`BUY ${promotions?.bogoBuyCount || 2} GET ${
+              promotions?.bogoFreeCount || 1
+            } FREE (${promotions?.bogoFreeUnitsCount || 1} FREE)`}
+            value={`-$${bogoDiscount.toFixed(2)}`}
+            border
+          />
+        )}
+        {tieredDiscount > 0 && (
+          <SummaryRow
+            label={`VIP SPEND DISCOUNT (${
+              promotions?.tieredDiscountPercent || 10
+            }% OFF)`}
+            value={`-$${tieredDiscount.toFixed(2)}`}
+            border
+          />
+        )}
         {discount > 0 && (
           <SummaryRow
-            label={`DISCOUNT (${appliedCoupon?.code})`}
+            label={`COUPON (${appliedCoupon?.code})`}
             value={`-$${discount.toFixed(2)}`}
+            border
+          />
+        )}
+        {giftWrapCost > 0 && (
+          <SummaryRow
+            label={`LUXURY GIFT WRAP${giftNote ? ` ("${giftNote.slice(0, 20)}")` : ""}`}
+            value={`+$${giftWrapCost.toFixed(2)}`}
             border
           />
         )}
         <SummaryRow
           label="SHIPPING"
           value={
-            shippingCost > 0
+            promotions?.freeShippingUnlocked
+              ? "FREE (Unlocked)"
+              : shippingCost > 0
               ? `$${shippingCost.toFixed(2)}`
               : "Free shipping"
           }

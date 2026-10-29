@@ -11,6 +11,11 @@ import {
   SHIPPING_OPTIONS,
   computeCouponDiscount,
 } from "../cart/cartfirstTotalbox/CartFirstTotalBox";
+import {
+  computeCartPromotions,
+  getStoredCartRules,
+  initCartRulesSync,
+} from "../../utils/cartPromotions";
 import { submitBackendOrder } from "../../services/api";
 import BillingOrderSummary from "./BillingOrderSummary";
 
@@ -26,11 +31,15 @@ const COUNTRIES = [
 const BillingInformation = () => {
   const ORDER_ITEMS = useSelector((state) => state.cart.products);
   const shippingMethodId = useSelector(
-    (state) => state.cart.shippingMethod || "free"
+    (state) => state.cart.shippingMethod || "flat"
   );
   const appliedCoupon = useSelector((state) => state.cart.appliedCoupon);
+  const giftWrap = useSelector((state) => Boolean(state.cart.giftWrap));
+  const giftNote = useSelector((state) => state.cart.giftNote || "");
   const navigate = useNavigate();
   const dispatch = useDispatch();
+
+  const [cartRules, setCartRules] = useState(() => getStoredCartRules());
 
   const [firstName, setfirstName] = useState("");
   const [lastName, setlastName] = useState("");
@@ -101,15 +110,37 @@ const BillingInformation = () => {
     return () => unsubscribe();
   }, []);
 
-  const subtotal = ORDER_ITEMS.reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0
+  useEffect(() => {
+    const unsubRules = initCartRulesSync((rules) => setCartRules(rules));
+    return () => {
+      if (typeof unsubRules === "function") unsubRules();
+    };
+  }, []);
+
+  const promotions = computeCartPromotions(ORDER_ITEMS, cartRules);
+  const subtotal = promotions.subtotal;
+  const bogoDiscount = promotions.bogoDiscount;
+  const tieredDiscount = promotions.tieredDiscount;
+  const discount = computeCouponDiscount(
+    Math.max(0, subtotal - bogoDiscount - tieredDiscount),
+    appliedCoupon
   );
-  const discount = computeCouponDiscount(subtotal, appliedCoupon);
-  const shippingCost =
+  const rawShippingCost =
     SHIPPING_OPTIONS.find((o) => o.id === shippingMethodId)?.price || 0;
+  const shippingCost = promotions.freeShippingUnlocked ? 0 : rawShippingCost;
+  const giftWrapCost =
+    giftWrap && ORDER_ITEMS.length > 0 ? promotions.giftWrapFee : 0;
   const vat = ORDER_ITEMS.length > 0 ? 19 : 0;
-  const total = Math.max(0, subtotal - discount + shippingCost + vat);
+  const total = Math.max(
+    0,
+    subtotal -
+      bogoDiscount -
+      tieredDiscount -
+      discount +
+      shippingCost +
+      giftWrapCost +
+      vat
+  );
 
   async function handlePlaceOrder(e) {
     e.preventDefault();
@@ -135,10 +166,17 @@ const BillingInformation = () => {
         id: user.uid,
         OrderItems: ORDER_ITEMS,
         subtotal: Number(subtotal.toFixed(2)),
+        bogoDiscount: Number(bogoDiscount.toFixed(2)),
+        bogoFreeUnitsCount: promotions.bogoFreeUnitsCount,
+        tieredDiscount: Number(tieredDiscount.toFixed(2)),
         discount: Number(discount.toFixed(2)),
         couponCode: appliedCoupon?.code || null,
         shipping: shippingCost,
+        freeShippingUnlocked: promotions.freeShippingUnlocked,
         shippingMethod: shippingMethodId,
+        giftWrap,
+        giftWrapCost: Number(giftWrapCost.toFixed(2)),
+        giftNote: giftNote.trim(),
         vat,
         total: Number(total.toFixed(2)),
         paymentMethod,
@@ -339,9 +377,14 @@ const BillingInformation = () => {
         <BillingOrderSummary
           orderItems={ORDER_ITEMS}
           subtotal={subtotal}
+          promotions={promotions}
+          bogoDiscount={bogoDiscount}
+          tieredDiscount={tieredDiscount}
           discount={discount}
           appliedCoupon={appliedCoupon}
           shippingCost={shippingCost}
+          giftWrapCost={giftWrapCost}
+          giftNote={giftNote}
           vat={vat}
           total={total}
           paymentMethod={paymentMethod}

@@ -15,6 +15,10 @@ import {
   initStoreConfigSync,
 } from "../../services/api";
 import {
+  getStoredCartRules,
+  initCartRulesSync,
+} from "../../utils/cartPromotions";
+import {
   Heart,
   Search,
   ShoppingBag,
@@ -30,6 +34,7 @@ const Header = () => {
   const [User, setuser] = useState(null);
   const [searchOpen, setsearchOpen] = useState(false);
   const [Input, setInput] = useState("");
+  const [cartRules, setCartRules] = useState(() => getStoredCartRules());
 
   const Alldata = useSelector((state) => state.AllProduct.Products);
   const hasProducts = Boolean(Alldata?.length);
@@ -89,12 +94,56 @@ const Header = () => {
     const unsubscribe = onUserChanged((user) => {
       setuser(user || null);
     });
-    return () => unsubscribe();
+    const unsubRules = initCartRulesSync((rules) => setCartRules(rules));
+    return () => {
+      unsubscribe();
+      if (typeof unsubRules === "function") unsubRules();
+    };
   }, []);
 
   return (
-    <header className="md:pt-7.25 md:pb-7 py-4 md:px-2.5 relative z-40 bg-white border-b border-gray-100 md:border-none">
-      <nav>
+    <header className="relative z-40 bg-white border-b border-gray-100 md:border-none">
+      {/* International Storefront Top Promo Announcement Bar */}
+      {(cartRules?.freeShippingEnabled ||
+        cartRules?.bogoEnabled ||
+        cartRules?.tieredDiscountEnabled) && (
+        <div className="bg-primary text-white text-[11px] sm:text-xs font-jost py-2 px-3">
+          <div className="container mx-auto flex flex-wrap items-center justify-center sm:justify-between gap-2 text-center">
+            <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-5">
+              {cartRules?.freeShippingEnabled && (
+                <span>
+                  🚚 <strong>FREE EXPRESS DELIVERY</strong> on orders over $
+                  {Number(cartRules.freeShippingThreshold || 100).toFixed(0)}
+                </span>
+              )}
+              {cartRules?.bogoEnabled && (
+                <span className="text-amber-300 font-semibold">
+                  🎁 BUY {cartRules.bogoBuyCount || 2} GET{" "}
+                  {cartRules.bogoFreeCount || 1} FREE Storewide
+                </span>
+              )}
+              {cartRules?.tieredDiscountEnabled && (
+                <span className="hidden lg:inline text-emerald-300">
+                  ✨ Spend ${cartRules.tieredMinSpend || 200}+ for Extra{" "}
+                  {cartRules.tieredDiscountPercent || 10}% VIP Off
+                </span>
+              )}
+            </div>
+            <div className="hidden sm:flex items-center gap-4 text-[11px] text-gray-300">
+              <Link
+                to="/shop"
+                className="underline hover:text-white font-semibold"
+              >
+                Shop Deals
+              </Link>
+              <span>•</span>
+              <span>30-Day Worldwide Returns</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <nav className="md:pt-6 md:pb-6 py-4 md:px-2.5">
         <div className="container hidden md:block">
           <div className="flex items-center">
             <Link to="/">
