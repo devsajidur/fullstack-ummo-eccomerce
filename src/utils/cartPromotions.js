@@ -1,4 +1,4 @@
-import { apiClient } from "../services/api";
+import { apiClient, initStoreConfigSync } from "../services/api";
 
 const CART_RULES_STORAGE_KEY = "ummo_admin_cart_rules_v2";
 const RECENTLY_VIEWED_KEY = "ummo_recently_viewed_v1";
@@ -24,7 +24,7 @@ export function getStoredCartRules() {
   return DEFAULT_CART_RULES;
 }
 
-export function saveStoredCartRules(rules) {
+export async function saveStoredCartRules(rules) {
   const merged = {
     ...DEFAULT_CART_RULES,
     ...rules,
@@ -47,35 +47,18 @@ export function saveStoredCartRules(rules) {
   } catch {
     // ignore
   }
-  apiClient.post("/store-config", { cartRules: merged }).catch(() => {});
+  await apiClient.post("/store-config", { cartRules: merged }).catch(() => {});
   return merged;
 }
 
-let cartRulesSubscribed = false;
 export function initCartRulesSync(onRulesUpdated) {
   const handler = (e) => {
     if (typeof onRulesUpdated === "function" && e?.detail) {
-      onRulesUpdated(e.detail);
+      onRulesUpdated({ ...DEFAULT_CART_RULES, ...e.detail });
     }
   };
   window.addEventListener("ummo:cart-rules-updated", handler);
-
-  if (!cartRulesSubscribed) {
-    cartRulesSubscribed = true;
-    apiClient
-      .get("/store-data")
-      .then((res) => {
-        const val = res.data?.storeConfig?.cartRules;
-        if (val && typeof val === "object") {
-          const merged = { ...DEFAULT_CART_RULES, ...val };
-          localStorage.setItem(CART_RULES_STORAGE_KEY, JSON.stringify(merged));
-          window.dispatchEvent(
-            new CustomEvent("ummo:cart-rules-updated", { detail: merged })
-          );
-        }
-      })
-      .catch(() => {});
-  }
+  initStoreConfigSync();
 
   return () => {
     window.removeEventListener("ummo:cart-rules-updated", handler);

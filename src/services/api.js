@@ -35,7 +35,9 @@ apiClient.interceptors.request.use((config) => {
       }
       const isAdminUnlocked =
         localStorage.getItem("ummo_admin_unlocked") === "true" ||
-        String(activeUser?.role || "").toUpperCase() === "ADMIN";
+        String(activeUser?.role || "").toUpperCase() === "ADMIN" ||
+        String(activeUser?.email || "").toLowerCase() === "admin@ummo.com" ||
+        activeUser?.uid === "admin-ummo-master";
       if (isAdminUnlocked) {
         config.headers["X-Admin-Key"] = "UMMO_ADMIN_SHIELD_2026";
       }
@@ -183,7 +185,10 @@ export function getStoredCoupons() {
 
 export function saveStoredCoupons(coupons) {
   localStorage.setItem("ummo_admin_coupons", JSON.stringify(coupons));
-  apiClient.post("/store-config", { coupons }).catch(() => {});
+  window.dispatchEvent(
+    new CustomEvent("ummo:coupons-updated", { detail: coupons })
+  );
+  return apiClient.post("/store-config", { coupons }).catch(() => {});
 }
 
 function sanitizeBanners(raw) {
@@ -230,10 +235,10 @@ export function getStoredBanners() {
 export function saveStoredBanners(banners) {
   const clean = sanitizeBanners(banners);
   localStorage.setItem("ummo_admin_banners_v3", JSON.stringify(clean));
-  apiClient.post("/store-config", { banners: clean }).catch(() => {});
   window.dispatchEvent(
     new CustomEvent("ummo:banners-updated", { detail: clean })
   );
+  return apiClient.post("/store-config", { banners: clean }).catch(() => {});
 }
 
 export function getCustomAdminProducts() {
@@ -245,9 +250,26 @@ export function getCustomAdminProducts() {
   }
 }
 
+const catalogSubscribers = new Set();
+
+function notifyCatalogSubscribers() {
+  if (!cachedBaseProducts) return;
+  const merged = mergeWithAdminCatalog(cachedBaseProducts);
+  catalogSubscribers.forEach((cb) => {
+    try {
+      cb(merged);
+    } catch {
+      // ignore subscriber errors
+    }
+  });
+}
+
 export function saveCustomAdminProducts(products) {
   localStorage.setItem("ummo_admin_custom_products", JSON.stringify(products));
-  apiClient.post("/store-config", { customProducts: products }).catch(() => {});
+  notifyCatalogSubscribers();
+  return apiClient
+    .post("/store-config", { customProducts: products })
+    .catch(() => {});
 }
 
 export function getDeletedProductIds() {
@@ -261,63 +283,114 @@ export function getDeletedProductIds() {
 
 export function saveDeletedProductIds(ids) {
   localStorage.setItem("ummo_admin_deleted_ids", JSON.stringify(ids));
-  apiClient.post("/store-config", { deletedIds: ids }).catch(() => {});
+  notifyCatalogSubscribers();
+  return apiClient.post("/store-config", { deletedIds: ids }).catch(() => {});
+}
+
+export function saveStoreConfigPatch(patch = {}) {
+  if (Array.isArray(patch.customProducts)) {
+    localStorage.setItem(
+      "ummo_admin_custom_products",
+      JSON.stringify(patch.customProducts)
+    );
+  }
+  if (Array.isArray(patch.deletedIds)) {
+    localStorage.setItem(
+      "ummo_admin_deleted_ids",
+      JSON.stringify(patch.deletedIds)
+    );
+  }
+  if (Array.isArray(patch.coupons)) {
+    localStorage.setItem("ummo_admin_coupons", JSON.stringify(patch.coupons));
+    window.dispatchEvent(
+      new CustomEvent("ummo:coupons-updated", { detail: patch.coupons })
+    );
+  }
+  if (patch.banners && typeof patch.banners === "object") {
+    const clean = sanitizeBanners(patch.banners);
+    localStorage.setItem("ummo_admin_banners_v3", JSON.stringify(clean));
+    window.dispatchEvent(
+      new CustomEvent("ummo:banners-updated", { detail: clean })
+    );
+  }
+  notifyCatalogSubscribers();
+  return apiClient.post("/store-config", patch).catch(() => {});
+}
+
+export function applyRemoteStoreConfig(val) {
+  if (!val || typeof val !== "object") return;
+
+  if (Array.isArray(val.coupons) && val.coupons.length) {
+    localStorage.setItem("ummo_admin_coupons", JSON.stringify(val.coupons));
+    window.dispatchEvent(
+      new CustomEvent("ummo:coupons-updated", { detail: val.coupons })
+    );
+  }
+  if (val.banners && typeof val.banners === "object") {
+    const cleanBanners = sanitizeBanners(val.banners);
+    localStorage.setItem(
+      "ummo_admin_banners_v3",
+      JSON.stringify(cleanBanners)
+    );
+    window.dispatchEvent(
+      new CustomEvent("ummo:banners-updated", { detail: cleanBanners })
+    );
+  }
+  if (Array.isArray(val.customProducts)) {
+    localStorage.setItem(
+      "ummo_admin_custom_products",
+      JSON.stringify(val.customProducts)
+    );
+  }
+  if (Array.isArray(val.deletedIds)) {
+    localStorage.setItem(
+      "ummo_admin_deleted_ids",
+      JSON.stringify(val.deletedIds)
+    );
+  }
+  if (val.cartRules && typeof val.cartRules === "object") {
+    localStorage.setItem(
+      "ummo_admin_cart_rules_v2",
+      JSON.stringify(val.cartRules)
+    );
+    window.dispatchEvent(
+      new CustomEvent("ummo:cart-rules-updated", { detail: val.cartRules })
+    );
+  }
+  notifyCatalogSubscribers();
 }
 
 /**
  * Syncs store configuration (coupons, banners, customProducts, deletedIds, cartRules)
- * directly from MongoDB Atlas (`/api/v1/store-data`).
+ * directly from MongoDB Atlas (`/api/v1/store-data`) and notifies all mounted subscribers.
  */
-let storeConfigSubscribed = false;
+let storeConfigSyncPromise = null;
 export function initStoreConfigSync(onCatalogChanged) {
-  if (storeConfigSubscribed) return;
-  storeConfigSubscribed = true;
+  if (typeof onCatalogChanged === "function") {
+    catalogSubscribers.add(onCatalogChanged);
+  }
 
-  apiClient
-    .get("/store-data")
-    .then((res) => {
-      const val = res.data?.storeConfig;
-      if (!val || typeof val !== "object") return;
-
-      if (Array.isArray(val.coupons) && val.coupons.length) {
-        localStorage.setItem("ummo_admin_coupons", JSON.stringify(val.coupons));
-      }
-      if (val.banners && typeof val.banners === "object") {
-        const cleanBanners = sanitizeBanners(val.banners);
-        localStorage.setItem(
-          "ummo_admin_banners_v3",
-          JSON.stringify(cleanBanners)
-        );
-        window.dispatchEvent(
-          new CustomEvent("ummo:banners-updated", { detail: cleanBanners })
-        );
-      }
-      if (Array.isArray(val.customProducts)) {
-        localStorage.setItem(
-          "ummo_admin_custom_products",
-          JSON.stringify(val.customProducts)
-        );
-      }
-      if (Array.isArray(val.deletedIds)) {
-        localStorage.setItem(
-          "ummo_admin_deleted_ids",
-          JSON.stringify(val.deletedIds)
-        );
-      }
-      if (val.cartRules && typeof val.cartRules === "object") {
-        localStorage.setItem(
-          "ummo_admin_cart_rules_v2",
-          JSON.stringify(val.cartRules)
-        );
-        window.dispatchEvent(
-          new CustomEvent("ummo:cart-rules-updated", { detail: val.cartRules })
-        );
-      }
-      if (typeof onCatalogChanged === "function" && cachedBaseProducts) {
+  if (!storeConfigSyncPromise) {
+    storeConfigSyncPromise = apiClient
+      .get("/store-data")
+      .then((res) => {
+        applyRemoteStoreConfig(res.data?.storeConfig);
+        return res.data;
+      })
+      .catch(() => null);
+  } else if (typeof onCatalogChanged === "function" && cachedBaseProducts) {
+    storeConfigSyncPromise.then(() => {
+      if (cachedBaseProducts) {
         onCatalogChanged(mergeWithAdminCatalog(cachedBaseProducts));
       }
-    })
-    .catch(() => {});
+    });
+  }
+
+  return () => {
+    if (typeof onCatalogChanged === "function") {
+      catalogSubscribers.delete(onCatalogChanged);
+    }
+  };
 }
 
 function getDefaultProductTimer(item, index) {
@@ -332,12 +405,14 @@ function getDefaultProductTimer(item, index) {
 function mergeWithAdminCatalog(baseProducts) {
   const customProducts = getCustomAdminProducts();
   const deletedIds = new Set(getDeletedProductIds().map(String));
+  const baseIdSet = new Set(baseProducts.map((p) => String(p.id)));
 
   const customMap = new Map(customProducts.map((p) => [String(p.id), p]));
   const merged = [];
 
   for (const cp of customProducts) {
-    if (!deletedIds.has(String(cp.id)) && cp.isCustomNew) {
+    const cpId = String(cp.id);
+    if (!deletedIds.has(cpId) && (cp.isCustomNew || !baseIdSet.has(cpId))) {
       merged.push(cp);
     }
   }
@@ -447,8 +522,12 @@ export async function syncUserToMongo(userPayload) {
   return response.data;
 }
 
-export async function updateUserRoleInMongo(uid, role) {
-  const response = await apiClient.patch("/users/role", { uid, role });
+export async function updateUserRoleInMongo(uid, role, extra = {}) {
+  const response = await apiClient.patch("/users/role", {
+    uid,
+    role,
+    ...extra,
+  });
   return response.data;
 }
 

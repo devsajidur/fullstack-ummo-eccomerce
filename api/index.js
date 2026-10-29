@@ -413,7 +413,7 @@ export default async function handler(req, res) {
         await db
           .collection("orders")
           .updateOne(
-            { orderId },
+            { $or: [{ orderId }, { id: orderId }] },
             { $set: { status: nextStatus, updatedAt } }
           )
           .catch(() => {});
@@ -520,15 +520,28 @@ export default async function handler(req, res) {
         });
       }
 
-      state.users = state.users.map((u) =>
-        String(u.uid) === uid ? { ...u, role } : u
-      );
+      const existingUser = state.users.find((u) => String(u.uid) === uid);
+      const updatedUserDoc = {
+        uid,
+        email: asSafeEmail(body.email) || existingUser?.email || "",
+        username: asSafeId(
+          body.username || existingUser?.username || "Customer",
+          100
+        ),
+        role,
+        updatedAt: new Date().toISOString(),
+      };
+
+      state.users = [
+        { ...(existingUser || {}), ...updatedUserDoc },
+        ...state.users.filter((u) => String(u.uid) !== uid),
+      ];
 
       const db = await getMongoDb();
       if (db) {
         await db
           .collection("users")
-          .updateOne({ uid }, { $set: { role } })
+          .updateOne({ uid }, { $set: updatedUserDoc }, { upsert: true })
           .catch(() => {});
       }
       await saveCloudMirrorState(state);
@@ -724,10 +737,12 @@ export default async function handler(req, res) {
             error: "A valid email address is required.",
           });
         }
+        const nowIso = new Date().toISOString();
         const sub = {
           id: asSafeId(body.id || `SUB-${Date.now()}`, 64),
           email,
-          createdAt: new Date().toISOString(),
+          createdAt: nowIso,
+          subscribedAt: nowIso,
         };
         state.subscribers = [
           sub,

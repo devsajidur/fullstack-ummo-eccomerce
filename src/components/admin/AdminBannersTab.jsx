@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Plus, RotateCcw, Save, Trash2, UploadCloud } from "lucide-react";
 import {
   DEFAULT_BANNERS,
@@ -11,6 +11,17 @@ import toast from "react-hot-toast";
 export default function AdminBannersTab() {
   const [banners, setBanners] = useState(() => getStoredBanners());
   const [uploadingKey, setUploadingKey] = useState("");
+
+  useEffect(() => {
+    const handleRemoteUpdate = (e) => {
+      if (e?.detail && typeof e.detail === "object") {
+        setBanners(e.detail);
+      }
+    };
+    window.addEventListener("ummo:banners-updated", handleRemoteUpdate);
+    return () =>
+      window.removeEventListener("ummo:banners-updated", handleRemoteUpdate);
+  }, []);
 
   async function handleCloudinaryBannerUpload(file, key, onUploaded) {
     if (!file) return;
@@ -28,14 +39,14 @@ export default function AdminBannersTab() {
     }
   }
 
-  function handleSaveAll() {
-    saveStoredBanners(banners);
+  async function handleSaveAll() {
+    await saveStoredBanners(banners);
     toast.success("Storefront banners updated and synced live!");
   }
 
-  function handleResetDefault() {
+  async function handleResetDefault() {
     setBanners(DEFAULT_BANNERS);
-    saveStoredBanners(DEFAULT_BANNERS);
+    await saveStoredBanners(DEFAULT_BANNERS);
     toast.success("Banners reset to default UOMO configuration.");
   }
 
@@ -355,9 +366,28 @@ export default function AdminBannersTab() {
             />
           </div>
           <div>
-            <label className="block font-semibold text-gray-600 mb-1">
-              Custom Image URL (Optional)
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-semibold text-gray-600">
+                Custom Image URL (Optional)
+              </label>
+              <label className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-900 hover:underline cursor-pointer">
+                <UploadCloud size={12} />
+                {uploadingKey === "deal_banner" ? "Uploading..." : "☁️ Upload"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={Boolean(uploadingKey)}
+                  onChange={(e) =>
+                    handleCloudinaryBannerUpload(
+                      e.target.files?.[0],
+                      "deal_banner",
+                      (url) => handleDealChange("image", url)
+                    )
+                  }
+                />
+              </label>
+            </div>
             <input
               type="text"
               placeholder="Leave empty for default Spring image"
@@ -498,9 +528,28 @@ export default function AdminBannersTab() {
             />
           </div>
           <div>
-            <label className="block font-semibold text-gray-600 mb-1">
-              Custom Shop Banner Image URL (Optional)
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block font-semibold text-gray-600">
+                Custom Shop Banner Image URL (Optional)
+              </label>
+              <label className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-900 hover:underline cursor-pointer">
+                <UploadCloud size={12} />
+                {uploadingKey === "shop_header" ? "Uploading..." : "☁️ Upload"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={Boolean(uploadingKey)}
+                  onChange={(e) =>
+                    handleCloudinaryBannerUpload(
+                      e.target.files?.[0],
+                      "shop_header",
+                      (url) => handleShopHeaderChange("image", url)
+                    )
+                  }
+                />
+              </label>
+            </div>
             <input
               type="text"
               placeholder="Leave empty for default UOMO shopBanner.png"

@@ -2,8 +2,10 @@ import React, { useEffect, useState } from "react";
 import Image from "../common/Image";
 import { Link } from "react-router";
 import Countdown from "react-countdown";
-import SpringImage from "../../../assets/images/springImage.jpg";
 import { getStoredBanners } from "../../../services/api";
+import { getCloudinaryBannerUrl } from "../../../services/cloudinary";
+
+const SpringImage = getCloudinaryBannerUrl("springImage", 700);
 
 const SpringCollection = () => {
   const [deal, setDeal] = useState(() => getStoredBanners().dealBanner || {});

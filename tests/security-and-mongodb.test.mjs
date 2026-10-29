@@ -475,6 +475,253 @@ test("Phase 6: API input validation rejects invalid ratings, invalid emails, and
   }
 });
 
+// ============================================================================
+// 5. END-TO-END ADMIN DASHBOARD & CUSTOMER DASHBOARD LIVE FEATURE SUITE
+// ============================================================================
+test("Phase 7: End-to-End Admin Dashboard (Products, Banners, Coupons, Cart Rules, Orders, Roles, Inbox) & Customer Dashboard (Profile, Addresses, Order Cancel) persist in MongoDB Atlas", async () => {
+  const db = await getMongoDb();
+  assert.ok(db, "MongoDB connection must be active");
+
+  // Snapshot existing store_config so we restore production state cleanly in finally
+  const originalConfig = await db.collection("store_config").findOne({ _id: "global" });
+
+  // Simulate an Admin who signed in with Google/Email and unlocked Admin Panel (1-Click Demo Admin)
+  const googleAdminHeaders = {
+    "x-user-uid": "qa-google-admin-uid",
+    "x-user-email": "qa-admin-user@gmail.com",
+    "x-admin-key": ADMIN_ACCESS_KEY,
+  };
+
+  const testCustomerUid = "qa-test-customer-999";
+  const customerHeaders = {
+    "x-user-uid": testCustomerUid,
+    "x-user-email": "qa-customer@example.com",
+  };
+  const testOrderId = "ORD-QA-E2E-999";
+  const testMsgId = "MSG-QA-E2E-999";
+  const testSubId = "SUB-QA-E2E-999";
+  const testSubEmail = "qa-newsletter-e2e@example.com";
+
+  try {
+    // 1. Admin Dashboard: Add/Edit Custom Product + Free Gift + Timer + Banners + Coupons + Cart Rules
+    {
+      const customProduct = {
+        id: "999001",
+        title: "QA Luxury Chronograph",
+        category: "mens-watches",
+        brand: "UOMO",
+        price: 150,
+        discountPercentage: 20,
+        discountEndTime: new Date(Date.now() + 86400000).toISOString(),
+        freeGift: {
+          enabled: true,
+          minBuyQty: 1,
+          giftName: "Leather Strap",
+          giftQty: 1,
+        },
+        stock: 15,
+        isCustomNew: true,
+      };
+      const testCoupons = [
+        ...(originalConfig?.coupons || []),
+        { code: "QATEST50", type: "fixed", value: 50, minOrder: 100, active: true },
+      ];
+      const testCartRules = {
+        freeShippingEnabled: true,
+        freeShippingThreshold: 75,
+        tieredDiscountEnabled: true,
+        tieredMinSpend: 150,
+        tieredDiscountPercent: 12,
+        giftWrapFee: 5,
+      };
+
+      const { req, res } = createMockReqRes({
+        method: "POST",
+        url: "/api/v1/store-config",
+        headers: googleAdminHeaders,
+        body: {
+          customProducts: [customProduct, ...(originalConfig?.customProducts || [])],
+          coupons: testCoupons,
+          cartRules: testCartRules,
+        },
+      });
+      await handler(req, res);
+      assert.equal(res.statusCode, 200, "Google-authenticated Admin with X-Admin-Key must save store-config");
+      assert.equal(res.json.storeConfig.cartRules.freeShippingThreshold, 75);
+      assert.ok(
+        res.json.storeConfig.coupons.some((c) => c.code === "QATEST50"),
+        "New coupon QATEST50 must be saved"
+      );
+    }
+
+    // 2. Customer Dashboard: Save Profile (/users) & Address Book (/addresses)
+    {
+      const { req, res } = createMockReqRes({
+        method: "POST",
+        url: "/api/v1/users",
+        headers: customerHeaders,
+        body: {
+          uid: testCustomerUid,
+          email: "qa-customer@example.com",
+          username: "QA Verified Buyer",
+          phone: "+15550199",
+          bio: "QA Test Bio",
+        },
+      });
+      await handler(req, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.json.user.username, "QA Verified Buyer");
+      assert.equal(res.json.user.role, "CUSTOMER");
+    }
+    {
+      const { req, res } = createMockReqRes({
+        method: "POST",
+        url: "/api/v1/addresses",
+        headers: customerHeaders,
+        body: {
+          userUid: testCustomerUid,
+          addresses: [
+            {
+              id: "addr-qa-1",
+              label: "Home",
+              fullName: "QA Verified Buyer",
+              street: "742 Evergreen Terrace",
+              city: "Springfield",
+              country: "United States",
+              isDefault: true,
+            },
+          ],
+        },
+      });
+      await handler(req, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.json.addresses.length, 1);
+    }
+
+    // 3. Admin Dashboard: Toggle Customer Role (CUSTOMER -> ADMIN -> CUSTOMER)
+    {
+      const { req, res } = createMockReqRes({
+        method: "PATCH",
+        url: "/api/v1/users/role",
+        headers: googleAdminHeaders,
+        body: {
+          uid: testCustomerUid,
+          role: "ADMIN",
+          email: "qa-customer@example.com",
+          username: "QA Verified Buyer",
+        },
+      });
+      await handler(req, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.json.role, "ADMIN");
+
+      // Revert back to CUSTOMER
+      const revert = createMockReqRes({
+        method: "PATCH",
+        url: "/api/v1/users/role",
+        headers: googleAdminHeaders,
+        body: { uid: testCustomerUid, role: "CUSTOMER" },
+      });
+      await handler(revert.req, revert.res);
+      assert.equal(revert.res.statusCode, 200);
+      assert.equal(revert.res.json.role, "CUSTOMER");
+    }
+
+    // 4. Customer Checkout -> Admin Order Status Update -> Customer Order View
+    {
+      // Customer places order for the newly added custom product (price 150 with 20% active discount = $120)
+      const { req, res } = createMockReqRes({
+        method: "POST",
+        url: "/api/v1/orders",
+        headers: {
+          ...customerHeaders,
+          "idempotency-key": "qa-idem-999",
+        },
+        body: {
+          orderId: testOrderId,
+          userUid: testCustomerUid,
+          email: "qa-customer@example.com",
+          username: "QA Verified Buyer",
+          OrderItems: [{ id: "999001", quantity: 1, price: 120 }],
+          shippingMethod: "free",
+        },
+      });
+      await handler(req, res);
+      assert.equal(res.statusCode, 201);
+      assert.equal(res.json.order.orderId, testOrderId);
+      assert.equal(res.json.order.freeGifts[0].giftName, "Leather Strap");
+
+      // Admin advances order status to PROCESSING
+      const adminStatusUpdate = createMockReqRes({
+        method: "PATCH",
+        url: "/api/v1/orders/status",
+        headers: googleAdminHeaders,
+        body: { orderId: testOrderId, status: "PROCESSING" },
+      });
+      await handler(adminStatusUpdate.req, adminStatusUpdate.res);
+      assert.equal(adminStatusUpdate.res.statusCode, 200);
+      assert.equal(adminStatusUpdate.res.json.newStatus, "PROCESSING");
+    }
+
+    // 5. Contact Message & Newsletter Subscriber Submit + Admin Delete Verification
+    {
+      const msgSubmit = createMockReqRes({
+        method: "POST",
+        url: "/api/v1/messages",
+        body: {
+          id: testMsgId,
+          name: "QA Sender",
+          email: "qa-sender@example.com",
+          message: "Testing contact inbox persistence and deletion.",
+        },
+      });
+      await handler(msgSubmit.req, msgSubmit.res);
+      assert.equal(msgSubmit.res.statusCode, 201);
+
+      const msgDelete = createMockReqRes({
+        method: "DELETE",
+        url: `/api/v1/messages?id=${testMsgId}`,
+        headers: googleAdminHeaders,
+      });
+      await handler(msgDelete.req, msgDelete.res);
+      assert.equal(msgDelete.res.statusCode, 200);
+
+      const subSubmit = createMockReqRes({
+        method: "POST",
+        url: "/api/v1/subscribers",
+        body: { id: testSubId, email: testSubEmail },
+      });
+      await handler(subSubmit.req, subSubmit.res);
+      assert.equal(subSubmit.res.statusCode, 201);
+      assert.ok(subSubmit.res.json.subscriber.subscribedAt);
+
+      const subDelete = createMockReqRes({
+        method: "DELETE",
+        url: `/api/v1/subscribers?id=${testSubId}`,
+        headers: googleAdminHeaders,
+      });
+      await handler(subDelete.req, subDelete.res);
+      assert.equal(subDelete.res.statusCode, 200);
+    }
+  } finally {
+    // Restore original store_config and remove temporary QA test documents
+    if (originalConfig) {
+      const { _id, ...restConfig } = originalConfig;
+      await db
+        .collection("store_config")
+        .replaceOne({ _id: "global" }, { _id: "global", ...restConfig }, { upsert: true })
+        .catch(() => {});
+    }
+    await Promise.all([
+      db.collection("orders").deleteOne({ orderId: testOrderId }).catch(() => {}),
+      db.collection("users").deleteOne({ uid: testCustomerUid }).catch(() => {}),
+      db.collection("addresses").deleteOne({ userUid: testCustomerUid }).catch(() => {}),
+      db.collection("messages").deleteOne({ id: testMsgId }).catch(() => {}),
+      db.collection("subscribers").deleteOne({ id: testSubId }).catch(() => {}),
+    ]);
+  }
+});
+
 test.after(async () => {
   await closeMongoConnection();
 });

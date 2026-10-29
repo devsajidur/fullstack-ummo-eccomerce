@@ -69,6 +69,10 @@ const Banner = () => {
                       className="w-full min-h-[240px] sm:min-h-[360px] md:min-h-[460px] max-h-[650px] object-cover"
                       src={resolvedSrc}
                       alt={item.title || "UOMO Hero Banner"}
+                      loading={idx === 0 ? "eager" : "lazy"}
+                      fetchPriority={idx === 0 ? "high" : "auto"}
+                      width={1280}
+                      height={600}
                       onError={(e) => {
                         e.currentTarget.src = "/images/SLIDER.png";
                       }}
@@ -111,6 +115,10 @@ const Banner = () => {
                       className="w-full h-auto block object-cover"
                       src={resolvedSrc}
                       alt="UOMO Collection Banner"
+                      loading={idx === 0 ? "eager" : "lazy"}
+                      fetchPriority={idx === 0 ? "high" : "auto"}
+                      width={1280}
+                      height={600}
                       onError={(e) => {
                         e.currentTarget.src = "/images/SLIDER.png";
                       }}

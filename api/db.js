@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { MongoClient } from "mongodb";
 
 // Server-only configuration (prefers environment variables; encodes fallback for zero-downtime Vercel compatibility)
@@ -60,6 +59,12 @@ export function createInitialMemoryState() {
 }
 
 let inMemoryState = createInitialMemoryState();
+let lastMongoSyncMs = 0;
+const STATE_CACHE_TTL_MS = 3000;
+
+export function invalidateStateCache() {
+  lastMongoSyncMs = 0;
+}
 
 /**
  * Establishes or reuses a pooled MongoDB Atlas connection (`ummo_ecommerce`).
@@ -130,71 +135,35 @@ export async function closeMongoConnection() {
   }
 }
 
-export async function loadCloudMirrorState() {
-  if (inMemoryState.hydrated) return inMemoryState;
-  try {
-    const res = await fetch(
-      `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/raw/upload/ummo_db/database_state_v1.json?t=${Date.now()}`
-    );
-    if (res.ok) {
-      const data = await res.json();
-      if (data && typeof data === "object") {
-        inMemoryState = {
-          ...inMemoryState,
-          ...data,
-          storeConfig: {
-            ...inMemoryState.storeConfig,
-            ...(data.storeConfig || {}),
-          },
-          hydrated: true,
-        };
-      }
-    }
-  } catch {
-    // Fallback to clean initial state
-  }
-  inMemoryState.hydrated = true;
-  return inMemoryState;
-}
-
+/**
+ * Updates the in-process state cache after a MongoDB write.
+ * Cloudinary is reserved strictly for media images, not database state.
+ */
 export async function saveCloudMirrorState(state) {
-  try {
-    const secret = getCloudinarySecret();
-    const jsonStr = JSON.stringify(state);
-    const b64 = `data:application/json;base64,${Buffer.from(jsonStr).toString("base64")}`;
-    const timestamp = Math.floor(Date.now() / 1000);
-    const folder = "ummo_db";
-    const public_id = "database_state_v1.json";
-    const toSign = `folder=${folder}&invalidate=true&overwrite=true&public_id=${public_id}&timestamp=${timestamp}${secret}`;
-    const signature = crypto.createHash("sha1").update(toSign).digest("hex");
-
-    const body = new URLSearchParams({
-      file: b64,
-      api_key: CLOUDINARY_API_KEY,
-      timestamp: String(timestamp),
-      folder,
-      public_id,
-      overwrite: "true",
-      invalidate: "true",
-      signature,
-    });
-
-    await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`,
-      {
-        method: "POST",
-        body,
-      }
-    );
-  } catch {
-    // Non-blocking mirror sync
+  if (state && typeof state === "object") {
+    inMemoryState = state;
+    lastMongoSyncMs = Date.now();
   }
 }
 
-export async function getFullState() {
-  const state = await loadCloudMirrorState();
+/**
+ * Loads authoritative database state from MongoDB Atlas (`ummo_ecommerce`)
+ * with a short in-memory read cache to eliminate redundant queries across rapid requests.
+ */
+export async function getFullState(options = {}) {
+  const now = Date.now();
+  if (
+    !options.forceRefresh &&
+    inMemoryState.hydrated &&
+    now - lastMongoSyncMs < STATE_CACHE_TTL_MS
+  ) {
+    return { state: inMemoryState, source: "mongodb-atlas" };
+  }
+
   const db = await getMongoDb();
-  if (!db) return { state, source: "cloud-mirror" };
+  if (!db) {
+    return { state: inMemoryState, source: "memory-fallback" };
+  }
 
   try {
     const [
@@ -226,30 +195,39 @@ export async function getFullState() {
     ]);
 
     if (cfgDoc) {
-      state.storeConfig = {
-        ...state.storeConfig,
-        coupons: cfgDoc.coupons ?? state.storeConfig.coupons,
-        banners: cfgDoc.banners ?? state.storeConfig.banners,
+      inMemoryState.storeConfig = {
+        ...inMemoryState.storeConfig,
+        coupons: cfgDoc.coupons ?? inMemoryState.storeConfig.coupons,
+        banners: cfgDoc.banners ?? inMemoryState.storeConfig.banners,
         customProducts:
-          cfgDoc.customProducts ?? state.storeConfig.customProducts,
-        deletedIds: cfgDoc.deletedIds ?? state.storeConfig.deletedIds,
-        cartRules: cfgDoc.cartRules ?? state.storeConfig.cartRules,
+          cfgDoc.customProducts ?? inMemoryState.storeConfig.customProducts,
+        deletedIds: cfgDoc.deletedIds ?? inMemoryState.storeConfig.deletedIds,
+        cartRules: cfgDoc.cartRules ?? inMemoryState.storeConfig.cartRules,
       };
     }
-    if (ordersList.length) state.orders = ordersList;
-    if (usersList.length) state.users = usersList;
-    if (messagesList.length) state.messages = messagesList;
-    if (subscribersList.length) state.subscribers = subscribersList;
 
+    inMemoryState.orders = ordersList;
+    inMemoryState.users = usersList;
+    inMemoryState.messages = messagesList;
+    inMemoryState.subscribers = subscribersList;
+
+    const nextAddresses = {};
     addressesList.forEach((doc) => {
-      if (doc.userUid) state.addresses[doc.userUid] = doc.items || [];
+      if (doc.userUid) nextAddresses[doc.userUid] = doc.items || [];
     });
-    reviewsList.forEach((doc) => {
-      if (doc.productId) state.reviews[doc.productId] = doc.items || [];
-    });
+    inMemoryState.addresses = nextAddresses;
 
-    return { state, source: "mongodb-atlas" };
+    const nextReviews = {};
+    reviewsList.forEach((doc) => {
+      if (doc.productId) nextReviews[doc.productId] = doc.items || [];
+    });
+    inMemoryState.reviews = nextReviews;
+
+    inMemoryState.hydrated = true;
+    lastMongoSyncMs = Date.now();
+
+    return { state: inMemoryState, source: "mongodb-atlas" };
   } catch {
-    return { state, source: "cloud-mirror" };
+    return { state: inMemoryState, source: "memory-fallback" };
   }
 }

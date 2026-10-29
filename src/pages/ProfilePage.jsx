@@ -49,7 +49,7 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState("overview");
   const [orders, setOrders] = useState([]);
   const [addresses, setAddresses] = useState([]);
-  const [coupons] = useState(() => getStoredCoupons());
+  const [coupons, setCoupons] = useState(() => getStoredCoupons());
   const [profileForm, setProfileForm] = useState({
     username: "",
     phone: "",
@@ -89,6 +89,12 @@ export default function ProfilePage() {
       // Fetch user profile and orders from MongoDB
       fetchStoreDataFromMongo()
         .then((store) => {
+          if (
+            Array.isArray(store?.storeConfig?.coupons) &&
+            store.storeConfig.coupons.length
+          ) {
+            setCoupons(store.storeConfig.coupons);
+          }
           const allUsers = Array.isArray(store?.users) ? store.users : [];
           const foundUser = allUsers.find(
             (u) => String(u.uid) === String(currentUser.uid)

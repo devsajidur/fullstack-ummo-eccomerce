@@ -130,8 +130,10 @@ export default function AdminCustomersTab({
                   <span className="font-medium text-gray-900">{sub.email}</span>
                   <div className="flex items-center gap-3">
                     <span className="text-gray-400">
-                      {sub.subscribedAt
-                        ? new Date(sub.subscribedAt).toLocaleDateString()
+                      {sub.subscribedAt || sub.createdAt
+                        ? new Date(
+                            sub.subscribedAt || sub.createdAt
+                          ).toLocaleDateString()
                         : "Active"}
                     </span>
                     {onDeleteSubscriber && (

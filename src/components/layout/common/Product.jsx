@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import Image from "./Image";
 import { useDispatch, useSelector } from "react-redux";
 import { addToCart } from "../../../slices/cartSlice";
@@ -15,17 +15,40 @@ import {
   useNowTick,
 } from "../../../utils/discountTimer";
 
-const Product = ({ item }) => {
+/**
+ * Isolated countdown pill so 1-second timer ticks only update this tiny text span
+ * and never re-render the parent Product card or image.
+ */
+const ProductCountdownPill = memo(function ProductCountdownPill({ item }) {
+  const now = useNowTick(true);
+  const discountState = getProductDiscountState(item, now);
+  if (!discountState.hasActiveTimer) return null;
+
+  return (
+    <div className="absolute bottom-0 inset-x-0 bg-black/80 backdrop-blur-[2px] text-white px-2 py-1 flex items-center justify-center gap-1 text-[10px] sm:text-[11px] font-mono font-semibold tracking-tight">
+      <span className="text-amber-400">⚡</span>
+      <span>
+        {discountState.days > 0 ? `${discountState.days}d ` : ""}
+        {pad2(discountState.hours)}h : {pad2(discountState.minutes)}m :{" "}
+        {pad2(discountState.seconds)}s
+      </span>
+    </div>
+  );
+});
+
+const Product = memo(function Product({ item }) {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const wishList = useSelector((state) => state.wishList.wishProduct) || [];
-  const isWished = wishList.some((w) => String(w.id) === String(item?.id));
+  const isWished = useSelector((state) =>
+    (state.wishList.wishProduct || []).some(
+      (w) => String(w.id) === String(item?.id)
+    )
+  );
 
   const hasTimer = Boolean(
     item?.discountEndTime && item.discountEndTime !== "none"
   );
-  const now = useNowTick(hasTimer);
-  const discountState = getProductDiscountState(item, now);
+  const discountState = getProductDiscountState(item);
   const stockCount = Number(item?.stock ?? 20);
 
   const hasFreeGift =
@@ -84,6 +107,8 @@ const Product = ({ item }) => {
           className="md:h-80 md:w-50 h-40 w-30 block mx-auto object-contain transition-transform duration-300 group-hover:scale-105"
           src={item?.thumbnail}
           alt={item?.title}
+          width={200}
+          height={320}
         />
 
         {/* Top-Left Discount & Free Gift Badges */}
@@ -114,16 +139,7 @@ const Product = ({ item }) => {
         )}
 
         {/* Live Countdown Timer Bar on Product Card */}
-        {discountState.hasActiveTimer && (
-          <div className="absolute bottom-0 inset-x-0 bg-black/80 backdrop-blur-[2px] text-white px-2 py-1 flex items-center justify-center gap-1 text-[10px] sm:text-[11px] font-mono font-semibold tracking-tight">
-            <span className="text-amber-400">⚡</span>
-            <span>
-              {discountState.days > 0 ? `${discountState.days}d ` : ""}
-              {pad2(discountState.hours)}h : {pad2(discountState.minutes)}m :{" "}
-              {pad2(discountState.seconds)}s
-            </span>
-          </div>
-        )}
+        {hasTimer && <ProductCountdownPill item={item} />}
       </div>
 
       <div className="mt-3.2">
@@ -204,6 +220,6 @@ const Product = ({ item }) => {
       </div>
     </div>
   );
-};
+});
 
 export default Product;

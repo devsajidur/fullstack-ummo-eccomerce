@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import {
+  applyRemoteStoreConfig,
   deleteContactMessageFromMongo,
   deleteSubscriberFromMongo,
   fetchCatalogProducts,
@@ -24,7 +25,7 @@ import {
   getStoredCoupons,
   invalidateCatalogCache,
   saveCustomAdminProducts,
-  saveDeletedProductIds,
+  saveStoreConfigPatch,
   saveStoredCoupons,
   updateOrderStatusInMongo,
   updateUserRoleInMongo,
@@ -92,6 +93,7 @@ export default function AdminDashboardPage() {
           user.email?.toLowerCase().includes("admin") ||
           localStorage.getItem("ummo_admin_unlocked") === "true"
         ) {
+          localStorage.setItem("ummo_admin_unlocked", "true");
           setIsAdminVerified(true);
         }
       }
@@ -112,11 +114,13 @@ export default function AdminDashboardPage() {
     }
   }, [catalogProducts, dispatch]);
 
-  // 3. Load & Sync Orders, Customers, Messages, Subscribers & Coupons from MongoDB Atlas
+  // 3. Load & Sync Orders, Customers, Messages, Subscribers & StoreConfig from MongoDB Atlas
   useEffect(() => {
     if (!authUser || !isAdminVerified) return;
 
     let active = true;
+    let initialConfigApplied = false;
+
     const syncMongoStoreData = () => {
       fetchStoreDataFromMongo()
         .then((data) => {
@@ -144,15 +148,22 @@ export default function AdminDashboardPage() {
           if (Array.isArray(data.subscribers)) {
             setSubscribers(data.subscribers);
           }
-          if (
-            Array.isArray(data.storeConfig?.coupons) &&
-            data.storeConfig.coupons.length
-          ) {
-            setCoupons(data.storeConfig.coupons);
-            localStorage.setItem(
-              "ummo_admin_coupons",
-              JSON.stringify(data.storeConfig.coupons)
-            );
+
+          if (!initialConfigApplied && data.storeConfig) {
+            initialConfigApplied = true;
+            applyRemoteStoreConfig(data.storeConfig);
+            if (
+              Array.isArray(data.storeConfig.coupons) &&
+              data.storeConfig.coupons.length
+            ) {
+              setCoupons(data.storeConfig.coupons);
+            }
+            fetchCatalogProducts(200).then((list) => {
+              if (!active) return;
+              setProducts(list);
+              dispatch(Allitem(list));
+              dispatch(addProduct(list));
+            });
           }
         })
         .catch(() => {
@@ -161,12 +172,12 @@ export default function AdminDashboardPage() {
     };
 
     syncMongoStoreData();
-    const interval = setInterval(syncMongoStoreData, 12000);
+    const interval = setInterval(syncMongoStoreData, 15000);
     return () => {
       active = false;
       clearInterval(interval);
     };
-  }, [authUser, isAdminVerified]);
+  }, [authUser, isAdminVerified, dispatch]);
 
   const metrics = useMemo(() => {
     const validOrders = orders.filter((o) => o.status !== "CANCELLED");
@@ -282,14 +293,19 @@ export default function AdminDashboardPage() {
   }
 
   function handleDeleteProduct(product) {
+    const idStr = String(product.id);
     const deletedIds = getDeletedProductIds();
-    const nextDeleted = [...new Set([...deletedIds, String(product.id)])];
-    saveDeletedProductIds(nextDeleted);
+    const nextDeleted = [...new Set([...deletedIds.map(String), idStr])];
+    const nextCustom = getCustomAdminProducts().filter(
+      (p) => String(p.id) !== idStr
+    );
+    saveStoreConfigPatch({
+      deletedIds: nextDeleted,
+      customProducts: nextCustom,
+    });
     invalidateCatalogCache();
 
-    const nextProducts = products.filter(
-      (p) => String(p.id) !== String(product.id)
-    );
+    const nextProducts = products.filter((p) => String(p.id) !== idStr);
     setProducts(nextProducts);
     dispatch(Allitem(nextProducts));
     dispatch(addProduct(nextProducts));
@@ -297,8 +313,10 @@ export default function AdminDashboardPage() {
   }
 
   async function handleResetCatalog() {
-    saveCustomAdminProducts([]);
-    saveDeletedProductIds([]);
+    await saveStoreConfigPatch({
+      customProducts: [],
+      deletedIds: [],
+    });
     invalidateCatalogCache();
     const freshList = await fetchCatalogProducts(200);
     setProducts(freshList);
@@ -308,16 +326,17 @@ export default function AdminDashboardPage() {
   }
 
   async function handleUpdateOrderStatus(order, newStatus) {
-    updateLocalOrderStatus(order.orderId, newStatus);
+    const targetId = order.orderId || order.id;
+    updateLocalOrderStatus(targetId, newStatus);
     setOrders((prev) =>
       prev.map((item) =>
-        String(item.orderId) === String(order.orderId)
+        String(item.orderId || item.id) === String(targetId)
           ? { ...item, status: newStatus }
           : item
       )
     );
-    await updateOrderStatusInMongo(order.orderId, newStatus).catch(() => {});
-    toast.success(`Order #${String(order.orderId).slice(-6)} → ${newStatus}`);
+    await updateOrderStatusInMongo(targetId, newStatus).catch(() => {});
+    toast.success(`Order #${String(targetId).slice(-6)} → ${newStatus}`);
   }
 
   function handleCreateCoupon(couponForm) {
@@ -356,7 +375,10 @@ export default function AdminDashboardPage() {
       prev.map((c) => (c.uid === customer.uid ? { ...c, role: nextRole } : c))
     );
     try {
-      await updateUserRoleInMongo(customer.uid, nextRole);
+      await updateUserRoleInMongo(customer.uid, nextRole, {
+        email: customer.email,
+        username: customer.username || customer.name,
+      });
       toast.success(`${customer.email || customer.username} is now ${nextRole}`);
     } catch {
       toast.error("Could not update user role in MongoDB.");
@@ -389,6 +411,7 @@ export default function AdminDashboardPage() {
       adminEmail.trim().toLowerCase() === DEFAULT_ADMIN_EMAIL &&
       adminPass === DEFAULT_ADMIN_PASSWORD
     ) {
+      localStorage.setItem("ummo_admin_unlocked", "true");
       const adminUser = await signInAsDemoAdmin();
       setAuthUser(adminUser);
       setIsAdminVerified(true);
@@ -401,13 +424,16 @@ export default function AdminDashboardPage() {
   }
 
   async function handleActivateAdminRole() {
+    localStorage.setItem("ummo_admin_unlocked", "true");
     if (authUser && authUser.email !== DEFAULT_ADMIN_EMAIL) {
-      localStorage.setItem("ummo_admin_unlocked", "true");
       const elevated = { ...authUser, role: "ADMIN" };
       setSessionUser(elevated);
       setAuthUser(elevated);
       setIsAdminVerified(true);
-      await updateUserRoleInMongo(authUser.uid, "ADMIN").catch(() => {});
+      await updateUserRoleInMongo(authUser.uid, "ADMIN", {
+        email: authUser.email,
+        username: authUser.displayName,
+      }).catch(() => {});
       toast.success("Admin role activated!");
     } else {
       const adminUser = await signInAsDemoAdmin();

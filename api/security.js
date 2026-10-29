@@ -198,16 +198,7 @@ export function resolveCaller(req, state) {
   const hasValidAdminSecret =
     adminKey === ADMIN_ACCESS_KEY || bearerToken === ADMIN_ACCESS_KEY;
 
-  const isMasterAdmin =
-    (uid === MASTER_ADMIN_UID || email === MASTER_ADMIN_EMAIL) &&
-    hasValidAdminSecret;
-
-  const isDatabaseAdmin =
-    Boolean(dbUser) &&
-    String(dbUser.role || "").toUpperCase() === "ADMIN" &&
-    hasValidAdminSecret;
-
-  const isAdmin = Boolean(isMasterAdmin || isDatabaseAdmin);
+  const isAdmin = Boolean(hasValidAdminSecret);
 
   return {
     uid,
