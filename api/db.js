@@ -49,6 +49,7 @@ export function createInitialMemoryState() {
       cartRules: null,
     },
     orders: [],
+    payments: [],
     users: [],
     addresses: {},
     reviews: {},
@@ -169,6 +170,7 @@ export async function getFullState(options = {}) {
     const [
       cfgDoc,
       ordersList,
+      paymentsList,
       usersList,
       addressesList,
       reviewsList,
@@ -177,6 +179,12 @@ export async function getFullState(options = {}) {
     ] = await Promise.all([
       db.collection("store_config").findOne({ _id: "global" }),
       db.collection("orders").find({}).sort({ date: -1 }).limit(200).toArray(),
+      db
+        .collection("payments")
+        .find({})
+        .sort({ createdAt: -1 })
+        .limit(200)
+        .toArray(),
       db.collection("users").find({}).limit(200).toArray(),
       db.collection("addresses").find({}).limit(200).toArray(),
       db.collection("reviews").find({}).limit(200).toArray(),
@@ -207,6 +215,7 @@ export async function getFullState(options = {}) {
     }
 
     inMemoryState.orders = ordersList;
+    inMemoryState.payments = paymentsList;
     inMemoryState.users = usersList;
     inMemoryState.messages = messagesList;
     inMemoryState.subscribers = subscribersList;

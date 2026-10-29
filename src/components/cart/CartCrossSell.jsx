@@ -179,8 +179,11 @@ export default function CartCrossSell() {
                   className="relative bg-[#f8f8f8] rounded-lg p-3 cursor-pointer overflow-hidden"
                 >
                   <Image
-                    src={item.thumbnail}
+                    product={item}
+                    src={item.thumbnail || item.image}
                     alt={item.title}
+                    width={180}
+                    height={144}
                     className="h-32 sm:h-36 w-full object-contain mx-auto transition-transform duration-300 hover:scale-105"
                   />
                   {dState.isDiscountActive && (

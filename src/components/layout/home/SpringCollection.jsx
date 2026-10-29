@@ -30,7 +30,7 @@ const SpringCollection = () => {
           <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
             {days}
           </h2>
-          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray uppercase">
+          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
             DAYS
           </h3>
         </div>
@@ -42,7 +42,7 @@ const SpringCollection = () => {
           <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
             {hours}
           </h2>
-          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray uppercase">
+          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
             HOURS
           </h3>
         </div>
@@ -54,7 +54,7 @@ const SpringCollection = () => {
           <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
             {minutes}
           </h2>
-          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray uppercase">
+          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
             MINS
           </h3>
         </div>
@@ -66,7 +66,7 @@ const SpringCollection = () => {
           <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
             {seconds}
           </h2>
-          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray uppercase">
+          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
             SEC
           </h3>
         </div>

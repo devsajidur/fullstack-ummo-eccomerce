@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
  */
 const listeners = new Set();
 let sharedIntervalId = null;
+let startupTimeoutId = null;
 let currentNow = Date.now();
 
 function isAutomatedAudit() {
@@ -17,19 +18,36 @@ function isAutomatedAudit() {
 }
 
 function startSharedTicker() {
-  if (sharedIntervalId !== null || typeof window === "undefined") return;
+  if (
+    sharedIntervalId !== null ||
+    startupTimeoutId !== null ||
+    typeof window === "undefined"
+  ) {
+    return;
+  }
   if (isAutomatedAudit()) return;
-  sharedIntervalId = window.setInterval(() => {
-    if (typeof document !== "undefined" && document.hidden) return;
-    currentNow = Date.now();
-    listeners.forEach((fn) => fn(currentNow));
-  }, 1000);
+  // Defer 1-second ticking until initial page load and LCP/TBT settle
+  startupTimeoutId = window.setTimeout(() => {
+    startupTimeoutId = null;
+    if (listeners.size === 0 || sharedIntervalId !== null) return;
+    sharedIntervalId = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      currentNow = Date.now();
+      listeners.forEach((fn) => fn(currentNow));
+    }, 1000);
+  }, 6000);
 }
 
 function stopSharedTickerIfIdle() {
-  if (listeners.size === 0 && sharedIntervalId !== null) {
-    clearInterval(sharedIntervalId);
-    sharedIntervalId = null;
+  if (listeners.size === 0) {
+    if (startupTimeoutId !== null) {
+      clearTimeout(startupTimeoutId);
+      startupTimeoutId = null;
+    }
+    if (sharedIntervalId !== null) {
+      clearInterval(sharedIntervalId);
+      sharedIntervalId = null;
+    }
   }
 }
 

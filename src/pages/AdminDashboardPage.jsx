@@ -24,6 +24,8 @@ import {
   getDeletedProductIds,
   getStoredCoupons,
   invalidateCatalogCache,
+  reconcileOrderPaymentInMongo,
+  refundOrderPaymentInMongo,
   saveCustomAdminProducts,
   saveStoreConfigPatch,
   saveStoredCoupons,
@@ -177,25 +179,51 @@ export default function AdminDashboardPage() {
   const metrics = useMemo(() => {
     const validOrders = orders.filter((o) => o.status !== "CANCELLED");
     const totalRevenue = validOrders.reduce(
-      (sum, o) => sum + Number(o.total || 0),
+      (sum, o) => sum + Number(o.total ?? o.totalAmount ?? 0),
       0
     );
+    const paidOrders = orders.filter((o) => o.paymentStatus === "PAID");
+    const paidRevenue = paidOrders.reduce(
+      (sum, o) =>
+        sum +
+        Math.max(
+          0,
+          Number(o.total ?? o.totalAmount ?? 0) - Number(o.refundedAmount || 0)
+        ),
+      0
+    );
+    const failedOrRefundedCount = orders.filter((o) =>
+      [
+        "FAILED",
+        "CANCELED",
+        "REFUNDED",
+        "PARTIALLY_REFUNDED",
+        "REQUIRES_REVIEW",
+      ].includes(o.paymentStatus)
+    ).length;
     const avgOrderValue =
       validOrders.length > 0 ? totalRevenue / validOrders.length : 0;
     const pendingOrders = orders.filter(
       (o) => (o.status || "PENDING") === "PENDING"
     ).length;
     const lowStockProducts = products.filter(
-      (p) => Number(p.stock ?? 20) < 10
+      (p) => Number(p.stock ?? 20) > 0 && Number(p.stock ?? 20) < 10
+    ).length;
+    const outOfStockProducts = products.filter(
+      (p) => Number(p.stock ?? 20) <= 0
     ).length;
 
     return {
       totalRevenue,
+      paidRevenue,
+      paidOrdersCount: paidOrders.length,
+      failedOrRefundedCount,
       avgOrderValue,
       totalOrders: orders.length,
       pendingOrders,
       totalProducts: products.length,
       lowStockProducts,
+      outOfStockProducts,
       totalCustomers: customers.length,
     };
   }, [orders, products, customers]);
@@ -332,6 +360,91 @@ export default function AdminDashboardPage() {
     );
     await updateOrderStatusInMongo(targetId, newStatus).catch(() => {});
     toast.success(`Order #${String(targetId).slice(-6)} → ${newStatus}`);
+  }
+
+  async function handleReconcilePayment(
+    orderId,
+    targetPaymentStatus,
+    reason = ""
+  ) {
+    setOrders((prev) =>
+      prev.map((item) =>
+        String(item.orderId || item.id) === String(orderId)
+          ? {
+              ...item,
+              paymentStatus: targetPaymentStatus,
+              status:
+                targetPaymentStatus === "PAID" && item.status === "PENDING"
+                  ? "PROCESSING"
+                  : item.status,
+            }
+          : item
+      )
+    );
+    try {
+      const res = await reconcileOrderPaymentInMongo({
+        orderId,
+        targetPaymentStatus,
+        reason,
+      });
+      if (res?.order) {
+        setOrders((prev) =>
+          prev.map((item) =>
+            String(item.orderId || item.id) === String(orderId)
+              ? { ...item, ...res.order }
+              : item
+          )
+        );
+      }
+      toast.success(`Order #${String(orderId).slice(-6)} payment → ${targetPaymentStatus}`);
+    } catch (err) {
+      toast.error(
+        err?.response?.data?.error || "Payment reconciliation updated locally."
+      );
+    }
+  }
+
+  async function handleRefundPayment({
+    orderId,
+    refundAmount,
+    reason,
+    restockItems = true,
+  }) {
+    try {
+      const res = await refundOrderPaymentInMongo({
+        orderId,
+        refundAmount,
+        reason,
+        restockItems,
+      });
+      if (res?.order) {
+        setOrders((prev) =>
+          prev.map((item) =>
+            String(item.orderId || item.id) === String(orderId)
+              ? { ...item, ...res.order }
+              : item
+          )
+        );
+      } else {
+        setOrders((prev) =>
+          prev.map((item) =>
+            String(item.orderId || item.id) === String(orderId)
+              ? {
+                  ...item,
+                  paymentStatus: "REFUNDED",
+                  refundedAmount: refundAmount,
+                  status: "CANCELLED",
+                }
+              : item
+          )
+        );
+      }
+      toast.success(
+        `Refund ($${Number(refundAmount).toFixed(2)}) processed for Order #${String(orderId).slice(-6)}`
+      );
+    } catch (err) {
+      toast.error(err?.response?.data?.error || "Failed to process refund.");
+    }
   }
 
   function handleCreateCoupon(couponForm) {
@@ -622,6 +735,8 @@ export default function AdminDashboardPage() {
           <AdminOrdersTab
             orders={orders}
             onUpdateOrderStatus={handleUpdateOrderStatus}
+            onReconcilePayment={handleReconcilePayment}
+            onRefundPayment={handleRefundPayment}
           />
         )}
         {activeTab === "banners" && <AdminBannersTab />}

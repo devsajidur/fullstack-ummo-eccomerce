@@ -1,7 +1,7 @@
 export const CLOUDINARY_CLOUD_NAME =
-  import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || "wxjt7d8q";
+  import.meta.env?.VITE_CLOUDINARY_CLOUD_NAME || "wxjt7d8q";
 export const CLOUDINARY_API_KEY =
-  import.meta.env.VITE_CLOUDINARY_API_KEY || "791685979462932";
+  import.meta.env?.VITE_CLOUDINARY_API_KEY || "791685979462932";
 
 const ALLOWED_IMAGE_MIMES = new Set([
   "image/jpeg",
@@ -137,12 +137,12 @@ export function getCloudinaryProductImageUrl(productId, currentUrl = "") {
   ) {
     return currentUrl.replace(
       "/image/upload/f_auto,q_auto/",
-      "/image/upload/f_auto,q_auto,w_400,c_limit/"
+      "/image/upload/f_auto,q_auto,w_280,c_limit/"
     );
   }
   const numericId = Number(productId);
   if (numericId >= 1 && numericId <= 194) {
-    return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_400,c_limit/ummo_products/product_${numericId}`;
+    return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_280,c_limit/ummo_products/product_${numericId}`;
   }
   return currentUrl;
 }
@@ -150,6 +150,6 @@ export function getCloudinaryProductImageUrl(productId, currentUrl = "") {
 /**
  * Returns the Cloudinary-hosted URL for default storefront banners (`wxjt7d8q/ummo_banners/...`).
  */
-export function getCloudinaryBannerUrl(bannerName, width = 1280) {
+export function getCloudinaryBannerUrl(bannerName, width = 800) {
   return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_${width},c_limit/ummo_banners/${bannerName}`;
 }

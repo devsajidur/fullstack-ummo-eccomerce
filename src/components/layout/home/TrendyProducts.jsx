@@ -14,6 +14,7 @@ const TrendyProducts = () => {
   const dispatch = useDispatch();
 
   useEffect(() => {
+    if (reduxProducts?.length >= 8) return;
     fetchCatalogProducts(200)
       .then((list) => {
         setLocalProducts(list);
@@ -22,7 +23,7 @@ const TrendyProducts = () => {
       .catch((err) => {
         console.error(err);
       });
-  }, [dispatch]);
+  }, [dispatch, reduxProducts?.length]);
 
   const products = reduxProducts?.length ? reduxProducts : localProducts;
 
@@ -50,7 +51,7 @@ const TrendyProducts = () => {
               <button
                 onClick={() => handleTabs(item.name)}
                 className={`text-[13px] sm:text-sm md:text-base after:bg-primary relative after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:duration-300 after:content-[""] hover:after:w-[70%] font-medium cursor-pointer uppercase whitespace-nowrap ${
-                  item.name === activeCategory ? "text-primary" : "text-gray"
+                  item.name === activeCategory ? "text-primary" : "text-gray-700"
                 }`}
               >
                 {item.name}

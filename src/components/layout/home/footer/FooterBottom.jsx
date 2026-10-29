@@ -8,47 +8,47 @@ const FooterBottom = () => {
   return (
     <>
       <div className="container hidden md:flex justify-between items-center pt-8.5 pb-7 px-4 xl:px-2">
-        <h6 className="text-primary text-[14px] font-normal leading-6">
+        <p className="text-primary text-[14px] font-normal leading-6">
           ©2026 Uomo
-        </h6>
+        </p>
         <div className="flex items-center gap-5.75">
-          <h6 className="text-gray text-[14px] font-normal leading-6">
+          <p className="text-gray-700 text-[14px] font-normal leading-6">
             Language
-          </h6>
-          <h6 className="text-primary text-[14px] font-normal leading-6">
+          </p>
+          <p className="text-primary text-[14px] font-normal leading-6">
             United Kingdom | English
-          </h6>
-          <h6 className="text-gray text-[14px] font-normal leading-6">
+          </p>
+          <p className="text-gray-700 text-[14px] font-normal leading-6">
             Currency
-          </h6>
-          <h6 className="text-primary text-[14px] font-normal leading-6">
+          </p>
+          <p className="text-primary text-[14px] font-normal leading-6">
             $ USD
-          </h6>
+          </p>
         </div>
       </div>
 
       {/* Mobile view with bottom clearance for fixed mobile nav */}
       <div className="container pt-6 pb-20 md:hidden px-4 relative">
-        <h6 className="text-primary text-[14px] font-normal leading-6">
+        <p className="text-primary text-[14px] font-normal leading-6">
           ©2026 Uomo
-        </h6>
+        </p>
 
         <div className="flex items-center gap-x-5 mt-2">
-          <h6 className="text-gray text-[14px] font-normal leading-6">
+          <p className="text-gray-700 text-[14px] font-normal leading-6">
             Language
-          </h6>
-          <h6 className="text-primary flex items-center gap-x-4 text-[14px] font-normal leading-6">
+          </p>
+          <p className="text-primary flex items-center gap-x-4 text-[14px] font-normal leading-6">
             United Kingdom | English
-          </h6>
+          </p>
         </div>
 
         <div className="flex items-center gap-x-6 mt-2">
-          <h6 className="text-gray text-[14px] font-normal leading-6">
+          <p className="text-gray-700 text-[14px] font-normal leading-6">
             Currency
-          </h6>
-          <h6 className="text-primary text-[14px] font-normal leading-6 flex items-center gap-x-2.5">
+          </p>
+          <p className="text-primary text-[14px] font-normal leading-6 flex items-center gap-x-2.5">
             $ USD
-          </h6>
+          </p>
         </div>
         <button
           type="button"

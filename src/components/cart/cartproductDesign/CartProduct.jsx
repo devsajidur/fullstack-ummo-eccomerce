@@ -3,9 +3,11 @@ import Image from "../../layout/common/Image";
 import {
   quentityDecrease,
   quentityIncrease,
+  updateItemMessage,
   RemoveItem,
+  sanitizeClientProductMessage,
 } from "../../../slices/cartSlice";
-import { Gift } from "lucide-react";
+import { Gift, MessageSquare } from "lucide-react";
 import {
   evaluateCartItemFreeGift,
   resolveCartItemPricing,
@@ -27,30 +29,62 @@ const CartProduct = (props) => {
   const handleRemove = () => {
     dispatch(RemoveItem(props));
   };
+  const handleMessageChange = (e) => {
+    dispatch(
+      updateItemMessage({
+        ...props,
+        optionalMessage: sanitizeClientProductMessage(e.target.value),
+      })
+    );
+  };
 
   const freeGiftState = evaluateCartItemFreeGift(props, catalogProducts);
   const pricing = resolveCartItemPricing(props, catalogProducts);
   const qty = Math.max(1, Number(props.quantity || 1));
+  const itemMsg = props.optionalMessage || "";
 
   return (
     <>
       {/* Desktop / Tablet cart row */}
       <div className="sm:flex lg:gap-15 gap-7 hidden w-full lg:w-150 xl:w-230 items-center py-7.5 border-b border-[#E4E4E4]">
-        <div className="flex items-center gap-4 xl:gap-7.5">
+        <div className="flex items-start gap-4 xl:gap-7.5">
           <Image
-            className="h-30 w-30 object-contain shrink-0"
-            src={props.image}
+            className="h-28 w-28 object-contain shrink-0 bg-gray-50 rounded border border-gray-100"
+            item={props}
+            src={props.image || props.thumbnail}
             alt={props.title}
+            width={112}
+            height={112}
           />
-          <div className="xl:w-70">
+          <div className="xl:w-76">
             <h2 className="text-[16px] font-normal text-primary">
               {props.title}
             </h2>
             {(props.size || props.color) && (
               <p className="text-xs text-gray-400 mt-1">
-                Size: {props.size || "M"} | Color: {props.color || "Default"}
+                Size: {props.size || "M"} | Color: {props.color || "Black"}
               </p>
             )}
+
+            {/* Product-Specific Optional Message Editor */}
+            <div className="mt-2.5">
+              <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
+                <span className="inline-flex items-center gap-1 font-medium text-gray-600">
+                  <MessageSquare size={11} /> Message for this product (optional)
+                </span>
+                <span className="font-mono text-[10px]">
+                  {itemMsg.length}/500
+                </span>
+              </div>
+              <input
+                type="text"
+                maxLength={500}
+                value={itemMsg}
+                onChange={handleMessageChange}
+                placeholder="Add note for this item (e.g. gift wrap, pack separately)..."
+                className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-xs text-primary bg-gray-50/70 focus:bg-white focus:border-primary outline-none transition-colors"
+              />
+            </div>
 
             {/* Per-Product Free Gift Status (Only if Admin enabled a Free Gift on this product) */}
             {freeGiftState.hasFreeGiftRule && freeGiftState.unlocked && (
@@ -59,6 +93,8 @@ const CartProduct = (props) => {
                   <img
                     src={freeGiftState.giftImage}
                     alt={freeGiftState.giftName}
+                    width={24}
+                    height={24}
                     className="w-6 h-6 rounded object-contain bg-white border border-emerald-200 shrink-0"
                   />
                 ) : (
@@ -110,16 +146,16 @@ const CartProduct = (props) => {
           <div className="xl:h-12.5 xl:w-27.5 h-10 w-20 xl:mr-20.5 leading-12.5 flex justify-between items-center lg:px-3.75 border-3 border-[#E4E4E4]">
             <button
               type="button"
+              aria-label="Decrease quantity"
               className="px-2 cursor-pointer text-[16px] text-gray font-normal"
               onClick={handleDecrease}
             >
               -
             </button>
-            <span className="text-[16px] text-gray font-normal">
-              {qty}
-            </span>
+            <span className="text-[16px] text-gray font-normal">{qty}</span>
             <button
               type="button"
+              aria-label="Increase quantity"
               className="px-2 cursor-pointer text-[16px] text-gray font-normal"
               onClick={handleIncrease}
             >
@@ -161,9 +197,12 @@ const CartProduct = (props) => {
       {/* Mobile responsive cart row (< 640px) */}
       <div className="flex sm:hidden gap-3.5 w-full items-start py-5 border-b border-[#E4E4E4]">
         <Image
-          className="h-20 w-20 object-contain bg-gray-50 rounded shrink-0"
-          src={props.image}
+          className="h-20 w-20 object-contain bg-gray-50 rounded shrink-0 border border-gray-100"
+          item={props}
+          src={props.image || props.thumbnail}
           alt={props.title}
+          width={80}
+          height={80}
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
@@ -173,7 +212,7 @@ const CartProduct = (props) => {
               </h2>
               {(props.size || props.color) && (
                 <p className="text-[11px] text-gray-400 mt-0.5">
-                  Size: {props.size || "M"} • Color: {props.color || "Default"}
+                  Size: {props.size || "M"} • Color: {props.color || "Black"}
                 </p>
               )}
             </div>
@@ -217,6 +256,22 @@ const CartProduct = (props) => {
             )}
           </div>
 
+          {/* Mobile Item Message Input */}
+          <div className="mt-2">
+            <div className="flex items-center justify-between text-[10px] text-gray-500 mb-0.5">
+              <span>Message for this product (optional)</span>
+              <span className="font-mono">{itemMsg.length}/500</span>
+            </div>
+            <input
+              type="text"
+              maxLength={500}
+              value={itemMsg}
+              onChange={handleMessageChange}
+              placeholder="Note for this item..."
+              className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-primary bg-gray-50 focus:bg-white outline-none"
+            />
+          </div>
+
           {freeGiftState.hasFreeGiftRule && freeGiftState.unlocked && (
             <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded">
               <Gift size={10} /> Free Gift: {freeGiftState.earnedGiftQty}×{" "}
@@ -239,16 +294,16 @@ const CartProduct = (props) => {
             <div className="px-2.5 h-8 w-22 flex justify-between items-center border-2 border-[#E4E4E4]">
               <button
                 type="button"
+                aria-label="Decrease quantity"
                 className="cursor-pointer text-sm text-gray font-medium px-1"
                 onClick={handleDecrease}
               >
                 -
               </button>
-              <span className="text-sm text-primary font-medium">
-                {qty}
-              </span>
+              <span className="text-sm text-primary font-medium">{qty}</span>
               <button
                 type="button"
+                aria-label="Increase quantity"
                 className="cursor-pointer text-sm text-gray font-medium px-1"
                 onClick={handleIncrease}
               >

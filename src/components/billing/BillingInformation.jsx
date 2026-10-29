@@ -18,8 +18,10 @@ import {
 } from "../../utils/cartPromotions";
 import {
   fetchUserAddressesFromMongo,
+  initiatePaymentSession,
   submitBackendOrder,
 } from "../../services/api";
+import { resolveProductImage } from "../../utils/productImage";
 import BillingOrderSummary from "./BillingOrderSummary";
 
 const COUNTRIES = [
@@ -62,7 +64,7 @@ const BillingInformation = () => {
   const [orderNotes, setorderNotes] = useState("");
 
   const [user, setuser] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState("bank-transfer");
+  const [paymentMethod, setPaymentMethod] = useState("sslcommerz");
   const [submitting, setSubmitting] = useState(false);
 
   function applySavedAddress(addr) {
@@ -123,10 +125,18 @@ const BillingInformation = () => {
 
   const pricedOrderItems = (ORDER_ITEMS || []).map((item) => {
     const pricing = resolveCartItemPricing(item, catalogProducts);
+    const resolvedImg = resolveProductImage(item, catalogProducts);
     return {
       ...item,
+      productId: String(item.id ?? item.productId ?? ""),
+      variantId: `${item.size || "M"}-${item.color || "Black"}`,
+      productNameSnapshot: item.title || item.name || "Product",
+      productImageSnapshot: resolvedImg,
+      image: resolvedImg,
+      optionalMessage: String(item.optionalMessage || "").trim(),
       quantity: Math.max(1, Number(item.quantity || 1)),
       price: pricing.unitPrice,
+      unitPriceSnapshot: pricing.unitPrice,
       originalPrice: pricing.originalPrice,
       discountPercent: pricing.discountPercent,
     };
@@ -265,10 +275,47 @@ const BillingInformation = () => {
         // Only fall back to local order saving when offline / network unreachable
       }
 
+      let paymentSession = null;
+      if (paymentMethod === "sslcommerz" || paymentMethod === "stripe") {
+        try {
+          paymentSession = await initiatePaymentSession(
+            finalOrder.orderId,
+            paymentMethod
+          );
+          finalOrder = {
+            ...finalOrder,
+            paymentStatus: "INITIATED",
+            paymentGateway: paymentMethod,
+            gatewayTransactionId:
+              paymentSession?.tranId || paymentSession?.sessionId || "",
+          };
+        } catch {
+          finalOrder = {
+            ...finalOrder,
+            paymentStatus: "INITIATED",
+            paymentGateway: paymentMethod,
+          };
+        }
+      }
+
       saveLocalOrder(finalOrder);
       dispatch(EmptyCart());
-      toast.success("Order placed successfully!");
-      navigate(`/ordercomplete?orderId=${finalOrder.orderId}`);
+      if (paymentMethod === "sslcommerz" || paymentMethod === "stripe") {
+        const tranParam = encodeURIComponent(
+          paymentSession?.tranId || paymentSession?.sessionId || ""
+        );
+        toast.success(
+          `${
+            paymentMethod === "sslcommerz" ? "SSLCommerz Sandbox" : "Stripe Test"
+          } session initiated!`
+        );
+        navigate(
+          `/ordercomplete?orderId=${finalOrder.orderId}&gateway=${paymentMethod}&tranId=${tranParam}&sandbox=1`
+        );
+      } else {
+        toast.success("Order placed successfully!");
+        navigate(`/ordercomplete?orderId=${finalOrder.orderId}`);
+      }
     } catch (error) {
       console.error("Error placing order: ", error);
       toast.error("Could not place your order. Please try again.");

@@ -46,11 +46,11 @@ const Banner = () => {
         }}
         modules={[Autoplay, Pagination]}
         autoplay={{
-          delay: 3500,
+          delay: 8000,
           disableOnInteraction: false,
           pauseOnMouseEnter: true,
         }}
-        loop={slides.length > 1}
+        loop={false}
         className="mySwiper w-full"
       >
         {slides.map((item, idx) => {
@@ -110,15 +110,15 @@ const Banner = () => {
                     </div>
                   </>
                 ) : (
-                  <Link to={item.ctaLink || "/shop"} className="block w-full">
+                  <Link to={item.ctaLink || "/shop"} className="block w-full aspect-[1280/533]">
                     <Image
-                      className="w-full h-auto block object-cover"
+                      className="w-full h-full block object-cover"
                       src={resolvedSrc}
                       alt="UOMO Collection Banner"
                       loading={idx === 0 ? "eager" : "lazy"}
                       fetchPriority={idx === 0 ? "high" : "auto"}
-                      width={1280}
-                      height={600}
+                      width={960}
+                      height={400}
                       onError={(e) => {
                         e.currentTarget.src = "/images/SLIDER.png";
                       }}

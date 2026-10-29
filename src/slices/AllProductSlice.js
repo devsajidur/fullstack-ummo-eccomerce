@@ -1,22 +1,20 @@
-import { createSlice } from '@reduxjs/toolkit'
+import { createSlice } from "@reduxjs/toolkit";
+import { getInitialCatalogSnapshot } from "../services/api";
 
-const initialState = { 
-    Products: []
- 
- }
+const initialState = {
+  Products: getInitialCatalogSnapshot(),
+};
 
 export const AllProductSlice = createSlice({
-  name: 'counter',
+  name: "counter",
   initialState,
   reducers: {
-    Allitem: (state,action) => {
-      state.Products=action.payload
+    Allitem: (state, action) => {
+      state.Products = action.payload;
     },
-  
-
   },
-})
+});
 
-export const { Allitem } = AllProductSlice.actions
+export const { Allitem } = AllProductSlice.actions;
 
-export default AllProductSlice.reducer
+export default AllProductSlice.reducer;

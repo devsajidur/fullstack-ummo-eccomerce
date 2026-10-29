@@ -13,6 +13,7 @@ const LimitedEdition = () => {
   const reduxProducts = useSelector((state) => state.AllProduct.Products);
   const [localProducts, setLocalProducts] = useState([]);
   useEffect(() => {
+    if (reduxProducts?.length >= 8) return;
     fetchCatalogProducts(10)
       .then((list) => {
         setLocalProducts(list.slice(0, 10));
@@ -20,7 +21,7 @@ const LimitedEdition = () => {
       .catch((err) => {
         console.error(err);
       });
-  }, []);
+  }, [reduxProducts?.length]);
 
   const products = reduxProducts?.length
     ? reduxProducts.slice(0, 10)

@@ -8,11 +8,70 @@ const SHIPPING_RATES = {
 };
 
 const ALLOWED_PAYMENT_METHODS = new Set([
+  "sslcommerz",
+  "stripe",
   "bank-transfer",
   "check",
   "cod",
   "paypal",
 ]);
+
+const CLOUDINARY_CLOUD_NAME =
+  process.env.CLOUDINARY_CLOUD_NAME || "wxjt7d8q";
+
+/**
+ * Validates and sanitizes an optional product-specific customer message.
+ * Max length: 500 Unicode characters. Strips executable HTML/script payloads.
+ */
+export function sanitizeProductMessage(rawMsg) {
+  if (rawMsg === null || rawMsg === undefined || rawMsg === "") return "";
+  if (typeof rawMsg !== "string") {
+    const err = new Error("Invalid product message format.");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (rawMsg.length > 500) {
+    const err = new Error(
+      `Product message exceeds maximum length of 500 characters (received ${rawMsg.length}).`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+  return rawMsg
+    .replace(/<\s*\/?\s*(script|iframe|object|embed|style|svg|math|link|meta)[^>]*>/gi, "")
+    .replace(/javascript\s*:/gi, "")
+    .replace(/on\w+\s*=/gi, "")
+    .replace(/[<>]/g, "")
+    .trim();
+}
+
+export function resolveServerProductImage(itemId, catalogOverride, rawItem) {
+  const candidates = [
+    catalogOverride?.thumbnail,
+    catalogOverride?.image,
+    Array.isArray(catalogOverride?.images) ? catalogOverride.images[0] : "",
+    rawItem?.productImageSnapshot,
+    rawItem?.thumbnail,
+    rawItem?.image,
+    Array.isArray(rawItem?.images) ? rawItem.images[0] : "",
+  ];
+  for (const c of candidates) {
+    const safe = asSafeId(c, 350);
+    if (
+      safe &&
+      (safe.startsWith("https://") ||
+        safe.startsWith("http://") ||
+        safe.startsWith("/"))
+    ) {
+      return safe;
+    }
+  }
+  const numericId = Number(itemId);
+  if (Number.isInteger(numericId) && numericId >= 1 && numericId <= 194) {
+    return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_400,c_limit/ummo_products/product_${numericId}`;
+  }
+  return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto,w_400,c_limit/ummo_products/product_1`;
+}
 
 const DEFAULT_COUPONS = [
   { code: "WELCOME10", type: "percentage", value: 10, minOrder: 30, maxUsesPerUser: 1, active: true },
@@ -337,9 +396,10 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
       }
     }
 
-    const resolvedThumb = asSafeId(
-      catalogOverride?.thumbnail || rawItem?.image || rawItem?.thumbnail || "",
-      300
+    const resolvedThumb = resolveServerProductImage(
+      itemId,
+      catalogOverride,
+      rawItem
     );
     const resolvedSize = asSafeId(
       rawItem?.size || rawItem?.selectedSize || "M",
@@ -349,17 +409,39 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
       rawItem?.color || rawItem?.selectedColor || "Black",
       32
     );
+    const resolvedTitle = asSafeId(
+      catalogOverride?.title ||
+        rawItem?.productNameSnapshot ||
+        rawItem?.title ||
+        rawItem?.name ||
+        `Product #${itemId}`,
+      160
+    );
+    const rawItemMsg =
+      rawItem?.optionalMessage ??
+      rawItem?.itemMessage ??
+      rawItem?.productMessage ??
+      "";
+    const validatedMessage = sanitizeProductMessage(rawItemMsg);
+    const variantId = `${itemId}-${resolvedSize}-${resolvedColor}`;
+
     validatedItems.push({
       id: itemId,
-      title: asSafeId(catalogOverride?.title || rawItem?.title || `Product #${itemId}`, 160),
+      productId: itemId,
+      variantId,
+      title: resolvedTitle,
+      productNameSnapshot: resolvedTitle,
       price: unitPrice,
+      unitPriceSnapshot: unitPrice,
       quantity: qty,
       image: resolvedThumb,
       thumbnail: resolvedThumb,
+      productImageSnapshot: resolvedThumb,
       size: resolvedSize,
       color: resolvedColor,
       selectedSize: resolvedSize,
       selectedColor: resolvedColor,
+      optionalMessage: validatedMessage,
     });
   }
 
@@ -461,9 +543,16 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
     giftNote: asSafeId(body.giftNote, 250),
     vat,
     total: authoritativeTotal,
+    totalAmount: authoritativeTotal,
     paymentMethod,
+    paymentGateway:
+      paymentMethod === "sslcommerz" || paymentMethod === "stripe"
+        ? paymentMethod
+        : paymentMethod,
     paymentStatus: "PENDING_VERIFICATION",
     status: "PENDING",
+    inventoryDeducted: false,
+    inventoryRestocked: false,
     date: new Date().toISOString(),
     billing: {
       company: asSafeId(rawBilling.company, 120),
@@ -481,12 +570,31 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
 
 /**
  * Deducts inventory for ordered items in `state.storeConfig.customProducts`.
+ * Idempotent per order when an order object is passed (`order.inventoryDeducted`).
  */
-export function deductOrderInventory(state, orderItems) {
+export function deductOrderInventory(
+  state,
+  orderItemsOrOrder,
+  optionalOrderObj = null
+) {
   if (!Array.isArray(state?.storeConfig?.customProducts)) return;
+  const isOrderObj =
+    orderItemsOrOrder &&
+    !Array.isArray(orderItemsOrOrder) &&
+    typeof orderItemsOrOrder === "object";
+  const targetOrder = isOrderObj ? orderItemsOrOrder : optionalOrderObj;
+  if (targetOrder && targetOrder.inventoryDeducted) {
+    return;
+  }
+  const orderItems = isOrderObj
+    ? orderItemsOrOrder.OrderItems || []
+    : Array.isArray(orderItemsOrOrder)
+      ? orderItemsOrOrder
+      : [];
+
   const qtyByProduct = new Map();
   for (const item of orderItems) {
-    const id = String(item.id);
+    const id = String(item.id || item.productId);
     qtyByProduct.set(id, (qtyByProduct.get(id) || 0) + Number(item.quantity || 1));
   }
 
@@ -499,4 +607,48 @@ export function deductOrderInventory(state, orderItems) {
       stock: Math.max(0, currentStock - deduct),
     };
   });
+
+  if (targetOrder) {
+    targetOrder.inventoryDeducted = true;
+  }
+}
+
+/**
+ * Restocks inventory when an order is CANCELLED or REFUNDED.
+ * Idempotent per order (`order.inventoryRestocked`).
+ */
+export function restockOrderInventory(state, orderItemsOrOrder) {
+  if (!Array.isArray(state?.storeConfig?.customProducts)) return;
+  const isOrderObj =
+    orderItemsOrOrder &&
+    !Array.isArray(orderItemsOrOrder) &&
+    typeof orderItemsOrOrder === "object";
+  if (isOrderObj && orderItemsOrOrder.inventoryRestocked) {
+    return;
+  }
+  const orderItems = isOrderObj
+    ? orderItemsOrOrder.OrderItems || []
+    : Array.isArray(orderItemsOrOrder)
+      ? orderItemsOrOrder
+      : [];
+
+  const qtyByProduct = new Map();
+  for (const item of orderItems) {
+    const id = String(item.id || item.productId);
+    qtyByProduct.set(id, (qtyByProduct.get(id) || 0) + Number(item.quantity || 1));
+  }
+
+  state.storeConfig.customProducts = state.storeConfig.customProducts.map((p) => {
+    const addBack = qtyByProduct.get(String(p.id));
+    if (!addBack) return p;
+    const currentStock = Number(p.stock ?? 25);
+    return {
+      ...p,
+      stock: currentStock + addBack,
+    };
+  });
+
+  if (isOrderObj) {
+    orderItemsOrOrder.inventoryRestocked = true;
+  }
 }

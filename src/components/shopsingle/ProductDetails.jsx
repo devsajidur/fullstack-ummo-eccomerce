@@ -8,7 +8,10 @@ import toast, { Toaster } from "react-hot-toast";
 import Reviews from "./Reviews";
 import AdditionalInformation from "./AdditionalInformation";
 import Image from "../layout/common/Image";
-import { addToCart } from "../../slices/cartSlice";
+import {
+  addToCart,
+  sanitizeClientProductMessage,
+} from "../../slices/cartSlice";
 import { addWishList } from "../../slices/wishListSlice";
 import { productDetail } from "../../slices/ProductDetailsSlice";
 import { fetchCatalogProducts } from "../../services/api";
@@ -44,6 +47,7 @@ export default function ProductDetails() {
   const [selectedSize, setSelectedSize] = useState("M");
   const [selectedColor, setSelectedColor] = useState("Black");
   const [quantity, setQuantity] = useState(1);
+  const [optionalMessage, setOptionalMessage] = useState("");
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [showSizeGuide, setShowSizeGuide] = useState(false);
 
@@ -64,6 +68,7 @@ export default function ProductDetails() {
   useEffect(() => {
     setActiveImageIdx(0);
     setQuantity(1);
+    setOptionalMessage("");
   }, [targetId]);
 
   useEffect(() => {
@@ -110,22 +115,30 @@ export default function ProductDetails() {
       Number(customQty !== null ? customQty : quantity) || 1
     );
     const latestDiscount = getProductDiscountState(liveProduct);
+    const cleanedMessage = sanitizeClientProductMessage(optionalMessage).trim();
     dispatch(
       addToCart({
         id: liveProduct.id,
+        productId: liveProduct.id,
         title: liveProduct.title,
+        productNameSnapshot: liveProduct.title,
         price: latestDiscount.effectivePrice,
+        unitPriceSnapshot: latestDiscount.effectivePrice,
         originalPrice: latestDiscount.originalPrice,
         discountPercent: latestDiscount.discountPercent,
         discountPercentage: liveProduct.discountPercentage,
         discountEndTime: liveProduct.discountEndTime || null,
         freeGift: liveProduct.freeGift || null,
         image: liveProduct.thumbnail,
+        thumbnail: liveProduct.thumbnail,
+        productImageSnapshot: liveProduct.thumbnail,
         quantity: finalQty,
         size: selectedSize,
         color: selectedColor,
+        optionalMessage: cleanedMessage,
       })
     );
+    setOptionalMessage("");
     if (freeGiftConfig && finalQty >= freeGiftConfig.minBuyQty) {
       const earnedGifts =
         Math.floor(finalQty / freeGiftConfig.minBuyQty) *
@@ -358,12 +371,64 @@ export default function ProductDetails() {
                       onClick={() => setSelectedColor(col.name)}
                       style={{ backgroundColor: col.hex }}
                       title={col.name}
+                      aria-label={`Select color ${col.name}`}
                       className={`w-7 h-7 rounded-full cursor-pointer transition-transform ${
                         selectedColor === col.name
                           ? "ring-2 ring-offset-2 ring-primary scale-110"
                           : "opacity-80 hover:opacity-100"
                       }`}
                     />
+                  ))}
+                </div>
+              </div>
+
+              {/* Product-Specific Optional Customer Message (Max 500 Unicode chars) */}
+              <div className="mt-5 p-3.5 rounded-lg border border-gray-200 bg-gray-50/70">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    htmlFor="product-optional-message"
+                    className="text-xs font-semibold uppercase tracking-wider text-primary"
+                  >
+                    Message for this product (optional)
+                  </label>
+                  <span
+                    className={`text-[11px] font-mono ${
+                      optionalMessage.length >= 480
+                        ? "text-[#D6001C] font-bold"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    {optionalMessage.length}/500
+                  </span>
+                </div>
+                <input
+                  id="product-optional-message"
+                  type="text"
+                  maxLength={500}
+                  value={optionalMessage}
+                  onChange={(e) =>
+                    setOptionalMessage(
+                      sanitizeClientProductMessage(e.target.value)
+                    )
+                  }
+                  placeholder="e.g. Please wrap this product as a gift / pack separately..."
+                  className="w-full border border-gray-300 bg-white rounded px-3 py-2 text-xs text-primary outline-none focus:border-primary"
+                />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[
+                    "Please wrap this product as a gift.",
+                    "Please pack this item separately.",
+                    "Please check the selected color carefully.",
+                    "This item is for a birthday.",
+                  ].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setOptionalMessage(preset)}
+                      className="text-[10px] bg-white hover:bg-gray-100 text-gray-600 border border-gray-200 rounded px-2 py-0.5 cursor-pointer transition-colors"
+                    >
+                      + {preset}
+                    </button>
                   ))}
                 </div>
               </div>

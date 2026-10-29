@@ -1,8 +1,13 @@
 import { initializeApp } from "firebase/app";
-import { getAnalytics, isSupported } from "firebase/analytics";
-import { getAuth } from "firebase/auth";
+import {
+  browserLocalPersistence,
+  getAuth,
+  initializeAuth,
+} from "firebase/auth";
 
-// Firebase is used strictly for Authentication (Email/Password & Google Sign-In)
+// Firebase is used strictly for Authentication (Email/Password & Google Sign-In).
+// Uses browserLocalPersistence instead of IndexedDB so initial page load never opens
+// IndexedDB databases or triggers Lighthouse IndexedDB storage warnings.
 const firebaseConfig = {
   apiKey:
     import.meta.env.VITE_FIREBASE_API_KEY ||
@@ -25,15 +30,16 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 
-let analytics = null;
-if (typeof window !== "undefined") {
-  isSupported()
-    .then((yes) => {
-      if (yes) analytics = getAnalytics(app);
-    })
-    .catch(() => {});
+let auth;
+try {
+  auth = initializeAuth(app, {
+    persistence: browserLocalPersistence,
+  });
+} catch {
+  auth = getAuth(app);
 }
+
+const analytics = null;
 
 export { app, auth, analytics };

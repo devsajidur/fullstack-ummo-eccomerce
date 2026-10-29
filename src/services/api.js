@@ -3,6 +3,7 @@ import {
   getCloudinaryBannerUrl,
   getCloudinaryProductImageUrl,
 } from "./cloudinary";
+import { INITIAL_CATALOG_SEED } from "./catalogSeed";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
@@ -462,12 +463,18 @@ export function initStoreConfigSync(onCatalogChanged) {
 }
 
 function getDefaultProductTimer(item, index) {
-  const disc = Number(item?.discountPercentage || 0);
-  if (disc < 10 && index >= 8) return "";
+  if (item?.discountEndTime && item.discountEndTime !== "none") {
+    return item.discountEndTime;
+  }
+  if (index >= 4) return "";
   const dayBucket = Math.floor(Date.now() / (24 * 3600 * 1000));
   const baseMs = (dayBucket + 1) * 24 * 3600 * 1000;
   const offsetHours = ((Number(item?.id || index) * 7) % 36) + 6;
   return new Date(baseMs + offsetHours * 3600 * 1000).toISOString();
+}
+
+export function getInitialCatalogSnapshot() {
+  return mergeWithAdminCatalog(cachedBaseProducts || INITIAL_CATALOG_SEED);
 }
 
 function mergeWithAdminCatalog(baseProducts) {
@@ -544,12 +551,22 @@ export async function fetchCatalogProducts(limit = 200) {
   }
 
   inFlightCatalogPromise = (async () => {
-    const fallback = await axios.get(
-      `https://dummyjson.com/products?limit=200`
-    );
-    cachedBaseProducts = fallback.data?.products || [];
-    lastFetchTimestamp = Date.now();
-    return cachedBaseProducts;
+    try {
+      const fallback = await axios.get(
+        `https://dummyjson.com/products?limit=200&select=id,title,category,price,discountPercentage,rating,stock,brand,sku,description,thumbnail,images`,
+        { timeout: 6000 }
+      );
+      cachedBaseProducts =
+        fallback.data?.products?.length > 0
+          ? fallback.data.products
+          : INITIAL_CATALOG_SEED;
+      lastFetchTimestamp = Date.now();
+      return cachedBaseProducts;
+    } catch {
+      cachedBaseProducts = INITIAL_CATALOG_SEED;
+      lastFetchTimestamp = Date.now();
+      return cachedBaseProducts;
+    }
   })();
 
   try {
@@ -561,7 +578,7 @@ export async function fetchCatalogProducts(limit = 200) {
 }
 
 // ============================================================================
-// 4. MONGODB ATLAS DATA OPERATIONS (ORDERS, USERS, REVIEWS, ADDRESSES, INBOX)
+// 4. MONGODB ATLAS DATA OPERATIONS (ORDERS, PAYMENTS, USERS, REVIEWS, ADDRESSES)
 // ============================================================================
 export async function fetchStoreDataFromMongo(params = {}) {
   const response = await apiClient.get("/store-data", { params });
@@ -576,6 +593,43 @@ export async function submitBackendOrder(orderPayload) {
         : `${Date.now()}`,
     },
   });
+  return response.data;
+}
+
+export async function fetchPaymentGatewaysConfig() {
+  const response = await apiClient.get("/payments/config");
+  return response.data;
+}
+
+export async function initiatePaymentSession(orderId, gateway = "sslcommerz") {
+  const originUrl =
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:5173";
+  if (gateway === "stripe") {
+    const response = await apiClient.post("/payments/stripe/create-session", {
+      orderId,
+      originUrl,
+    });
+    return response.data;
+  }
+  const response = await apiClient.post("/payments/sslcommerz/init", {
+    orderId,
+    originUrl,
+  });
+  return response.data;
+}
+
+export async function confirmSandboxPayment(payload) {
+  const response = await apiClient.post("/payments/sandbox-confirm", payload);
+  return response.data;
+}
+
+export async function reconcileOrderPaymentInMongo(payload) {
+  const response = await apiClient.post("/payments/reconcile", payload);
+  return response.data;
+}
+
+export async function refundOrderPaymentInMongo(payload) {
+  const response = await apiClient.post("/payments/refund", payload);
   return response.data;
 }
 

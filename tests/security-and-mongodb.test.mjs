@@ -22,8 +22,23 @@ import {
 } from "../api/security.js";
 import {
   deductOrderInventory,
+  restockOrderInventory,
+  sanitizeProductMessage,
   validateAndBuildServerOrder,
 } from "../api/orderService.js";
+import {
+  createStripeTestCheckoutSession,
+  generateStripeWebhookSignature,
+  initiateSslCommerzSandboxPayment,
+  processStripeWebhookEvent,
+  reconcilePaymentByAdmin,
+  refundPaymentByAdmin,
+  verifyAndProcessSslCommerzNotification,
+} from "../api/paymentService.js";
+import {
+  PRODUCT_IMAGE_PLACEHOLDER,
+  resolveProductImage,
+} from "../src/utils/productImage.js";
 import { getProductDiscountState } from "../src/utils/discountTimer.js";
 import handler from "../api/index.js";
 
@@ -1051,6 +1066,374 @@ test("Phase 8: Coupon Anti-Abuse Engine blocks repeated single-user redemptions 
   assert.equal(res.statusCode, 200);
   assert.equal(res.json.valid, true);
   assert.equal(res.json.couponDiscount, 10);
+});
+
+test("Phase 9: Shared Product Image Resolver & Order Item Image Snapshots resolve missing images, Cloudinary transforms, and fallbacks", () => {
+  // 1. Direct string or object with image
+  const direct = resolveProductImage({
+    image: "https://res.cloudinary.com/wxjt7d8q/image/upload/v1/ummo_products/product_5.webp",
+  });
+  assert.match(direct, /res\.cloudinary\.com\/wxjt7d8q/);
+  assert.match(direct, /f_auto,q_auto/);
+
+  // 2. Missing image resolved from images[0] array
+  const fromArray = resolveProductImage({
+    images: [{ url: "https://example.com/item-photo.jpg" }],
+  });
+  assert.equal(fromArray, "https://example.com/item-photo.jpg");
+
+  // 3. Missing image resolved via numeric catalog productId (1..194)
+  const fromCatalogId = resolveProductImage({ productId: "12", title: "Perfume" });
+  assert.match(fromCatalogId, /ummo_products\/product_12/);
+
+  // 4. Empty / invalid object falls back cleanly to SVG data URI placeholder
+  const fallback = resolveProductImage({ id: "custom-unknown-9999", image: "undefined" });
+  assert.equal(fallback, PRODUCT_IMAGE_PLACEHOLDER);
+
+  // 5. Server order creation snapshots productImageSnapshot, productNameSnapshot, variantId
+  const state = createInitialMemoryState();
+  const order = validateAndBuildServerOrder(
+    {
+      userUid: "u-img-snap",
+      email: "snap@ummo.test",
+      OrderItems: [
+        {
+          id: "7",
+          title: "Chanel Coco Noir",
+          price: 129.99,
+          quantity: 1,
+          size: "L",
+          color: "Navy",
+        },
+      ],
+    },
+    state,
+    { uid: "u-img-snap", email: "snap@ummo.test", isAdmin: false }
+  );
+  assert.equal(order.OrderItems[0].productId, "7");
+  assert.equal(order.OrderItems[0].variantId, "7-L-Navy");
+  assert.match(order.OrderItems[0].productImageSnapshot, /ummo_products\/product_7/);
+  assert.ok(order.OrderItems[0].productNameSnapshot.length > 0);
+});
+
+test("Phase 10: Product-Specific Optional Customer Messages support Unicode/Bengali, enforce 500-char limit, strip XSS, and preserve separate lines for different messages", () => {
+  const state = createInitialMemoryState();
+
+  // 1. Empty message
+  assert.equal(sanitizeProductMessage(""), "");
+  assert.equal(sanitizeProductMessage(null), "");
+
+  // 2. Bengali & Unicode message
+  const bengali = "এটি জন্মদিনের উপহার হিসেবে সুন্দর করে প্যাক করবেন, ধন্যবাদ! 🎁";
+  assert.equal(sanitizeProductMessage(bengali), bengali);
+
+  // 3. Exact 500-char message succeeds
+  const exact500 = "A".repeat(500);
+  assert.equal(sanitizeProductMessage(exact500).length, 500);
+
+  // 4. 501-char message throws 400 Bad Request
+  assert.throws(
+    () => sanitizeProductMessage("B".repeat(501)),
+    (err) => err.statusCode === 400 && /exceeds maximum length of 500 characters/i.test(err.message)
+  );
+
+  // 5. Malicious script/HTML payload is stripped safely
+  const xssAttempt = 'Please engrave <script>alert("xss")</script> <b>"Alex & Sam"</b> javascript:evil()';
+  const cleaned = sanitizeProductMessage(xssAttempt);
+  assert.ok(!cleaned.includes("<script"), "Must strip <script> tags");
+  assert.ok(!cleaned.includes("<"), "Must strip angle brackets");
+  assert.ok(!cleaned.includes("javascript:"), "Must strip javascript: URI");
+  assert.match(cleaned, /Alex & Sam/);
+
+  // 6. Two units of the SAME product with DIFFERENT messages remain distinct order lines
+  const orderWithTwoNotes = validateAndBuildServerOrder(
+    {
+      userUid: "u-notes-1",
+      email: "notes@ummo.test",
+      OrderItems: [
+        {
+          id: "1",
+          title: "Essence Mascara",
+          price: 9.99,
+          quantity: 1,
+          size: "M",
+          color: "Black",
+          optionalMessage: "Wrap in red ribbon for Mom",
+        },
+        {
+          id: "1",
+          title: "Essence Mascara",
+          price: 9.99,
+          quantity: 1,
+          size: "M",
+          color: "Black",
+          optionalMessage: "এটি বোনের জন্য নীল কাগজে প্যাক করবেন",
+        },
+      ],
+    },
+    state,
+    { uid: "u-notes-1", email: "notes@ummo.test", isAdmin: false }
+  );
+
+  assert.equal(orderWithTwoNotes.OrderItems.length, 2);
+  assert.equal(
+    orderWithTwoNotes.OrderItems[0].optionalMessage,
+    "Wrap in red ribbon for Mom"
+  );
+  assert.equal(
+    orderWithTwoNotes.OrderItems[1].optionalMessage,
+    "এটি বোনের জন্য নীল কাগজে প্যাক করবেন"
+  );
+});
+
+test("Phase 11: SSLCommerz Sandbox Gateway Integration verifies server-side Validation API, prevents amount/currency tampering, and enforces IPN idempotency", async () => {
+  const state = createInitialMemoryState();
+  state.storeConfig.customProducts = [
+    {
+      id: "SSL-PROD-1",
+      title: "Sandbox Silk Blazer",
+      price: 100,
+      discountPercentage: 0,
+      stock: 10,
+    },
+  ];
+
+  const order = validateAndBuildServerOrder(
+    {
+      userUid: "u-ssl-1",
+      email: "ssl@ummo.test",
+      paymentMethod: "sslcommerz",
+      OrderItems: [{ id: "SSL-PROD-1", quantity: 2, price: 100 }],
+    },
+    state,
+    { uid: "u-ssl-1", email: "ssl@ummo.test", isAdmin: false }
+  );
+  deductOrderInventory(state, order.OrderItems, order);
+  state.orders.push(order);
+  assert.equal(state.storeConfig.customProducts[0].stock, 8);
+
+  // 1. Initiate SSLCommerz Sandbox Session
+  const session = await initiateSslCommerzSandboxPayment({
+    order,
+    state,
+    originUrl: "http://localhost:5173",
+  });
+  assert.equal(session.mode, "sandbox");
+  assert.equal(session.gateway, "sslcommerz");
+  assert.ok(session.tranId.startsWith("SSLCZ-"));
+  assert.equal(order.paymentStatus, "INITIATED");
+
+  // 2. Reject tampered amount in SSLCommerz IPN
+  await assert.rejects(
+    () =>
+      verifyAndProcessSslCommerzNotification({
+        payload: {
+          tran_id: session.tranId,
+          val_id: "VAL-TAMPER-1",
+          status: "VALID",
+          amount: "1.00", // Tampered! Expected order.totalAmount
+          currency: "USD",
+          value_a: order.orderId,
+        },
+        state,
+      }),
+    (err) => err.statusCode === 400 && /amount mismatch/i.test(err.message)
+  );
+  assert.notEqual(order.paymentStatus, "PAID");
+
+  // 3. Valid SSLCommerz IPN transitions order to PAID + PROCESSING
+  const validIpn = await verifyAndProcessSslCommerzNotification({
+    payload: {
+      tran_id: session.tranId,
+      val_id: "VAL-SBX-OK-1",
+      status: "VALID",
+      amount: String(order.totalAmount),
+      currency: "USD",
+      value_a: order.orderId,
+      risk_level: "0",
+    },
+    state,
+  });
+  assert.equal(validIpn.paymentStatus, "PAID");
+  assert.equal(order.paymentStatus, "PAID");
+  assert.equal(order.status, "PROCESSING");
+
+  // 4. Duplicate SSLCommerz IPN is handled idempotently
+  const dupIpn = await verifyAndProcessSslCommerzNotification({
+    payload: {
+      tran_id: session.tranId,
+      val_id: "VAL-SBX-OK-1",
+      status: "VALID",
+      amount: String(order.totalAmount),
+      currency: "USD",
+      value_a: order.orderId,
+    },
+    state,
+  });
+  assert.equal(dupIpn.idempotentReplay, true);
+  assert.equal(order.paymentStatus, "PAID");
+});
+
+test("Phase 12: Stripe Test Mode Checkout, HMAC-SHA256 Webhook Signature Verification, Replay Protection & Admin Reconciliation/Refunds", async () => {
+  const state = createInitialMemoryState();
+  state.storeConfig.customProducts = [
+    {
+      id: "STRIPE-PROD-1",
+      title: "Stripe Test Trench Coat",
+      price: 150,
+      discountPercentage: 0,
+      stock: 5,
+    },
+  ];
+
+  const order = validateAndBuildServerOrder(
+    {
+      userUid: "u-stripe-1",
+      email: "stripe@ummo.test",
+      paymentMethod: "stripe",
+      OrderItems: [{ id: "STRIPE-PROD-1", quantity: 1, price: 150 }],
+    },
+    state,
+    { uid: "u-stripe-1", email: "stripe@ummo.test", isAdmin: false }
+  );
+  deductOrderInventory(state, order.OrderItems, order);
+  state.orders.push(order);
+  assert.equal(state.storeConfig.customProducts[0].stock, 4);
+
+  // 1. Create Stripe Test Mode Checkout Session
+  const session = await createStripeTestCheckoutSession({
+    order,
+    state,
+    originUrl: "http://localhost:5173",
+  });
+  assert.equal(session.mode, "test");
+  assert.ok(session.sessionId.startsWith("cs_test_"));
+  assert.equal(order.paymentStatus, "INITIATED");
+
+  const validEventPayload = JSON.stringify({
+    id: "evt_test_webhook_001",
+    type: "checkout.session.completed",
+    data: {
+      object: {
+        id: session.sessionId,
+        payment_intent: "pi_test_001",
+        amount_total: Math.round(order.totalAmount * 100),
+        currency: "usd",
+        payment_status: "paid",
+        metadata: {
+          orderId: order.orderId,
+          paymentId: session.paymentId,
+        },
+      },
+    },
+  });
+
+  // 2. Reject forged/invalid Stripe-Signature header
+  assert.throws(
+    () =>
+      processStripeWebhookEvent({
+        rawPayload: validEventPayload,
+        signatureHeader: "t=1700000000,v1=deadbeef0000",
+        state,
+      }),
+    (err) => err.statusCode === 400
+  );
+
+  // 3. Reject replayed old timestamp (>5 minutes old)
+  const expiredTs = Math.floor(Date.now() / 1000) - 900;
+  const expiredSig = generateStripeWebhookSignature(
+    validEventPayload,
+    undefined,
+    expiredTs
+  );
+  assert.throws(
+    () =>
+      processStripeWebhookEvent({
+        rawPayload: validEventPayload,
+        signatureHeader: expiredSig,
+        state,
+      }),
+    (err) => err.statusCode === 400 && /timestamp outside tolerance/i.test(err.message)
+  );
+
+  // 4. Valid HMAC-SHA256 Stripe-Signature transitions order to PAID + PROCESSING
+  const validSig = generateStripeWebhookSignature(validEventPayload);
+  const processed = processStripeWebhookEvent({
+    rawPayload: validEventPayload,
+    signatureHeader: validSig,
+    state,
+  });
+  assert.equal(processed.paymentStatus, "PAID");
+  assert.equal(order.paymentStatus, "PAID");
+  assert.equal(order.status, "PROCESSING");
+
+  // 5. Duplicate Stripe webhook event is idempotent
+  const duplicateProcessed = processStripeWebhookEvent({
+    rawPayload: validEventPayload,
+    signatureHeader: validSig,
+    state,
+  });
+  assert.equal(duplicateProcessed.idempotentReplay, true);
+
+  // 6. Out-of-order late failure event does NOT downgrade a PAID order
+  const lateFailPayload = JSON.stringify({
+    id: "evt_test_webhook_late_fail",
+    type: "payment_intent.payment_failed",
+    data: {
+      object: {
+        id: session.sessionId,
+        metadata: { orderId: order.orderId, paymentId: session.paymentId },
+      },
+    },
+  });
+  const lateFailSig = generateStripeWebhookSignature(lateFailPayload);
+  const lateResult = processStripeWebhookEvent({
+    rawPayload: lateFailPayload,
+    signatureHeader: lateFailSig,
+    state,
+  });
+  assert.equal(lateResult.ignoredOutOfOrder, true);
+  assert.equal(order.paymentStatus, "PAID");
+
+  // 7. Non-admin cannot reconcile or refund payments (403 Forbidden)
+  assert.throws(
+    () =>
+      refundPaymentByAdmin({
+        orderId: order.orderId,
+        refundAmount: 50,
+        reason: "Unauthorized attempt",
+        state,
+        caller: { uid: "u-stripe-1", isAdmin: false },
+      }),
+    (err) => err.statusCode === 403
+  );
+
+  // 8. Admin Partial Refund -> PARTIALLY_REFUNDED
+  const partialRefund = refundPaymentByAdmin({
+    orderId: order.orderId,
+    refundAmount: 50,
+    reason: "Partial courtesy discount",
+    state,
+    caller: { uid: MASTER_ADMIN_UID, email: MASTER_ADMIN_EMAIL, isAdmin: true },
+  });
+  assert.equal(partialRefund.paymentStatus, "PARTIALLY_REFUNDED");
+  assert.equal(order.refundedAmount, 50);
+  assert.equal(state.storeConfig.customProducts[0].stock, 4); // Not restocked on partial refund
+
+  // 9. Admin Full Remaining Refund -> REFUNDED + Automatic Inventory Restock
+  const remainingAmount = Number((order.totalAmount - 50).toFixed(2));
+  const fullRefund = refundPaymentByAdmin({
+    orderId: order.orderId,
+    refundAmount: remainingAmount,
+    reason: "Full return",
+    restockItems: true,
+    state,
+    caller: { uid: MASTER_ADMIN_UID, email: MASTER_ADMIN_EMAIL, isAdmin: true },
+  });
+  assert.equal(fullRefund.paymentStatus, "REFUNDED");
+  assert.equal(order.status, "CANCELLED");
+  assert.equal(order.inventoryRestocked, true);
+  assert.equal(state.storeConfig.customProducts[0].stock, 5); // Restocked back to 5!
 });
 
 test.after(async () => {

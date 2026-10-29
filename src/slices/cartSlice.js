@@ -1,4 +1,5 @@
 import { createSlice } from "@reduxjs/toolkit";
+import { resolveProductImage } from "../utils/productImage";
 
 const getNormalizedSize = (obj) => obj?.size || obj?.selectedSize || "M";
 const getNormalizedColor = (obj) => {
@@ -6,17 +7,44 @@ const getNormalizedColor = (obj) => {
   return raw === "Default" ? "Black" : raw;
 };
 
-const normalizeCartItem = (item) => {
+export const sanitizeClientProductMessage = (raw) => {
+  if (raw === null || raw === undefined) return "";
+  return String(raw)
+    .replace(/<\s*\/?\s*script[^>]*>/gi, "")
+    .replace(/[<>]/g, "")
+    .slice(0, 500);
+};
+
+const getNormalizedMessage = (obj) =>
+  sanitizeClientProductMessage(
+    obj?.optionalMessage ?? obj?.itemMessage ?? obj?.productMessage ?? ""
+  ).trim();
+
+const buildLineId = (id, size, color, msg, idx = 0) =>
+  `${id || "item"}-${size}-${color}-${msg ? encodeURIComponent(msg.slice(0, 32)) : "nomessage"}-${idx}`;
+
+const normalizeCartItem = (item, idx = 0) => {
   if (!item || typeof item !== "object") return null;
   const size = getNormalizedSize(item);
   const color = getNormalizedColor(item);
+  const optionalMessage = getNormalizedMessage(item);
+  const resolvedImg = resolveProductImage(item);
   return {
     ...item,
+    productId: item.productId ?? item.id,
+    variantId: item.variantId || `${item.id}-${size}-${color}`,
+    cartLineId:
+      item.cartLineId || buildLineId(item.id, size, color, optionalMessage, idx),
     quantity: Math.max(1, Number(item.quantity) || 1),
     size,
     color,
     selectedSize: size,
     selectedColor: color,
+    image: resolvedImg,
+    thumbnail: resolvedImg,
+    productImageSnapshot: resolvedImg,
+    productNameSnapshot: item.productNameSnapshot || item.title || item.name || "",
+    optionalMessage,
   };
 };
 
@@ -27,14 +55,15 @@ const loadCarts = () => {
     const parsed = JSON.parse(saved);
     if (!Array.isArray(parsed)) return [];
     const merged = [];
-    for (const rawItem of parsed) {
-      const norm = normalizeCartItem(rawItem);
-      if (!norm) continue;
+    parsed.forEach((rawItem, idx) => {
+      const norm = normalizeCartItem(rawItem, idx);
+      if (!norm) return;
       const existing = merged.find(
         (m) =>
           String(m.id) === String(norm.id) &&
           m.size === norm.size &&
-          m.color === norm.color
+          m.color === norm.color &&
+          getNormalizedMessage(m) === norm.optionalMessage
       );
       if (existing) {
         existing.quantity += norm.quantity;
@@ -54,7 +83,7 @@ const loadCarts = () => {
       } else {
         merged.push(norm);
       }
-    }
+    });
     return merged;
   } catch {
     return [];
@@ -70,14 +99,28 @@ const loadCoupon = () => {
   }
 };
 
-const isSameVariant = (item, target) =>
+const isSameVariantAndMessage = (item, target) =>
   String(item?.id) === String(target?.id) &&
   getNormalizedSize(item) === getNormalizedSize(target) &&
-  getNormalizedColor(item) === getNormalizedColor(target);
+  getNormalizedColor(item) === getNormalizedColor(target) &&
+  getNormalizedMessage(item) === getNormalizedMessage(target);
 
 const findCartTarget = (products, payload) => {
-  const exact = products.find((item) => isSameVariant(item, payload));
+  if (payload?.cartLineId) {
+    const byLineId = products.find(
+      (item) => item.cartLineId && item.cartLineId === payload.cartLineId
+    );
+    if (byLineId) return byLineId;
+  }
+  const exact = products.find((item) => isSameVariantAndMessage(item, payload));
   if (exact) return exact;
+  const byVariant = products.find(
+    (item) =>
+      String(item?.id) === String(payload?.id) &&
+      getNormalizedSize(item) === getNormalizedSize(payload) &&
+      getNormalizedColor(item) === getNormalizedColor(payload)
+  );
+  if (byVariant) return byVariant;
   return products.find((item) => String(item?.id) === String(payload?.id));
 };
 
@@ -97,17 +140,24 @@ export const cartSlice = createSlice({
       const incomingQty = Math.max(1, Number(action.payload?.quantity) || 1);
       const incomingSize = getNormalizedSize(action.payload);
       const incomingColor = getNormalizedColor(action.payload);
+      const incomingMessage = getNormalizedMessage(action.payload);
+      const resolvedImg = resolveProductImage(action.payload);
 
       const existing = state.products.find((fitem) =>
-        isSameVariant(fitem, {
+        isSameVariantAndMessage(fitem, {
           id: action.payload?.id,
           size: incomingSize,
           color: incomingColor,
+          optionalMessage: incomingMessage,
         })
       );
 
       if (existing) {
-        existing.quantity = Math.max(1, Number(existing.quantity) || 1) + incomingQty;
+        existing.quantity =
+          Math.max(1, Number(existing.quantity) || 1) + incomingQty;
+        existing.image = resolvedImg;
+        existing.thumbnail = resolvedImg;
+        existing.productImageSnapshot = resolvedImg;
         if (action.payload.price !== undefined) {
           existing.price = Number(action.payload.price);
         }
@@ -126,11 +176,26 @@ export const cartSlice = createSlice({
       } else {
         state.products.push({
           ...action.payload,
+          productId: action.payload?.productId ?? action.payload?.id,
+          variantId: `${action.payload?.id}-${incomingSize}-${incomingColor}`,
+          cartLineId: buildLineId(
+            action.payload?.id,
+            incomingSize,
+            incomingColor,
+            incomingMessage,
+            Date.now()
+          ),
           quantity: incomingQty,
           size: incomingSize,
           color: incomingColor,
           selectedSize: incomingSize,
           selectedColor: incomingColor,
+          image: resolvedImg,
+          thumbnail: resolvedImg,
+          productImageSnapshot: resolvedImg,
+          productNameSnapshot:
+            action.payload?.title || action.payload?.name || "",
+          optionalMessage: incomingMessage,
         });
       }
       localStorage.setItem("carts", JSON.stringify(state.products));
@@ -152,13 +217,22 @@ export const cartSlice = createSlice({
         localStorage.setItem("carts", JSON.stringify(state.products));
       }
     },
+    updateItemMessage: (state, action) => {
+      const found = findCartTarget(state.products, action.payload);
+      if (found) {
+        found.optionalMessage = sanitizeClientProductMessage(
+          action.payload?.optionalMessage ?? ""
+        );
+        localStorage.setItem("carts", JSON.stringify(state.products));
+      }
+    },
     RemoveItem: (state, action) => {
       const found = findCartTarget(state.products, action.payload);
       if (found) {
         state.products = state.products.filter((item) => item !== found);
       } else {
         state.products = state.products.filter(
-          (item) => !isSameVariant(item, action.payload)
+          (item) => !isSameVariantAndMessage(item, action.payload)
         );
       }
       localStorage.setItem("carts", JSON.stringify(state.products));
@@ -200,6 +274,7 @@ export const {
   addToCart,
   quentityIncrease,
   quentityDecrease,
+  updateItemMessage,
   RemoveItem,
   EmptyCart,
   setShippingMethod,

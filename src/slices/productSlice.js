@@ -1,8 +1,11 @@
 import { createSlice } from "@reduxjs/toolkit";
+import { getInitialCatalogSnapshot } from "../services/api";
+
+const initialCatalog = getInitialCatalogSnapshot();
 
 const initialState = {
-  products: [],
-  filter: [],
+  products: initialCatalog,
+  filter: initialCatalog,
   options: {
     searchQuery: "",
     category: "",

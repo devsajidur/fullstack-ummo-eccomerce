@@ -92,9 +92,12 @@ const CartPage = () => {
                 </button>
               </div>
             ) : (
-              cartData.map((item) => (
+              cartData.map((item, idx) => (
                 <CartProduct
-                  key={`${item.id}-${item.size || "M"}-${item.color || "Black"}`}
+                  key={
+                    item.cartLineId ||
+                    `${item.id}-${item.size || "M"}-${item.color || "Black"}-${idx}`
+                  }
                   {...item}
                   size={item.size || item.selectedSize || "M"}
                   color={item.color || item.selectedColor || "Black"}
@@ -119,9 +122,12 @@ const CartPage = () => {
                 </button>
               </div>
             ) : (
-              cartData.map((item) => (
+              cartData.map((item, idx) => (
                 <CartProduct
-                  key={`${item.id}-${item.size || "M"}-${item.color || "Black"}`}
+                  key={
+                    item.cartLineId ||
+                    `${item.id}-${item.size || "M"}-${item.color || "Black"}-${idx}`
+                  }
                   {...item}
                   size={item.size || item.selectedSize || "M"}
                   color={item.color || item.selectedColor || "Black"}

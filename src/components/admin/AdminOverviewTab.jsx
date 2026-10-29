@@ -1,4 +1,5 @@
 import React from "react";
+import Image from "../layout/common/Image";
 
 const ORDER_STATUSES = [
   "PENDING",
@@ -23,42 +24,30 @@ export default function AdminOverviewTab({
   return (
     <div className="space-y-8">
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title="Total Revenue"
-          value={currency.format(metrics.totalRevenue)}
-          sub="Excluding cancelled"
+          title="Gross Revenue"
+          value={currency.format(metrics.totalRevenue || 0)}
+          sub={`Paid Revenue: ${currency.format(metrics.paidRevenue || 0)}`}
           accent="border-emerald-500"
         />
         <KpiCard
           title="Total Orders"
           value={metrics.totalOrders}
-          sub={`${metrics.pendingOrders} pending action`}
+          sub={`${metrics.pendingOrders} pending • ${metrics.avgOrderValue ? currency.format(metrics.avgOrderValue) : "$0.00"} avg`}
           accent="border-blue-500"
         />
         <KpiCard
-          title="Avg. Order Value"
-          value={currency.format(metrics.avgOrderValue)}
-          sub="Per completed order"
-          accent="border-indigo-500"
-        />
-        <KpiCard
-          title="Catalog Products"
+          title="Catalog & Stock Health"
           value={metrics.totalProducts}
-          sub={`${metrics.lowStockProducts} low stock (<10)`}
+          sub={`${metrics.lowStockProducts} low stock (<10) • ${metrics.outOfStockProducts || 0} sold out`}
           accent="border-amber-500"
         />
         <KpiCard
-          title="Active Coupons"
-          value={coupons.length}
-          sub="Live promo codes"
+          title="Payments & Promo Activity"
+          value={`${metrics.paidOrdersCount || 0} Paid`}
+          sub={`${metrics.failedOrRefundedCount || 0} failed/refunded • ${coupons.length} coupons`}
           accent="border-purple-500"
-        />
-        <KpiCard
-          title="Customers"
-          value={metrics.totalCustomers}
-          sub="Registered accounts"
-          accent="border-rose-500"
         />
       </div>
 
@@ -96,14 +85,15 @@ export default function AdminOverviewTab({
         </div>
       </div>
 
-      {/* Recent Orders Table */}
+      {/* Recent Orders Table with Product Thumbnails & Payment Status */}
       <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-xs">
         <h2 className="text-sm font-bold uppercase tracking-wider text-gray-900 mb-4">
           Recent Customer Orders
         </h2>
         {orders.length === 0 ? (
           <p className="text-sm text-gray-500 py-6 text-center">
-            No orders placed yet. Place an order from the storefront to see live fulfillment here.
+            No orders placed yet. Place an order from the storefront to see live
+            fulfillment here.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -112,54 +102,118 @@ export default function AdminOverviewTab({
                 <tr className="border-b border-gray-200 text-[11px] font-bold uppercase text-gray-500">
                   <th className="py-3 pr-4">Order ID</th>
                   <th className="py-3 pr-4">Customer</th>
+                  <th className="py-3 pr-4">Products</th>
                   <th className="py-3 pr-4">Date</th>
                   <th className="py-3 pr-4">Total</th>
+                  <th className="py-3 pr-4">Payment</th>
                   <th className="py-3 pr-4">Status</th>
                   <th className="py-3 text-right">Quick Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {orders.slice(0, 8).map((order) => (
-                  <tr key={`${order.userUid}-${order.orderId}`}>
-                    <td className="py-3 pr-4 font-mono text-xs font-semibold">
-                      #{String(order.orderId).slice(-8)}
-                    </td>
-                    <td className="py-3 pr-4">
-                      <p className="font-medium text-gray-900">
-                        {order.username || "Customer"}
-                      </p>
-                      <p className="text-xs text-gray-500">{order.email}</p>
-                    </td>
-                    <td className="py-3 pr-4 text-xs text-gray-500">
-                      {order.date
-                        ? new Date(order.date).toLocaleDateString()
-                        : "N/A"}
-                    </td>
-                    <td className="py-3 pr-4 font-semibold">
-                      {currency.format(Number(order.total || 0))}
-                    </td>
-                    <td className="py-3 pr-4">
-                      <span className="text-[11px] font-bold uppercase px-2.5 py-1 rounded-full bg-gray-100 text-gray-800">
-                        {order.status || "PENDING"}
-                      </span>
-                    </td>
-                    <td className="py-3 text-right">
-                      <select
-                        value={order.status || "PENDING"}
-                        onChange={(e) =>
-                          onUpdateOrderStatus(order, e.target.value)
-                        }
-                        className="border border-gray-300 rounded px-2 py-1 text-xs bg-white cursor-pointer"
-                      >
-                        {ORDER_STATUSES.map((st) => (
-                          <option key={st} value={st}>
-                            {st}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
+                {orders.slice(0, 8).map((order) => {
+                  const items = Array.isArray(order.OrderItems)
+                    ? order.OrderItems
+                    : Object.values(order.OrderItems || {});
+                  const hasNotes = items.some((it) =>
+                    Boolean(String(it.optionalMessage || "").trim())
+                  );
+                  const paymentStatus =
+                    order.paymentStatus ||
+                    (order.paymentMethod === "sslcommerz" ||
+                    order.paymentMethod === "stripe"
+                      ? "INITIATED"
+                      : "PENDING");
+
+                  return (
+                    <tr key={`${order.userUid || "guest"}-${order.orderId || order.id}`}>
+                      <td className="py-3 pr-4 font-mono text-xs font-semibold">
+                        #{String(order.orderId || order.id).slice(-8)}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <p className="font-medium text-gray-900">
+                          {order.username || "Customer"}
+                        </p>
+                        <p className="text-xs text-gray-500">{order.email}</p>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-1.5">
+                          {items.slice(0, 3).map((it, idx) => (
+                            <Image
+                              key={idx}
+                              item={it}
+                              alt={it.productNameSnapshot || it.title || "Item"}
+                              width={36}
+                              height={36}
+                              className="w-9 h-9 object-contain rounded border border-gray-200 bg-gray-50 shrink-0"
+                            />
+                          ))}
+                          {items.length > 3 && (
+                            <span className="text-[11px] font-semibold text-gray-500">
+                              +{items.length - 3}
+                            </span>
+                          )}
+                          {hasNotes && (
+                            <span
+                              title="Contains customer product message"
+                              className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded"
+                            >
+                              📝 Note
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 pr-4 text-xs text-gray-500">
+                        {order.date
+                          ? new Date(order.date).toLocaleDateString()
+                          : "N/A"}
+                      </td>
+                      <td className="py-3 pr-4 font-semibold">
+                        {currency.format(
+                          Number(order.total ?? order.totalAmount ?? 0)
+                        )}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                            paymentStatus === "PAID"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : paymentStatus === "REFUNDED" ||
+                                paymentStatus === "PARTIALLY_REFUNDED"
+                              ? "bg-purple-100 text-purple-800"
+                              : paymentStatus === "FAILED" ||
+                                paymentStatus === "CANCELED"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-amber-100 text-amber-800"
+                          }`}
+                        >
+                          {paymentStatus}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span className="text-[11px] font-bold uppercase px-2.5 py-1 rounded-full bg-gray-100 text-gray-800">
+                          {order.status || "PENDING"}
+                        </span>
+                      </td>
+                      <td className="py-3 text-right">
+                        <select
+                          aria-label={`Order status for ${order.orderId || order.id}`}
+                          value={order.status || "PENDING"}
+                          onChange={(e) =>
+                            onUpdateOrderStatus(order, e.target.value)
+                          }
+                          className="border border-gray-300 rounded px-2 py-1 text-xs bg-white cursor-pointer"
+                        >
+                          {ORDER_STATUSES.map((st) => (
+                            <option key={st} value={st}>
+                              {st}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -36,7 +36,7 @@ const ProductCountdownPill = memo(function ProductCountdownPill({ item }) {
   );
 });
 
-const Product = memo(function Product({ item }) {
+const Product = memo(function Product({ item, prioritizeFirstRow = false }) {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const isWished = useSelector((state) =>
@@ -110,11 +110,14 @@ const Product = memo(function Product({ item }) {
         className="cursor-pointer relative overflow-hidden bg-[#f8f8f8] rounded-sm"
       >
         <Image
+          product={item}
           className="md:h-80 md:w-50 h-40 w-30 block mx-auto object-contain transition-transform duration-300 group-hover:scale-105"
           src={item?.thumbnail}
           alt={item?.title}
           width={200}
           height={320}
+          loading={prioritizeFirstRow ? "eager" : "lazy"}
+          fetchPriority={prioritizeFirstRow ? "high" : undefined}
         />
 
         {/* Top-Left Discount & Free Gift Badges */}
@@ -138,7 +141,7 @@ const Product = memo(function Product({ item }) {
           </span>
         ) : (
           stockCount < 10 && (
-            <span className="absolute top-2 right-2 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm">
+            <span className="absolute top-2 right-2 bg-amber-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm">
               Only {stockCount} left
             </span>
           )
@@ -150,9 +153,9 @@ const Product = memo(function Product({ item }) {
 
       <div className="mt-3.2">
         <div className="flex justify-between items-center h-5">
-          <h4 className="text-[12px] md:text-sm text-gray font-normal uppercase truncate pr-2">
+          <p className="text-[12px] md:text-sm text-gray-600 font-normal uppercase truncate pr-2">
             {item?.category}
-          </h4>
+          </p>
           <button
             type="button"
             aria-label="Toggle Wishlist"
@@ -192,7 +195,7 @@ const Product = memo(function Product({ item }) {
         </h3>
         <div className="flex items-center justify-between mt-0.5">
           <div className="flex items-center gap-2">
-            <h5
+            <span
               className={`md:text-base text-[14px] font-semibold uppercase ${
                 discountState.isDiscountActive
                   ? "text-[#D6001C]"
@@ -200,15 +203,15 @@ const Product = memo(function Product({ item }) {
               }`}
             >
               ${discountState.effectivePrice.toFixed(2)}
-            </h5>
+            </span>
             {discountState.isDiscountActive && (
-              <span className="text-xs text-gray-400 line-through">
+              <span className="text-xs text-gray-600 line-through">
                 ${discountState.originalPrice.toFixed(2)}
               </span>
             )}
           </div>
           {item?.rating && (
-            <span className="text-[11px] text-amber-600 font-medium">
+            <span className="text-[11px] text-amber-800 font-medium">
               ★ {Number(item.rating).toFixed(1)}
             </span>
           )}

@@ -6,6 +6,7 @@ import { useDispatch } from "react-redux";
 import { deleteWishEndevisual } from "../../slices/wishListSlice";
 import { addToCart } from "../../slices/cartSlice";
 import { getProductDiscountState } from "../../utils/discountTimer";
+import Image from "../layout/common/Image";
 import toast from "react-hot-toast";
 
 const WishListProduct = ({ product }) => {
@@ -50,10 +51,12 @@ const WishListProduct = ({ product }) => {
     <article className="group grid grid-cols-[100px_1fr] gap-4 border-b border-gray-200 pb-5 xs:grid-cols-[130px_1fr] sm:grid-cols-[170px_1fr] sm:gap-6 lg:grid-cols-[210px_1fr]">
       {/* Image */}
       <div className="relative aspect-4/5 overflow-hidden bg-[#f5f5f5]">
-        <img
-          src={product?.thumbnail}
+        <Image
+          product={product}
+          src={product?.thumbnail || product?.image}
           alt={product?.title || "Product"}
-          loading="lazy"
+          width={210}
+          height={262}
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
       </div>

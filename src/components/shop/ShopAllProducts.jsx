@@ -23,8 +23,8 @@ const SORT_LABELS = {
 const ShopAllProducts = ({ currentPage, setCurrentPage }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [view, setview] = useState(3);
-  const [loading, setloading] = useState(true);
   const FilterProduct = useSelector((state) => state.Products.filter);
+  const [loading, setloading] = useState(() => !FilterProduct?.length);
   const [Dropshowhide, setDropshowhide] = useState(false);
   const options = useSelector((state) => state.Products.options);
   const dispatch = useDispatch();

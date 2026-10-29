@@ -146,16 +146,25 @@ const Header = () => {
       <nav className="md:pt-6 md:pb-6 py-4 md:px-2.5">
         <div className="container hidden md:block">
           <div className="flex items-center">
-            <Link to="/">
-              <Image src="../images/logo.png" alt="logo" />
+            <Link to="/" aria-label="UOMO Home">
+              <img
+                src="/images/logo.png"
+                alt="UOMO Logo"
+                width={112}
+                height={28}
+                className="h-7 w-auto"
+              />
             </Link>
             <ul className="lg:ml-14 bmd:ml-10 ml-5 flex gap-5 lg:gap-9">
               {navData?.map((item, id) => (
-                <Link key={item.id || id} to={item.path}>
-                  <li className='text-primary cursor-pointer after:bg-primary relative text-sm md:text-[12px] lg:text-sm leading-6 font-medium after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:duration-300 after:content-[""] hover:after:w-[70%]'>
+                <li
+                  key={item.id || id}
+                  className='text-primary cursor-pointer after:bg-primary relative text-sm md:text-[12px] lg:text-sm leading-6 font-medium after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:duration-300 after:content-[""] hover:after:w-[70%]'
+                >
+                  <Link to={item.path} className="block">
                     {item?.title}
-                  </li>
-                </Link>
+                  </Link>
+                </li>
               ))}
             </ul>
 
@@ -207,7 +216,10 @@ const Header = () => {
                 onClick={() => navigate("/wishlist")}
               >
                 <Heart size={20} />
-                <span className="absolute -bottom-1.5 -right-2 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">
+                <span
+                  aria-hidden="true"
+                  className="absolute -bottom-1.5 -right-2 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white"
+                >
                   {WishProduct.length}
                 </span>
               </button>
@@ -219,7 +231,10 @@ const Header = () => {
                 className="cursor-pointer relative text-primary hover:text-[#B9A16B] transition-colors"
               >
                 <ShoppingBag size={20} />
-                <span className="absolute -bottom-1.5 -right-2 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white">
+                <span
+                  aria-hidden="true"
+                  className="absolute -bottom-1.5 -right-2 bg-[#B9A16B] h-4 w-4 leading-4 rounded-full text-[10px] text-white"
+                >
                   {totalCartCount}
                 </span>
               </button>
@@ -329,20 +344,23 @@ const Header = () => {
               </div>
 
               {navData?.map((item) => (
-                <Link
+                <li
                   key={item.id}
-                  to={item.path}
-                  onClick={() => setmenuActive(false)}
+                  className="border-b border-gray-100"
                 >
-                  <li className="text-primary leading-11 cursor-pointer text-sm font-medium flex items-center justify-between border-b border-gray-100">
+                  <Link
+                    to={item.path}
+                    onClick={() => setmenuActive(false)}
+                    className="text-primary leading-11 cursor-pointer text-sm font-medium flex items-center justify-between"
+                  >
                     {item?.title}
                     <FaAngleRight />
-                  </li>
-                </Link>
+                  </Link>
+                </li>
               ))}
 
               {/* Quick Account & Admin Links on Mobile */}
-              <div className="mt-6 pt-4 border-t border-gray-200 space-y-2.5">
+              <li className="mt-6 pt-4 border-t border-gray-200 space-y-2.5 list-none">
                 <Link
                   to={User ? "/profile" : "/login"}
                   onClick={() => setmenuActive(false)}
@@ -376,12 +394,18 @@ const Header = () => {
                   </span>
                   <FaAngleRight />
                 </Link>
-              </div>
+              </li>
             </ul>
           )}
 
-          <Link to="/">
-            <Image src="../images/logo.png" alt="logo" />
+          <Link to="/" aria-label="UOMO Home">
+            <img
+              src="/images/logo.png"
+              alt="UOMO Logo"
+              width={112}
+              height={28}
+              className="h-7 w-auto"
+            />
           </Link>
 
           <div className="flex items-center gap-3.5">
@@ -400,7 +424,10 @@ const Header = () => {
               onClick={() => navigate("/cart")}
             >
               <ShoppingBag size={20} />
-              <span className="block size-4 bg-[#b9a16b] rounded-full text-[10px] font-medium absolute -right-2 -bottom-2 text-white">
+              <span
+                aria-hidden="true"
+                className="block size-4 bg-[#b9a16b] rounded-full text-[10px] font-medium absolute -right-2 -bottom-2 text-white"
+              >
                 {totalCartCount}
               </span>
             </button>

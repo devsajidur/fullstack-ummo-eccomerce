@@ -6,6 +6,7 @@ import {
   useNowTick,
 } from "../../utils/discountTimer";
 import { uploadImageToCloudinary } from "../../services/cloudinary";
+import Image from "../layout/common/Image";
 import AdminProductModal from "./AdminProductModal";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -286,11 +287,12 @@ export default function AdminProductsTab({
                   <tr key={product.id} className="hover:bg-gray-50/70">
                     <td className="py-3 pr-4">
                       <div className="flex items-center gap-3">
-                        <img
-                          src={product.thumbnail}
+                        <Image
+                          product={product}
                           alt={product.title}
-                          loading="lazy"
-                          className="w-11 h-11 rounded object-contain border border-gray-200 bg-white"
+                          width={44}
+                          height={44}
+                          className="w-11 h-11 rounded object-contain border border-gray-200 bg-white shrink-0"
                         />
                         <div>
                           <p className="font-semibold text-gray-900 text-xs sm:text-sm">

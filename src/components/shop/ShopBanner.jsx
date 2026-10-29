@@ -49,9 +49,12 @@ const ShopBanner = () => {
   return (
     <div className="2xl:px-5 relative overflow-hidden">
       <Image
-        className="w-full min-h-[180px] sm:min-h-[240px] lg:min-h-[280px] object-cover"
+        className="w-full h-[180px] sm:h-[240px] lg:h-[280px] object-cover"
         src={shopHeader.image || shopBg}
         alt={shopHeader.title || "Shop Banner"}
+        width={1200}
+        height={280}
+        loading="eager"
       />
 
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-3 sm:px-6">

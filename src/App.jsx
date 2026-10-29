@@ -3,9 +3,9 @@ import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import Rootlayout from "./components/layout/Rootlayout";
 import HomePage from "./pages/HomePage";
+import ShopPage from "./pages/ShopPage";
 
 // Route-level code splitting for high-concurrency fast initial page load
-const ShopPage = lazy(() => import("./pages/ShopPage"));
 const ShopSingle = lazy(() => import("./pages/ShopSingle"));
 const CartPage = lazy(() => import("./pages/CartPage"));
 const WishListPage = lazy(() => import("./pages/WishListPage"));
@@ -46,7 +46,7 @@ const router = createBrowserRouter([
     Component: Rootlayout,
     children: [
       { index: true, Component: HomePage },
-      { path: "shop", element: withSuspense(ShopPage) },
+      { path: "shop", Component: ShopPage },
       { path: "shopsingle", element: withSuspense(ShopSingle) },
       { path: "cart", element: withSuspense(CartPage) },
       { path: "wish", element: withSuspense(WishListPage) },
