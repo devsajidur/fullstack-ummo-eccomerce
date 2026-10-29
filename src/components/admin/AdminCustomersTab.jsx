@@ -1,9 +1,13 @@
 import React from "react";
+import { Trash2 } from "lucide-react";
 
 export default function AdminCustomersTab({
   customers,
   messages,
   subscribers,
+  onToggleUserRole,
+  onDeleteMessage,
+  onDeleteSubscriber,
 }) {
   return (
     <div className="space-y-6">
@@ -22,7 +26,10 @@ export default function AdminCustomersTab({
                   <th className="py-2.5 pr-4">Name</th>
                   <th className="py-2.5 pr-4">Email</th>
                   <th className="py-2.5 pr-4">Role</th>
-                  <th className="py-2.5">UID</th>
+                  <th className="py-2.5 pr-4">UID</th>
+                  {onToggleUserRole && (
+                    <th className="py-2.5 text-right">Action</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -33,13 +40,30 @@ export default function AdminCustomersTab({
                     </td>
                     <td className="py-2.5 pr-4 text-gray-600">{c.email}</td>
                     <td className="py-2.5 pr-4">
-                      <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 font-semibold uppercase text-[10px]">
+                      <span
+                        className={`px-2 py-0.5 rounded font-semibold uppercase text-[10px] ${
+                          c.role === "ADMIN"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
                         {c.role || "CUSTOMER"}
                       </span>
                     </td>
-                    <td className="py-2.5 font-mono text-gray-400">
+                    <td className="py-2.5 pr-4 font-mono text-gray-400">
                       {String(c.uid).slice(0, 12)}...
                     </td>
+                    {onToggleUserRole && (
+                      <td className="py-2.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onToggleUserRole(c)}
+                          className="text-[11px] font-semibold border border-gray-300 rounded px-2.5 py-1 hover:bg-gray-50 cursor-pointer"
+                        >
+                          Make {c.role === "ADMIN" ? "Customer" : "Admin"}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -61,13 +85,27 @@ export default function AdminCustomersTab({
               {messages.map((msg) => (
                 <div
                   key={msg.id}
-                  className="border border-gray-200 rounded-lg p-3 text-xs"
+                  className="border border-gray-200 rounded-lg p-3 text-xs flex items-start justify-between gap-3"
                 >
-                  <div className="flex justify-between font-semibold text-gray-900">
-                    <span>{msg.name}</span>
-                    <span className="text-gray-400">{msg.email}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap justify-between gap-2 font-semibold text-gray-900">
+                      <span>{msg.name}</span>
+                      <span className="text-gray-400">{msg.email}</span>
+                    </div>
+                    <p className="text-gray-600 mt-1 break-words">
+                      {msg.message}
+                    </p>
                   </div>
-                  <p className="text-gray-600 mt-1">{msg.message}</p>
+                  {onDeleteMessage && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteMessage(msg.id)}
+                      className="text-red-500 hover:text-red-700 p-1 cursor-pointer shrink-0"
+                      title="Delete Inquiry"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -87,14 +125,26 @@ export default function AdminCustomersTab({
               {subscribers.map((sub) => (
                 <li
                   key={sub.id}
-                  className="py-2 flex items-center justify-between"
+                  className="py-2 flex items-center justify-between gap-2"
                 >
                   <span className="font-medium text-gray-900">{sub.email}</span>
-                  <span className="text-gray-400">
-                    {sub.subscribedAt
-                      ? new Date(sub.subscribedAt).toLocaleDateString()
-                      : "Active"}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-gray-400">
+                      {sub.subscribedAt
+                        ? new Date(sub.subscribedAt).toLocaleDateString()
+                        : "Active"}
+                    </span>
+                    {onDeleteSubscriber && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteSubscriber(sub.id)}
+                        className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                        title="Remove Subscriber"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

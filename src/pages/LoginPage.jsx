@@ -14,11 +14,10 @@ import { Link, useNavigate } from "react-router";
 import Google from "../assets/images/Google.png";
 import Image from "../components/layout/common/Image";
 import {
-  DEFAULT_ADMIN_ACCOUNT,
   DEFAULT_ADMIN_EMAIL,
   DEFAULT_ADMIN_PASSWORD,
-  getLocalRegisteredUsers,
   setSessionUser,
+  signInAsDemoAdmin,
 } from "../services/authSession";
 
 const provider = new GoogleAuthProvider();
@@ -82,24 +81,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
 
-  const handleInstantAdminLogin = () => {
-    setSessionUser(DEFAULT_ADMIN_ACCOUNT);
-    toast.success("Logged in to Admin Control Panel!");
-    setTimeout(() => navigate("/admin"), 600);
-  };
-
-  const handleInstantCustomerLogin = () => {
-    const demoCustomer = {
-      uid: "customer-demo-001",
-      email: "customer@ummo.com",
-      displayName: "Sajidur Rahman",
-      photoURL: "",
-      role: "CUSTOMER",
-      emailVerified: true,
-    };
-    setSessionUser(demoCustomer);
-    toast.success("Logged in as Customer!");
-    setTimeout(() => navigate("/profile"), 600);
+  const handleInstantAdminLogin = async () => {
+    setLoading(true);
+    await signInAsDemoAdmin();
+    setLoading(false);
+    toast.success("Logged in to Demo Admin Control Panel!");
+    setTimeout(() => navigate("/admin"), 500);
   };
 
   const handleLogin = async (e) => {
@@ -107,39 +94,19 @@ export default function LoginPage() {
     setLoading(true);
     const trimmedEmail = email.trim().toLowerCase();
 
-    // 1. Check built-in Admin credentials
+    // 1. Check Demo Admin credentials
     if (
       trimmedEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() &&
       password === DEFAULT_ADMIN_PASSWORD
     ) {
-      setSessionUser(DEFAULT_ADMIN_ACCOUNT);
+      await signInAsDemoAdmin();
       setLoading(false);
       toast.success("Admin Login Successful!");
-      setTimeout(() => navigate("/admin"), 800);
+      setTimeout(() => navigate("/admin"), 600);
       return;
     }
 
-    // 2. Check locally registered users
-    const localUsers = getLocalRegisteredUsers();
-    const matchedLocal = localUsers.find(
-      (u) => u.email === trimmedEmail && u.password === password
-    );
-    if (matchedLocal) {
-      setSessionUser({
-        uid: matchedLocal.uid,
-        email: matchedLocal.email,
-        displayName: matchedLocal.displayName || matchedLocal.name,
-        photoURL: matchedLocal.photoURL || "",
-        role: matchedLocal.role || "CUSTOMER",
-        emailVerified: true,
-      });
-      setLoading(false);
-      toast.success("Login Successfully");
-      setTimeout(() => navigate("/"), 800);
-      return;
-    }
-
-    // 3. Try Firebase Auth
+    // 2. Real Firebase Auth for Customers
     try {
       await setPersistence(
         auth,
@@ -170,9 +137,7 @@ export default function LoginPage() {
       toast.success("Login Successfully");
       setTimeout(() => navigate("/"), 1000);
     } catch (error) {
-      toast.error(
-        `${error.code || "auth/error"} (Invalid credentials or use Quick Login below)`
-      );
+      toast.error(`${error.code || "auth/error"} (Invalid email or password)`);
     } finally {
       setLoading(false);
     }
@@ -202,6 +167,7 @@ export default function LoginPage() {
           profile_picture: user.photoURL,
           username: user.displayName,
           name: user.displayName,
+          role: "CUSTOMER",
           lastLoginAt: new Date().toISOString(),
         });
       } catch (dbError) {
@@ -211,26 +177,10 @@ export default function LoginPage() {
       toast.success("Google Login Successful!");
       setTimeout(() => navigate("/"), 800);
     } catch (error) {
-      // On Vercel (e.g. fullstack-ummo-eccomerce.vercel.app), Firebase throws
-      // auth/unauthorized-domain if the domain is not in Firebase Console.
-      // Provide an automatic Google session fallback so login always works.
-      if (
-        error.code === "auth/unauthorized-domain" ||
-        error.code === "auth/operation-not-supported-in-this-environment" ||
-        error.code === "auth/popup-blocked" ||
-        error.code === "auth/internal-error"
-      ) {
-        const googleFallbackUser = {
-          uid: "google-user-" + Date.now(),
-          email: "google.user@ummo.com",
-          displayName: "Google Verified User",
-          photoURL: "",
-          role: "CUSTOMER",
-          emailVerified: true,
-        };
-        setSessionUser(googleFallbackUser);
-        toast.success("Signed in with Google!");
-        setTimeout(() => navigate("/"), 800);
+      if (error.code === "auth/unauthorized-domain") {
+        toast.error(
+          `Add "${window.location.hostname}" to Firebase Console > Authentication > Settings > Authorized domains.`
+        );
       } else if (
         error.code !== "auth/popup-closed-by-user" &&
         error.code !== "auth/cancelled-popup-request"
@@ -257,30 +207,28 @@ export default function LoginPage() {
           </button>
         </div>
 
-        {/* Quick 1-Click Demo & Admin Access Box */}
+        {/* Demo Admin Access Only (No Fake Customer Login) */}
         <div className="mb-6 p-4 rounded-lg border border-gray-200 bg-gray-50">
-          <p className="text-xs font-bold uppercase tracking-wider text-gray-800 mb-2">
-            Quick Access (1-Click Login)
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-800 mb-1.5">
+            Demo Admin Panel Access
           </p>
           <p className="text-[11px] text-gray-500 mb-3">
-            Admin Email: <span className="font-mono font-semibold text-gray-800">{DEFAULT_ADMIN_EMAIL}</span> | Password: <span className="font-mono font-semibold text-gray-800">{DEFAULT_ADMIN_PASSWORD}</span>
+            Email:{" "}
+            <span className="font-mono font-semibold text-gray-800">
+              {DEFAULT_ADMIN_EMAIL}
+            </span>{" "}
+            | Password:{" "}
+            <span className="font-mono font-semibold text-gray-800">
+              {DEFAULT_ADMIN_PASSWORD}
+            </span>
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={handleInstantAdminLogin}
-              className="w-full bg-gray-900 hover:bg-black text-white text-xs font-semibold uppercase tracking-wider py-2.5 px-3 rounded cursor-pointer transition-colors"
-            >
-              1-Click Admin Login
-            </button>
-            <button
-              type="button"
-              onClick={handleInstantCustomerLogin}
-              className="w-full bg-white hover:bg-gray-100 text-gray-900 border border-gray-300 text-xs font-semibold uppercase tracking-wider py-2.5 px-3 rounded cursor-pointer transition-colors"
-            >
-              1-Click Customer Login
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleInstantAdminLogin}
+            className="w-full bg-gray-900 hover:bg-black text-white text-xs font-semibold uppercase tracking-wider py-2.5 px-3 rounded cursor-pointer transition-colors"
+          >
+            1-Click Demo Admin Login
+          </button>
         </div>
 
         {/* Google button */}

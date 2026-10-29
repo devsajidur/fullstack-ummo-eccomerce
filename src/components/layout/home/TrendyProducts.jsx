@@ -2,21 +2,21 @@ import React, { useEffect, useState } from "react";
 import Title from "../common/Title";
 import treadydata from "../../../api/treadydata.json";
 import Product from "../common/Product";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { Allitem } from "../../../slices/AllProductSlice";
 import { fetchCatalogProducts } from "../../../services/api";
 
 const TrendyProducts = () => {
   const [activeCategory, setActiveCategory] = useState("all");
-  const [products, setProducts] = useState([]);
-  const [filterProducts, setFilterProduct] = useState([]);
+  const reduxProducts = useSelector((state) => state.AllProduct.Products);
+  const [localProducts, setLocalProducts] = useState([]);
   const [showAllProducts, setShowAllProducts] = useState(false);
   const dispatch = useDispatch();
 
   useEffect(() => {
     fetchCatalogProducts(200)
       .then((list) => {
-        setProducts(list);
+        setLocalProducts(list);
         dispatch(Allitem(list));
       })
       .catch((err) => {
@@ -24,16 +24,15 @@ const TrendyProducts = () => {
       });
   }, [dispatch]);
 
+  const products = reduxProducts?.length ? reduxProducts : localProducts;
+
+  const filterProducts =
+    activeCategory === "all"
+      ? []
+      : products.filter((item) => item.category === activeCategory);
+
   function handleTabs(category) {
     setActiveCategory(category);
-
-    if (category === "all") {
-      setFilterProduct([]);
-      return;
-    }
-
-    const filtered = products.filter((item) => item.category === category);
-    setFilterProduct(filtered);
   }
 
   function handleProductShow() {
@@ -61,7 +60,7 @@ const TrendyProducts = () => {
         </ul>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-5 justify-center">
-          {filterProducts.length > 0
+          {activeCategory !== "all"
             ? filterProducts
                 .slice(0, 8)
                 .map((item) => <Product item={item} key={item.id} />)
@@ -74,7 +73,7 @@ const TrendyProducts = () => {
                 .map((item) => <Product item={item} key={item.id} />)}
         </div>
 
-        {filterProducts.length === 0 && (
+        {activeCategory === "all" && (
           <div className="text-center">
             <button
               onClick={handleProductShow}

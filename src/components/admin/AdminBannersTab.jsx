@@ -18,7 +18,7 @@ export default function AdminBannersTab() {
   function handleResetDefault() {
     setBanners(DEFAULT_BANNERS);
     saveStoredBanners(DEFAULT_BANNERS);
-    toast.success("Banners reset to default configuration.");
+    toast.success("Banners reset to default UOMO configuration.");
   }
 
   function handleSlideChange(idx, field, value) {
@@ -67,6 +67,13 @@ export default function AdminBannersTab() {
     setBanners({ ...banners, promoCards: nextCards });
   }
 
+  function handleShopHeaderChange(field, value) {
+    setBanners({
+      ...banners,
+      shopHeader: { ...(banners.shopHeader || {}), [field]: value },
+    });
+  }
+
   return (
     <div className="space-y-8">
       {/* Header Bar */}
@@ -76,7 +83,7 @@ export default function AdminBannersTab() {
             Storefront Banners & CMS Manager
           </h2>
           <p className="text-xs text-gray-500">
-            Customize Home Hero Slider, Deal of the Week Countdown Banner, and Category Promo Cards in real time.
+            Customize Home Hero Slider, Deal of the Week Countdown Banner, Promo Cards, and Shop Header in real time.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -100,9 +107,14 @@ export default function AdminBannersTab() {
       {/* 1. Home Hero Slider Slides */}
       <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-xs">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-900">
-            1. Home Hero Carousel Slides ({banners.heroSlides?.length || 0})
-          </h3>
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-gray-900">
+              1. Home Hero Carousel Slides ({banners.heroSlides?.length || 0})
+            </h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              Leave Headline Title & Badge Tag empty to display full native UOMO banner graphics (/images/SLIDER.png to /images/SLIDER4.png), or enter text to show an overlay.
+            </p>
+          </div>
           <button
             type="button"
             onClick={handleAddSlide}
@@ -111,7 +123,7 @@ export default function AdminBannersTab() {
             <Plus size={14} /> Add Slide
           </button>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4">
           {(banners.heroSlides || []).map((slide, idx) => (
             <div
               key={slide.id || idx}
@@ -131,7 +143,21 @@ export default function AdminBannersTab() {
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-gray-500 mb-1">
-                  Badge Tag
+                  Banner Image URL
+                </label>
+                <input
+                  type="text"
+                  value={slide.image || ""}
+                  onChange={(e) =>
+                    handleSlideChange(idx, "image", e.target.value)
+                  }
+                  placeholder="/images/SLIDER.png"
+                  className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1">
+                  Overlay Badge Tag (Optional)
                 </label>
                 <input
                   type="text"
@@ -139,12 +165,13 @@ export default function AdminBannersTab() {
                   onChange={(e) =>
                     handleSlideChange(idx, "tag", e.target.value)
                   }
+                  placeholder="Leave empty for clean graphic"
                   className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs bg-white"
                 />
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-gray-500 mb-1">
-                  Headline Title
+                  Overlay Headline Title (Optional)
                 </label>
                 <input
                   type="text"
@@ -152,12 +179,13 @@ export default function AdminBannersTab() {
                   onChange={(e) =>
                     handleSlideChange(idx, "title", e.target.value)
                   }
+                  placeholder="Leave empty for clean graphic"
                   className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs bg-white"
                 />
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-gray-500 mb-1">
-                  Subtitle
+                  Overlay Subtitle (Optional)
                 </label>
                 <input
                   type="text"
@@ -171,7 +199,7 @@ export default function AdminBannersTab() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] font-semibold text-gray-500 mb-1">
-                    CTA Button Text
+                    CTA Text
                   </label>
                   <input
                     type="text"
@@ -196,19 +224,6 @@ export default function AdminBannersTab() {
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-500 mb-1">
-                  Banner Image URL
-                </label>
-                <input
-                  type="text"
-                  value={slide.image || ""}
-                  onChange={(e) =>
-                    handleSlideChange(idx, "image", e.target.value)
-                  }
-                  className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs bg-white"
-                />
-              </div>
             </div>
           ))}
         </div>
@@ -219,7 +234,7 @@ export default function AdminBannersTab() {
         <h3 className="text-sm font-bold uppercase tracking-wider text-gray-900 mb-4">
           2. Deal of the Week & Countdown Banner
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
           <div>
             <label className="block font-semibold text-gray-600 mb-1">
               Top Tagline
@@ -268,6 +283,17 @@ export default function AdminBannersTab() {
           </div>
           <div>
             <label className="block font-semibold text-gray-600 mb-1">
+              CTA Button Text
+            </label>
+            <input
+              type="text"
+              value={banners.dealBanner?.ctaText || "SHOP NOW"}
+              onChange={(e) => handleDealChange("ctaText", e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">
               CTA Link URL
             </label>
             <input
@@ -288,6 +314,18 @@ export default function AdminBannersTab() {
               className="w-full border border-gray-300 rounded px-3 py-2"
             />
           </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">
+              Custom Image URL (Optional)
+            </label>
+            <input
+              type="text"
+              placeholder="Leave empty for default Spring image"
+              value={banners.dealBanner?.image || ""}
+              onChange={(e) => handleDealChange("image", e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2"
+            />
+          </div>
         </div>
       </div>
 
@@ -305,7 +343,7 @@ export default function AdminBannersTab() {
               <span className="font-bold text-gray-800 block">
                 Promo Card #{idx + 1}
               </span>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-gray-600 mb-1">
                     Price / Subtitle Tag
@@ -362,9 +400,54 @@ export default function AdminBannersTab() {
                     className="w-full border border-gray-300 rounded px-2.5 py-1.5 bg-white"
                   />
                 </div>
+                <div className="sm:col-span-2">
+                  <label className="block font-semibold text-gray-600 mb-1">
+                    Card Image URL
+                  </label>
+                  <input
+                    type="text"
+                    value={card.image || ""}
+                    onChange={(e) =>
+                      handlePromoCardChange(idx, "image", e.target.value)
+                    }
+                    className="w-full border border-gray-300 rounded px-2.5 py-1.5 bg-white"
+                  />
+                </div>
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* 4. Shop Page Header Banner */}
+      <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-xs">
+        <h3 className="text-sm font-bold uppercase tracking-wider text-gray-900 mb-4">
+          4. Shop Page Header Banner (/shop)
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">
+              Default Shop Header Title
+            </label>
+            <input
+              type="text"
+              value={banners.shopHeader?.title || "ALL COLLECTIONS"}
+              onChange={(e) => handleShopHeaderChange("title", e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">
+              Custom Shop Banner Image URL (Optional)
+            </label>
+            <input
+              type="text"
+              placeholder="Leave empty for default UOMO shopBanner.png"
+              value={banners.shopHeader?.image || ""}
+              onChange={(e) => handleShopHeaderChange("image", e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2"
+            />
+          </div>
         </div>
       </div>
     </div>

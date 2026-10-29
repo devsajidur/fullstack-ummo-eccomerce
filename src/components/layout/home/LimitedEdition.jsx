@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useSelector } from "react-redux";
 import Title from "../common/Title";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Navigation, Pagination } from "swiper/modules";
@@ -9,16 +10,21 @@ import Product from "../common/Product";
 import { fetchCatalogProducts } from "../../../services/api";
 
 const LimitedEdition = () => {
-  const [products, setProducts] = useState([]);
+  const reduxProducts = useSelector((state) => state.AllProduct.Products);
+  const [localProducts, setLocalProducts] = useState([]);
   useEffect(() => {
     fetchCatalogProducts(10)
       .then((list) => {
-        setProducts(list.slice(0, 10));
+        setLocalProducts(list.slice(0, 10));
       })
       .catch((err) => {
         console.error(err);
       });
   }, []);
+
+  const products = reduxProducts?.length
+    ? reduxProducts.slice(0, 10)
+    : localProducts;
 
   return (
     <section className="md:mt-22.75 mt-9.25 px-3 sm:px-4 xl:px-0">

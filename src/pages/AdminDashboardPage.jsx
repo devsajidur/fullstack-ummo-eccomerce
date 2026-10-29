@@ -6,6 +6,7 @@ import {
   onValue,
   query,
   ref,
+  remove,
   update,
 } from "firebase/database";
 import { db } from "../../firebase.config";
@@ -34,13 +35,12 @@ import {
 } from "../services/api";
 import {
   clearSessionUser,
-  DEFAULT_ADMIN_ACCOUNT,
   DEFAULT_ADMIN_EMAIL,
   DEFAULT_ADMIN_PASSWORD,
   getLocalOrders,
-  getLocalRegisteredUsers,
   onUserChanged,
   setSessionUser,
+  signInAsDemoAdmin,
   updateLocalOrderStatus,
 } from "../services/authSession";
 import { Allitem } from "../slices/AllProductSlice";
@@ -72,19 +72,19 @@ export default function AdminDashboardPage() {
     () => localStorage.getItem("ummo_admin_unlocked") === "true"
   );
 
-  // Direct Admin Login form state
+  // Direct Demo Admin Login form state
   const [adminEmail, setAdminEmail] = useState(DEFAULT_ADMIN_EMAIL);
   const [adminPass, setAdminPass] = useState(DEFAULT_ADMIN_PASSWORD);
 
   const [activeTab, setActiveTab] = useState("overview");
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState(() => getLocalOrders());
-  const [customers, setCustomers] = useState(() => getLocalRegisteredUsers());
+  const [customers, setCustomers] = useState([]);
   const [messages, setMessages] = useState([]);
   const [subscribers, setSubscribers] = useState([]);
   const [coupons, setCoupons] = useState(() => getStoredCoupons());
 
-  // 1. Verify Authentication & Admin Role (Supports both Firebase Auth and Local Session)
+  // 1. Verify Authentication & Admin Role
   useEffect(() => {
     const unsub = onUserChanged((user) => {
       setAuthUser(user || null);
@@ -127,7 +127,7 @@ export default function AdminDashboardPage() {
     }
   }, [catalogProducts, dispatch]);
 
-  // 3. Bounded Firebase Realtime Listeners + Local Orders/Customers Merge
+  // 3. Real-time Firebase Listeners for Orders, Customers, Messages, Subscribers & Coupons
   useEffect(() => {
     if (!authUser || !isAdminVerified) return;
 
@@ -169,25 +169,16 @@ export default function AdminDashboardPage() {
     const unsubUsers = onValue(
       query(ref(db, "users"), limitToLast(100)),
       (snapshot) => {
-        const fbUsers = snapshot.exists()
-          ? Object.entries(snapshot.val()).map(([uid, data]) => ({
-              uid,
-              ...data,
-            }))
-          : [];
-        const localUsers = getLocalRegisteredUsers();
-        const fbEmails = new Set(
-          fbUsers.map((u) => String(u.email || "").toLowerCase())
+        if (!snapshot.exists()) {
+          setCustomers([]);
+          return;
+        }
+        setCustomers(
+          Object.entries(snapshot.val()).map(([uid, data]) => ({
+            uid,
+            ...data,
+          }))
         );
-        setCustomers([
-          ...fbUsers,
-          ...localUsers.filter(
-            (u) => !fbEmails.has(String(u.email || "").toLowerCase())
-          ),
-        ]);
-      },
-      () => {
-        setCustomers(getLocalRegisteredUsers());
       }
     );
 
@@ -221,11 +212,22 @@ export default function AdminDashboardPage() {
       }
     );
 
+    const unsubCoupons = onValue(ref(db, "storeConfig/coupons"), (snapshot) => {
+      if (snapshot.exists() && Array.isArray(snapshot.val())) {
+        setCoupons(snapshot.val());
+        localStorage.setItem(
+          "ummo_admin_coupons",
+          JSON.stringify(snapshot.val())
+        );
+      }
+    });
+
     return () => {
       unsubOrders();
       unsubUsers();
       unsubMessages();
       unsubSubscribers();
+      unsubCoupons();
     };
   }, [authUser, isAdminVerified]);
 
@@ -257,6 +259,7 @@ export default function AdminDashboardPage() {
 
   function handleSaveProduct(editingProduct, productForm) {
     const customList = getCustomAdminProducts();
+    const cleanThumb = productForm.thumbnail.trim();
     const payload = {
       id: editingProduct ? editingProduct.id : Date.now(),
       title: productForm.title.trim(),
@@ -266,7 +269,10 @@ export default function AdminDashboardPage() {
       discountPercentage: Number(productForm.discountPercentage) || 0,
       stock: Number(productForm.stock) || 0,
       sku: productForm.sku.trim() || `UMMO-${Date.now()}`,
-      thumbnail: productForm.thumbnail.trim(),
+      thumbnail: cleanThumb,
+      images: editingProduct?.images?.length
+        ? [cleanThumb, ...editingProduct.images.slice(1)]
+        : [cleanThumb],
       description: productForm.description.trim(),
       rating: editingProduct?.rating || 4.8,
       isCustomNew: !editingProduct || Boolean(editingProduct.isCustomNew),
@@ -289,7 +295,7 @@ export default function AdminDashboardPage() {
     dispatch(Allitem(nextProducts));
     dispatch(addProduct(nextProducts));
     toast.success(
-      editingProduct ? "Product updated!" : "New product added to store!"
+      editingProduct ? "Product updated live!" : "New product added to store!"
     );
   }
 
@@ -306,6 +312,17 @@ export default function AdminDashboardPage() {
     dispatch(Allitem(nextProducts));
     dispatch(addProduct(nextProducts));
     toast.success(`"${product.title}" removed from catalog.`);
+  }
+
+  async function handleResetCatalog() {
+    saveCustomAdminProducts([]);
+    saveDeletedProductIds([]);
+    invalidateCatalogCache();
+    const freshList = await fetchCatalogProducts(200);
+    setProducts(freshList);
+    dispatch(Allitem(freshList));
+    dispatch(addProduct(freshList));
+    toast.success("Catalog restored to default products!");
   }
 
   async function handleUpdateOrderStatus(order, newStatus) {
@@ -348,7 +365,7 @@ export default function AdminDashboardPage() {
     ];
     setCoupons(next);
     saveStoredCoupons(next);
-    toast.success(`Coupon ${cleanCode} created!`);
+    toast.success(`Coupon ${cleanCode} created & published!`);
   }
 
   function handleDeleteCoupon(code) {
@@ -358,42 +375,76 @@ export default function AdminDashboardPage() {
     toast.success(`Coupon ${code} deleted.`);
   }
 
-  function handleDirectAdminLogin(e) {
+  async function handleToggleUserRole(customer) {
+    const nextRole = customer.role === "ADMIN" ? "CUSTOMER" : "ADMIN";
+    setCustomers((prev) =>
+      prev.map((c) => (c.uid === customer.uid ? { ...c, role: nextRole } : c))
+    );
+    try {
+      await update(ref(db, `users/${customer.uid}`), { role: nextRole });
+      toast.success(`${customer.email || customer.username} is now ${nextRole}`);
+    } catch {
+      toast.error("Could not update user role in database.");
+    }
+  }
+
+  async function handleDeleteMessage(msgId) {
+    setMessages((prev) => prev.filter((m) => m.id !== msgId));
+    try {
+      await remove(ref(db, `messages/${msgId}`));
+      toast.success("Inquiry message deleted.");
+    } catch {
+      toast.error("Could not delete message.");
+    }
+  }
+
+  async function handleDeleteSubscriber(subId) {
+    setSubscribers((prev) => prev.filter((s) => s.id !== subId));
+    try {
+      await remove(ref(db, `subscribers/${subId}`));
+      toast.success("Subscriber removed.");
+    } catch {
+      toast.error("Could not remove subscriber.");
+    }
+  }
+
+  async function handleDirectAdminLogin(e) {
     e.preventDefault();
     if (
       adminEmail.trim().toLowerCase() === DEFAULT_ADMIN_EMAIL &&
       adminPass === DEFAULT_ADMIN_PASSWORD
     ) {
-      localStorage.setItem("ummo_admin_unlocked", "true");
-      setSessionUser(DEFAULT_ADMIN_ACCOUNT);
-      setAuthUser(DEFAULT_ADMIN_ACCOUNT);
+      const adminUser = await signInAsDemoAdmin();
+      setAuthUser(adminUser);
       setIsAdminVerified(true);
       toast.success("Welcome to the UOMO Admin Control Center!");
     } else {
       toast.error(
-        `Use Email: ${DEFAULT_ADMIN_EMAIL} & Password: ${DEFAULT_ADMIN_PASSWORD}`
+        `Use Demo Admin Email: ${DEFAULT_ADMIN_EMAIL} & Password: ${DEFAULT_ADMIN_PASSWORD}`
       );
     }
   }
 
   async function handleActivateAdminRole() {
-    localStorage.setItem("ummo_admin_unlocked", "true");
-    const elevated = authUser
-      ? { ...authUser, role: "ADMIN" }
-      : DEFAULT_ADMIN_ACCOUNT;
-    setSessionUser(elevated);
-    setAuthUser(elevated);
-    setIsAdminVerified(true);
-    if (authUser?.uid) {
+    if (authUser && authUser.email !== DEFAULT_ADMIN_EMAIL) {
+      localStorage.setItem("ummo_admin_unlocked", "true");
+      const elevated = { ...authUser, role: "ADMIN" };
+      setSessionUser(elevated);
+      setAuthUser(elevated);
+      setIsAdminVerified(true);
       await update(ref(db, `users/${authUser.uid}`), { role: "ADMIN" }).catch(
         () => {}
       );
+      toast.success("Admin role activated!");
+    } else {
+      const adminUser = await signInAsDemoAdmin();
+      setAuthUser(adminUser);
+      setIsAdminVerified(true);
+      toast.success("Logged into Demo Admin Control Center!");
     }
-    toast.success("Admin role activated!");
   }
 
   async function handleAdminSignOut() {
-    localStorage.removeItem("ummo_admin_unlocked");
     setIsAdminVerified(false);
     await clearSessionUser();
     toast.success("Signed out of Admin Panel.");
@@ -407,7 +458,7 @@ export default function AdminDashboardPage() {
     );
   }
 
-  // Security Gate: Built-in Admin Login Portal right on /admin
+  // Security Gate: Built-in Demo Admin Login Portal right on /admin
   if (!authUser || !isAdminVerified) {
     return (
       <div className="min-h-[75vh] flex items-center justify-center px-4 py-12 bg-gray-50">
@@ -420,10 +471,13 @@ export default function AdminDashboardPage() {
             Admin Control Center Login
           </h1>
           <p className="text-xs text-gray-500 text-center mt-1 mb-5">
-            Sign in with your administrator credentials or use 1-Click Instant Admin Login below.
+            Sign in with the Demo Admin credentials or use 1-Click Demo Admin Login below.
           </p>
 
-          <form onSubmit={handleDirectAdminLogin} className="space-y-4 text-left">
+          <form
+            onSubmit={handleDirectAdminLogin}
+            className="space-y-4 text-left"
+          >
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Admin Email
@@ -449,7 +503,7 @@ export default function AdminDashboardPage() {
               />
             </div>
             <div className="p-3 rounded-lg bg-gray-50 border border-gray-200 text-[11px] text-gray-600">
-              Default Admin: <strong className="font-mono">{DEFAULT_ADMIN_EMAIL}</strong> /{" "}
+              Demo Admin: <strong className="font-mono">{DEFAULT_ADMIN_EMAIL}</strong> /{" "}
               <strong className="font-mono">{DEFAULT_ADMIN_PASSWORD}</strong>
             </div>
             <button
@@ -466,7 +520,7 @@ export default function AdminDashboardPage() {
               onClick={handleActivateAdminRole}
               className="w-full inline-flex items-center justify-center gap-2 bg-emerald-600 text-white text-xs font-semibold uppercase tracking-wider py-3 rounded-lg hover:bg-emerald-700 cursor-pointer transition-colors"
             >
-              <ShieldCheck size={16} /> 1-Click Instant Admin Login
+              <ShieldCheck size={16} /> 1-Click Demo Admin Login
             </button>
           </div>
         </div>
@@ -544,6 +598,7 @@ export default function AdminDashboardPage() {
             products={products}
             onSaveProduct={handleSaveProduct}
             onDeleteProduct={handleDeleteProduct}
+            onResetCatalog={handleResetCatalog}
           />
         )}
         {activeTab === "orders" && (
@@ -565,6 +620,9 @@ export default function AdminDashboardPage() {
             customers={customers}
             messages={messages}
             subscribers={subscribers}
+            onToggleUserRole={handleToggleUserRole}
+            onDeleteMessage={handleDeleteMessage}
+            onDeleteSubscriber={handleDeleteSubscriber}
           />
         )}
       </div>

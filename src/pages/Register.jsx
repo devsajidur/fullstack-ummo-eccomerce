@@ -8,10 +8,7 @@ import {
 import { auth, db } from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router";
-import {
-  saveLocalRegisteredUser,
-  setSessionUser,
-} from "../services/authSession";
+import { setSessionUser } from "../services/authSession";
 
 const DEFAULT_AVATAR =
   "https://static.vecteezy.com/system/resources/thumbnails/009/292/244/small/default-avatar-icon-of-social-media-user-vector.jpg";
@@ -61,11 +58,10 @@ export default function Register() {
     }
 
     setLoading(true);
-    const normalizedEmail = email.trim().toLowerCase();
-    const trimmedName = name.trim();
-    const fallbackUid = "user-" + Date.now();
-
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const trimmedName = name.trim();
+
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         normalizedEmail,
@@ -78,33 +74,16 @@ export default function Register() {
         photoURL: DEFAULT_AVATAR,
       });
 
-      try {
-        await sendEmailVerification(user);
-      } catch {
-        // Ignore verification email errors
-      }
+      await sendEmailVerification(user).catch(() => {});
 
-      try {
-        await set(ref(db, `users/${user.uid}`), {
-          uid: user.uid,
-          username: trimmedName,
-          name: trimmedName,
-          email: normalizedEmail,
-          role: "CUSTOMER",
-          profile_picture: DEFAULT_AVATAR,
-          createdAt: new Date().toISOString(),
-        });
-      } catch {
-        // Ignore DB rule restrictions if unconfigured
-      }
-
-      saveLocalRegisteredUser({
+      await set(ref(db, `users/${user.uid}`), {
         uid: user.uid,
+        username: trimmedName,
+        name: trimmedName,
         email: normalizedEmail,
-        password,
-        displayName: trimmedName,
-        photoURL: DEFAULT_AVATAR,
         role: "CUSTOMER",
+        profile_picture: DEFAULT_AVATAR,
+        createdAt: new Date().toISOString(),
       });
 
       setSessionUser({
@@ -113,37 +92,16 @@ export default function Register() {
         displayName: trimmedName,
         photoURL: DEFAULT_AVATAR,
         role: "CUSTOMER",
-        emailVerified: true,
+        emailVerified: user.emailVerified,
       });
 
       setName("");
       setEmail("");
       setPassword("");
-      toast.success("Account created and signed in!");
+      toast.success("Account created! Welcome to UOMO.");
       setTimeout(() => navigate("/"), 1200);
-    } catch {
-      // Fallback local registration so account creation always works on Vercel
-      saveLocalRegisteredUser({
-        uid: fallbackUid,
-        email: normalizedEmail,
-        password,
-        displayName: trimmedName,
-        photoURL: DEFAULT_AVATAR,
-        role: "CUSTOMER",
-      });
-      setSessionUser({
-        uid: fallbackUid,
-        email: normalizedEmail,
-        displayName: trimmedName,
-        photoURL: DEFAULT_AVATAR,
-        role: "CUSTOMER",
-        emailVerified: true,
-      });
-      setName("");
-      setEmail("");
-      setPassword("");
-      toast.success("Account created and signed in!");
-      setTimeout(() => navigate("/"), 1000);
+    } catch (error) {
+      toast.error(error?.message || "Failed to register account.");
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Edit3, Plus, Search, Trash2 } from "lucide-react";
+import { Edit3, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 
 const currency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -10,6 +10,7 @@ export default function AdminProductsTab({
   products,
   onSaveProduct,
   onDeleteProduct,
+  onResetCatalog,
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -89,7 +90,7 @@ export default function AdminProductsTab({
             Add, edit, or remove products. Changes sync immediately across the entire storefront.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative">
             <Search
               size={15}
@@ -103,6 +104,16 @@ export default function AdminProductsTab({
               className="border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-xs outline-none focus:border-gray-900 w-56"
             />
           </div>
+          {onResetCatalog && (
+            <button
+              type="button"
+              onClick={onResetCatalog}
+              className="inline-flex items-center gap-1.5 border border-gray-300 text-gray-700 text-xs font-semibold px-3.5 py-2.5 rounded-lg hover:bg-gray-50 cursor-pointer"
+            >
+              <RotateCcw size={14} />
+              Restore Catalog
+            </button>
+          )}
           <button
             type="button"
             onClick={openAddModal}
@@ -295,7 +306,7 @@ export default function AdminProductsTab({
                   Thumbnail Image URL *
                 </label>
                 <input
-                  type="url"
+                  type="text"
                   required
                   value={productForm.thumbnail}
                   onChange={(e) =>
