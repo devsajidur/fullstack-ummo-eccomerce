@@ -17,6 +17,8 @@ import {
   initCartRulesSync,
 } from "../../../utils/cartPromotions";
 
+const EMPTY_LIST = [];
+
 export const SHIPPING_OPTIONS = [
   { id: "flat", label: "Standard Express: $15", price: 15 },
   { id: "pickup", label: "Local store pickup: $8", price: 8 },
@@ -35,6 +37,8 @@ export default function CartFirstTotalBox() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const cartProduct = useSelector((state) => state.cart.products);
+  const catalogProducts =
+    useSelector((state) => state.AllProduct.Products) || EMPTY_LIST;
   const shipping = useSelector((state) => state.cart.shippingMethod || "flat");
   const appliedCoupon = useSelector((state) => state.cart.appliedCoupon);
   const giftWrap = useSelector((state) => state.cart.giftWrap);
@@ -44,21 +48,18 @@ export default function CartFirstTotalBox() {
   const [cartRules, setCartRules] = useState(() => getStoredCartRules());
 
   useEffect(() => {
-    initCartRulesSync();
-    const handleRulesUpdate = (e) => {
-      setCartRules(e.detail || getStoredCartRules());
+    const unsub = initCartRulesSync((rules) => setCartRules(rules));
+    return () => {
+      if (typeof unsub === "function") unsub();
     };
-    window.addEventListener("ummo:cart-rules-updated", handleRulesUpdate);
-    return () =>
-      window.removeEventListener("ummo:cart-rules-updated", handleRulesUpdate);
   }, []);
 
-  const promo = computeCartPromotions(cartProduct, cartRules);
+  const promo = computeCartPromotions(cartProduct, cartRules, catalogProducts);
   const subtotal = promo.subtotal;
 
   const netSubtotalAfterAutoPromos = Math.max(
     0,
-    subtotal - promo.bogoDiscount - promo.tieredDiscount
+    subtotal - promo.tieredDiscount
   );
   const couponDiscount = computeCouponDiscount(
     netSubtotalAfterAutoPromos,
@@ -77,7 +78,7 @@ export default function CartFirstTotalBox() {
   const vat = cartProduct.length > 0 ? 19 : 0;
 
   const totalSavings = Number(
-    (promo.bogoDiscount + promo.tieredDiscount + couponDiscount).toFixed(2)
+    (promo.tieredDiscount + couponDiscount).toFixed(2)
   );
   const total = Math.max(
     0,
@@ -164,41 +165,30 @@ export default function CartFirstTotalBox() {
         </div>
       )}
 
-      {/* 2. Buy X Get Y Free (BOGO) Status Banner */}
-      {promo.bogoEnabled && (
-        <div
-          className={`mb-4 p-3.5 rounded-lg border text-xs ${
-            promo.bogoFreeUnitsCount > 0
-              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-              : "bg-amber-50 border-amber-200 text-amber-900"
-          }`}
-        >
-          <div className="flex items-start gap-2">
-            <Gift size={15} className="shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold uppercase tracking-wider text-[11px]">
-                Storewide Offer: Buy {promo.bogoBuyCount} Get{" "}
-                {promo.bogoFreeCount} FREE
-              </p>
-              {promo.bogoFreeUnitsCount > 0 ? (
-                <p className="mt-0.5">
-                  Applied! You are getting{" "}
-                  <strong>{promo.bogoFreeUnitsCount} item(s) FREE</strong>{" "}
-                  (Saving <strong>${promo.bogoDiscount.toFixed(2)}</strong>).
-                </p>
-              ) : (
-                <p className="mt-0.5">
-                  Add{" "}
-                  <strong>
-                    {promo.unitsNeededForNextBogo || promo.bogoGroupSize} more
-                    item(s)
-                  </strong>{" "}
-                  to your bag to get{" "}
-                  <strong>{promo.bogoFreeCount} item 100% FREE!</strong>
-                </p>
-              )}
-            </div>
+      {/* 2. Per-Product Free Gifts Unlocked Banner */}
+      {promo.unlockedFreeGifts.length > 0 && (
+        <div className="mb-4 p-3.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs text-emerald-900 space-y-2">
+          <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] text-emerald-800">
+            <Gift size={14} className="text-emerald-600 shrink-0" />
+            <span>
+              Your Free Product Gift
+              {promo.unlockedFreeGifts.length > 1 ? "s" : ""} Included ($0.00):
+            </span>
           </div>
+          {promo.unlockedFreeGifts.map((fg, idx) => (
+            <div
+              key={`${fg.parentProductId}-${idx}`}
+              className="flex items-center justify-between bg-white/80 px-2.5 py-1.5 rounded border border-emerald-100"
+            >
+              <span className="font-semibold">
+                🎁 {fg.earnedGiftQty}× {fg.giftName}{" "}
+                <span className="text-[10px] text-gray-500 font-normal">
+                  (with {fg.parentProductTitle})
+                </span>
+              </span>
+              <span className="font-bold text-emerald-700">FREE</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -265,18 +255,18 @@ export default function CartFirstTotalBox() {
             </span>
           </div>
 
-          {/* Buy X Get Y Free Discount Row */}
-          {promo.bogoDiscount > 0 && (
-            <div className="grid grid-cols-2 gap-4 py-2.5 border-t border-primary/10 text-emerald-700">
+          {/* Unlocked Free Gifts Summary Rows */}
+          {promo.unlockedFreeGifts.map((fg, idx) => (
+            <div
+              key={`summary-fg-${fg.parentProductId}-${idx}`}
+              className="grid grid-cols-2 gap-4 py-2.5 border-t border-primary/10 text-emerald-700"
+            >
               <span className="text-xs font-semibold uppercase flex items-center gap-1.5">
-                <Gift size={13} /> Buy {promo.bogoBuyCount} Get{" "}
-                {promo.bogoFreeCount} Free ({promo.bogoFreeUnitsCount} Free)
+                <Gift size={13} /> Free Gift: {fg.earnedGiftQty}× {fg.giftName}
               </span>
-              <span className="text-sm font-bold text-right">
-                -${promo.bogoDiscount.toFixed(2)}
-              </span>
+              <span className="text-sm font-bold text-right">FREE ($0.00)</span>
             </div>
-          )}
+          ))}
 
           {/* Tiered Spend VIP Discount Row */}
           {promo.tieredDiscount > 0 && (

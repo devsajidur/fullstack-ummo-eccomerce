@@ -30,7 +30,6 @@ export default function BillingOrderSummary({
   orderItems,
   subtotal,
   promotions,
-  bogoDiscount = 0,
   tieredDiscount = 0,
   discount,
   appliedCoupon,
@@ -86,15 +85,14 @@ export default function BillingOrderSummary({
           value={`$${subtotal.toFixed(2)}`}
           border
         />
-        {bogoDiscount > 0 && (
+        {(promotions?.unlockedFreeGifts || []).map((fg, idx) => (
           <SummaryRow
-            label={`BUY ${promotions?.bogoBuyCount || 2} GET ${
-              promotions?.bogoFreeCount || 1
-            } FREE (${promotions?.bogoFreeUnitsCount || 1} FREE)`}
-            value={`-$${bogoDiscount.toFixed(2)}`}
+            key={`checkout-fg-${fg.parentProductId}-${idx}`}
+            label={`🎁 FREE GIFT: ${fg.earnedGiftQty}× ${fg.giftName}`}
+            value="FREE ($0.00)"
             border
           />
-        )}
+        ))}
         {tieredDiscount > 0 && (
           <SummaryRow
             label={`VIP SPEND DISCOUNT (${

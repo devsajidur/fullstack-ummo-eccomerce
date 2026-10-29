@@ -104,9 +104,7 @@ const Header = () => {
   return (
     <header className="relative z-40 bg-white border-b border-gray-100 md:border-none">
       {/* International Storefront Top Promo Announcement Bar */}
-      {(cartRules?.freeShippingEnabled ||
-        cartRules?.bogoEnabled ||
-        cartRules?.tieredDiscountEnabled) && (
+      {(cartRules?.freeShippingEnabled || cartRules?.tieredDiscountEnabled) && (
         <div className="bg-primary text-white text-[11px] sm:text-xs font-jost py-2 px-3">
           <div className="container mx-auto flex flex-wrap items-center justify-center sm:justify-between gap-2 text-center">
             <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-5">
@@ -114,12 +112,6 @@ const Header = () => {
                 <span>
                   🚚 <strong>FREE EXPRESS DELIVERY</strong> on orders over $
                   {Number(cartRules.freeShippingThreshold || 100).toFixed(0)}
-                </span>
-              )}
-              {cartRules?.bogoEnabled && (
-                <span className="text-amber-300 font-semibold">
-                  🎁 BUY {cartRules.bogoBuyCount || 2} GET{" "}
-                  {cartRules.bogoFreeCount || 1} FREE Storewide
                 </span>
               )}
               {cartRules?.tieredDiscountEnabled && (

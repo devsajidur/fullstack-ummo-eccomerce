@@ -260,6 +260,18 @@ export default function AdminDashboardPage() {
   function handleSaveProduct(editingProduct, productForm) {
     const customList = getCustomAdminProducts();
     const cleanThumb = productForm.thumbnail.trim();
+    const freeGift =
+      productForm.freeGiftEnabled && String(productForm.freeGiftName || "").trim()
+        ? {
+            enabled: true,
+            minBuyQty: Math.max(1, Number(productForm.freeGiftMinBuyQty) || 1),
+            giftName: String(productForm.freeGiftName).trim(),
+            giftQty: Math.max(1, Number(productForm.freeGiftQty) || 1),
+            giftImage: String(productForm.freeGiftImage || "").trim(),
+            giftProductId: productForm.freeGiftProductId || "",
+          }
+        : { enabled: false };
+
     const payload = {
       id: editingProduct ? editingProduct.id : Date.now(),
       title: productForm.title.trim(),
@@ -268,6 +280,7 @@ export default function AdminDashboardPage() {
       price: Number(productForm.price) || 29.99,
       discountPercentage: Number(productForm.discountPercentage) || 0,
       discountEndTime: productForm.discountEndTime || "none",
+      freeGift,
       stock: Number(productForm.stock) || 0,
       sku: productForm.sku.trim() || `UMMO-${Date.now()}`,
       thumbnail: cleanThumb,

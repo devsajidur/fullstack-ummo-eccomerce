@@ -1,4 +1,4 @@
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import Image from "../../layout/common/Image";
 import {
   quentityDecrease,
@@ -6,9 +6,14 @@ import {
   RemoveItem,
 } from "../../../slices/cartSlice";
 import { Gift } from "lucide-react";
+import { evaluateCartItemFreeGift } from "../../../utils/cartPromotions";
+
+const EMPTY_LIST = [];
 
 const CartProduct = (props) => {
   const dispatch = useDispatch();
+  const catalogProducts =
+    useSelector((state) => state.AllProduct.Products) || EMPTY_LIST;
 
   const handleIncrease = () => {
     dispatch(quentityIncrease(props));
@@ -20,13 +25,7 @@ const CartProduct = (props) => {
     dispatch(RemoveItem(props));
   };
 
-  const qty = Number(props.quantity || 1);
-  const bogoBuy = Number(props.bogoBuyCount || 2);
-  const bogoFree = Number(props.bogoFreeCount || 1);
-  const bogoGroup = bogoBuy + bogoFree;
-  const bogoActive = Boolean(props.bogoEnabled ?? true);
-  const canClaimFreeSameItem = bogoActive && qty > 0 && qty % bogoGroup === bogoBuy;
-  const freeSameItemCount = bogoActive ? Math.floor(qty / bogoGroup) * bogoFree : 0;
+  const freeGiftState = evaluateCartItemFreeGift(props, catalogProducts);
 
   return (
     <>
@@ -47,19 +46,37 @@ const CartProduct = (props) => {
                 Size: {props.size || "M"} | Color: {props.color || "Default"}
               </p>
             )}
-            {canClaimFreeSameItem && (
+
+            {/* Per-Product Free Gift Status (Only if Admin enabled a Free Gift on this product) */}
+            {freeGiftState.hasFreeGiftRule && freeGiftState.unlocked && (
+              <div className="mt-2 inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 px-2.5 py-1.5 rounded-md text-xs">
+                {freeGiftState.giftImage ? (
+                  <img
+                    src={freeGiftState.giftImage}
+                    alt={freeGiftState.giftName}
+                    className="w-6 h-6 rounded object-contain bg-white border border-emerald-200 shrink-0"
+                  />
+                ) : (
+                  <Gift size={13} className="text-emerald-600 shrink-0" />
+                )}
+                <span className="font-semibold">
+                  FREE GIFT: {freeGiftState.earnedGiftQty}×{" "}
+                  {freeGiftState.giftName}{" "}
+                  <strong className="text-emerald-700">($0.00)</strong>
+                </span>
+              </div>
+            )}
+
+            {freeGiftState.hasFreeGiftRule && !freeGiftState.unlocked && (
               <button
                 type="button"
                 onClick={handleIncrease}
-                className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded cursor-pointer transition-colors"
+                className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 px-2.5 py-1 rounded cursor-pointer transition-colors"
               >
-                <Gift size={12} /> Buy {bogoBuy} Get {bogoFree} Free: + Add {bogoFree} FREE Unit ($0.00)
+                <Gift size={12} /> Buy {freeGiftState.minBuyQty} to get{" "}
+                {freeGiftState.giftQtyPerBundle}× {freeGiftState.giftName} FREE
+                (+ Add {freeGiftState.qtyNeededToUnlock} more)
               </button>
-            )}
-            {freeSameItemCount > 0 && (
-              <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-600 text-white px-2.5 py-0.5 rounded">
-                <Gift size={11} /> {freeSameItemCount} Unit FREE (Buy {bogoBuy} Get {bogoFree})
-              </span>
             )}
           </div>
         </div>
@@ -87,7 +104,10 @@ const CartProduct = (props) => {
             </button>
           </div>
           <h3 className="text-[16px] font-medium text-primary">
-            ${(Number(props.quantity || 1) * Number(props.price || 0)).toFixed(2)}
+            $
+            {(Number(props.quantity || 1) * Number(props.price || 0)).toFixed(
+              2
+            )}
           </h3>
 
           <h2 className="xl:ml-15">
@@ -166,19 +186,22 @@ const CartProduct = (props) => {
             Unit: ${Number(props.price || 0).toFixed(2)}
           </p>
 
-          {canClaimFreeSameItem && (
+          {freeGiftState.hasFreeGiftRule && freeGiftState.unlocked && (
+            <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded">
+              <Gift size={10} /> Free Gift: {freeGiftState.earnedGiftQty}×{" "}
+              {freeGiftState.giftName} ($0.00)
+            </span>
+          )}
+
+          {freeGiftState.hasFreeGiftRule && !freeGiftState.unlocked && (
             <button
               type="button"
               onClick={handleIncrease}
-              className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-1 rounded cursor-pointer"
+              className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-1 rounded cursor-pointer"
             >
-              <Gift size={11} /> + Claim {bogoFree} FREE Unit ($0.00)
+              <Gift size={11} /> + Add {freeGiftState.qtyNeededToUnlock} more for
+              FREE {freeGiftState.giftName}
             </button>
-          )}
-          {freeSameItemCount > 0 && (
-            <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded">
-              <Gift size={10} /> {freeSameItemCount} FREE Unit Included
-            </span>
           )}
 
           <div className="flex items-center justify-between mt-3">
@@ -202,7 +225,10 @@ const CartProduct = (props) => {
               </button>
             </div>
             <h3 className="text-sm font-semibold text-primary">
-              ${(Number(props.quantity || 1) * Number(props.price || 0)).toFixed(2)}
+              $
+              {(Number(props.quantity || 1) * Number(props.price || 0)).toFixed(
+                2
+              )}
             </h3>
           </div>
         </div>

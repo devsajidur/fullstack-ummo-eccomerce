@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Clock, Edit3, Plus, RotateCcw, Search, Trash2, Zap } from "lucide-react";
+import { Clock, Edit3, Gift, Plus, RotateCcw, Search, Trash2, Zap } from "lucide-react";
 import {
   getProductDiscountState,
   pad2,
@@ -41,6 +41,12 @@ export default function AdminProductsTab({
     price: "",
     discountPercentage: "15",
     discountEndTime: "",
+    freeGiftEnabled: false,
+    freeGiftMinBuyQty: "1",
+    freeGiftName: "",
+    freeGiftQty: "1",
+    freeGiftImage: "",
+    freeGiftProductId: "",
     stock: "25",
     sku: "",
     thumbnail:
@@ -82,6 +88,12 @@ export default function AdminProductsTab({
       price: "",
       discountPercentage: "20",
       discountEndTime: defaultEnd,
+      freeGiftEnabled: false,
+      freeGiftMinBuyQty: "1",
+      freeGiftName: "",
+      freeGiftQty: "1",
+      freeGiftImage: "",
+      freeGiftProductId: "",
       stock: "30",
       sku: `UMMO-${Math.floor(1000 + Math.random() * 9000)}`,
       thumbnail:
@@ -93,6 +105,7 @@ export default function AdminProductsTab({
 
   function openEditModal(product) {
     setEditingProduct(product);
+    const fg = product.freeGift || {};
     setProductForm({
       title: product.title || "",
       category: product.category || "womens-dresses",
@@ -100,6 +113,12 @@ export default function AdminProductsTab({
       price: String(product.price ?? ""),
       discountPercentage: String(product.discountPercentage ?? "0"),
       discountEndTime: product.discountEndTime || "",
+      freeGiftEnabled: Boolean(fg.enabled && fg.giftName),
+      freeGiftMinBuyQty: String(fg.minBuyQty ?? "1"),
+      freeGiftName: fg.giftName || "",
+      freeGiftQty: String(fg.giftQty ?? "1"),
+      freeGiftImage: fg.giftImage || "",
+      freeGiftProductId: fg.giftProductId || "",
       stock: String(product.stock ?? 20),
       sku: product.sku || `UMMO-${product.id}`,
       thumbnail: product.thumbnail || "",
@@ -226,6 +245,7 @@ export default function AdminProductsTab({
                 <th className="py-3 pr-4">Category</th>
                 <th className="py-3 pr-4">Price & Discount</th>
                 <th className="py-3 pr-4">Countdown Timer</th>
+                <th className="py-3 pr-4">Free Gift Offer</th>
                 <th className="py-3 pr-4">Stock</th>
                 <th className="py-3 text-right">Actions</th>
               </tr>
@@ -233,6 +253,9 @@ export default function AdminProductsTab({
             <tbody className="divide-y divide-gray-100">
               {filteredProducts.slice(0, 60).map((product) => {
                 const dState = getProductDiscountState(product, now);
+                const hasFreeGift =
+                  Boolean(product.freeGift?.enabled) &&
+                  Boolean(product.freeGift?.giftName);
                 return (
                   <tr key={product.id} className="hover:bg-gray-50/70">
                     <td className="py-3 pr-4">
@@ -292,6 +315,24 @@ export default function AdminProductsTab({
                       )}
                     </td>
                     <td className="py-3 pr-4">
+                      {hasFreeGift ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded">
+                          <Gift size={12} className="text-emerald-600" />
+                          Buy {product.freeGift.minBuyQty || 1} →{" "}
+                          {product.freeGift.giftQty || 1}x{" "}
+                          {product.freeGift.giftName} FREE
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(product)}
+                          className="text-[11px] text-gray-500 hover:text-emerald-700 underline cursor-pointer"
+                        >
+                          + Set Free Gift
+                        </button>
+                      )}
+                    </td>
+                    <td className="py-3 pr-4">
                       <span
                         className={`text-xs font-semibold px-2 py-0.5 rounded ${
                           Number(product.stock ?? 20) < 10
@@ -307,9 +348,9 @@ export default function AdminProductsTab({
                         type="button"
                         onClick={() => openEditModal(product)}
                         className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded cursor-pointer"
-                        title="Set Discount & Countdown Timer"
+                        title="Set Discount Timer or Free Gift"
                       >
-                        <Clock size={12} /> Timer / Edit
+                        <Gift size={12} /> Gift / Timer / Edit
                       </button>
                       <button
                         type="button"
@@ -494,6 +535,188 @@ export default function AdminProductsTab({
                     Remove Discount
                   </button>
                 </div>
+              </div>
+
+              {/* Per-Product Free Gift Configuration Box (e.g. Buy 1 kg oil -> Get 1 Pen Free) */}
+              <div className="p-3.5 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-emerald-950 flex items-center gap-1.5">
+                    <Gift size={14} className="text-emerald-700" />
+                    Product Free Gift Offer (এই প্রোডাক্ট কিনলে ফ্রি গিফট)
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(productForm.freeGiftEnabled)}
+                      onChange={(e) =>
+                        setProductForm({
+                          ...productForm,
+                          freeGiftEnabled: e.target.checked,
+                        })
+                      }
+                      className="accent-emerald-700 w-4 h-4"
+                    />
+                    <span className="font-bold text-emerald-800">
+                      Enable Free Gift
+                    </span>
+                  </label>
+                </div>
+
+                {productForm.freeGiftEnabled && (
+                  <div className="space-y-2.5 pt-1">
+                    <div>
+                      <label className="block font-semibold text-gray-700 mb-1">
+                        Or Pick an Existing Catalog Product as Free Gift (Optional)
+                      </label>
+                      <select
+                        value={productForm.freeGiftProductId}
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          const matched = products.find(
+                            (p) => String(p.id) === String(selectedId)
+                          );
+                          if (matched) {
+                            setProductForm({
+                              ...productForm,
+                              freeGiftProductId: String(matched.id),
+                              freeGiftName: matched.title,
+                              freeGiftImage: matched.thumbnail || "",
+                            });
+                          } else {
+                            setProductForm({
+                              ...productForm,
+                              freeGiftProductId: "",
+                            });
+                          }
+                        }}
+                        className="w-full border border-gray-300 rounded px-2.5 py-1.5 bg-white text-xs"
+                      >
+                        <option value="">
+                          -- Custom Gift Item (Type name below, e.g. 1x Pen / কলম) --
+                        </option>
+                        {products.slice(0, 40).map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.title} (${Number(p.price || 0).toFixed(2)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="block font-semibold text-gray-700 mb-1">
+                          Buy Qty *
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="20"
+                          required={productForm.freeGiftEnabled}
+                          value={productForm.freeGiftMinBuyQty}
+                          onChange={(e) =>
+                            setProductForm({
+                              ...productForm,
+                              freeGiftMinBuyQty: e.target.value,
+                            })
+                          }
+                          className="w-full border border-gray-300 rounded px-2.5 py-1.5 bg-white font-semibold"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block font-semibold text-gray-700 mb-1">
+                          Free Gift Item Name * (e.g. Luxury Pen / কলম)
+                        </label>
+                        <input
+                          type="text"
+                          required={productForm.freeGiftEnabled}
+                          placeholder="e.g. Signature Pen (কলম) / Mini Perfume"
+                          value={productForm.freeGiftName}
+                          onChange={(e) =>
+                            setProductForm({
+                              ...productForm,
+                              freeGiftName: e.target.value,
+                            })
+                          }
+                          className="w-full border border-gray-300 rounded px-2.5 py-1.5 bg-white font-semibold"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="block font-semibold text-gray-700 mb-1">
+                          Free Gift Qty *
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          required={productForm.freeGiftEnabled}
+                          value={productForm.freeGiftQty}
+                          onChange={(e) =>
+                            setProductForm({
+                              ...productForm,
+                              freeGiftQty: e.target.value,
+                            })
+                          }
+                          className="w-full border border-gray-300 rounded px-2.5 py-1.5 bg-white font-semibold"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block font-semibold text-gray-700 mb-1">
+                          Free Gift Image URL (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="https://... (optional gift photo)"
+                          value={productForm.freeGiftImage}
+                          onChange={(e) =>
+                            setProductForm({
+                              ...productForm,
+                              freeGiftImage: e.target.value,
+                            })
+                          }
+                          className="w-full border border-gray-300 rounded px-2.5 py-1.5 bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick 1-click Free Gift presets */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setProductForm({
+                            ...productForm,
+                            freeGiftEnabled: true,
+                            freeGiftMinBuyQty: "1",
+                            freeGiftQty: "1",
+                            freeGiftName: "Signature Executive Pen (কলম)",
+                          })
+                        }
+                        className="px-2 py-1 rounded bg-emerald-700 text-white text-[11px] font-semibold cursor-pointer hover:bg-emerald-800"
+                      >
+                        Preset: Buy 1 → Get 1 Pen Free
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setProductForm({
+                            ...productForm,
+                            freeGiftEnabled: true,
+                            freeGiftMinBuyQty: "2",
+                            freeGiftQty: "1",
+                            freeGiftName: productForm.title || "1 Extra Unit",
+                            freeGiftImage: productForm.thumbnail || "",
+                          })
+                        }
+                        className="px-2 py-1 rounded bg-white border border-emerald-300 text-emerald-900 text-[11px] font-semibold cursor-pointer hover:bg-emerald-100"
+                      >
+                        Preset: Buy 2 → Get 1 Same Item Free
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>

@@ -28,6 +28,10 @@ const Product = ({ item }) => {
   const discountState = getProductDiscountState(item, now);
   const stockCount = Number(item?.stock ?? 20);
 
+  const hasFreeGift =
+    Boolean(item?.freeGift?.enabled) &&
+    Boolean(String(item?.freeGift?.giftName || "").trim());
+
   function handleAddtoCart(Citem) {
     if (stockCount <= 0) {
       toast.error("Sorry, this product is currently out of stock.");
@@ -40,12 +44,19 @@ const Product = ({ item }) => {
         price: discountState.effectivePrice,
         originalPrice: discountState.originalPrice,
         discountPercent: discountState.discountPercent,
+        freeGift: Citem.freeGift || null,
         image: Citem.thumbnail,
       })
     );
-    toast.success(
-      `"${Citem.title}" added to cart at $${discountState.effectivePrice.toFixed(2)}!`
-    );
+    if (hasFreeGift) {
+      toast.success(
+        `"${Citem.title}" added! Free Gift: ${item.freeGift.giftQty || 1}x ${item.freeGift.giftName}`
+      );
+    } else {
+      toast.success(
+        `"${Citem.title}" added to cart at $${discountState.effectivePrice.toFixed(2)}!`
+      );
+    }
   }
 
   const handleToggleWish = () => {
@@ -75,12 +86,19 @@ const Product = ({ item }) => {
           alt={item?.title}
         />
 
-        {/* Top-Left Discount Badge */}
-        {discountState.isDiscountActive && (
-          <span className="absolute top-2 left-2 bg-[#D6001C] text-white text-[10px] font-bold px-2 py-0.5 rounded-sm shadow-xs">
-            -{discountState.discountPercent}% OFF
-          </span>
-        )}
+        {/* Top-Left Discount & Free Gift Badges */}
+        <div className="absolute top-2 left-2 flex flex-col items-start gap-1">
+          {discountState.isDiscountActive && (
+            <span className="bg-[#D6001C] text-white text-[10px] font-bold px-2 py-0.5 rounded-sm shadow-xs">
+              -{discountState.discountPercent}% OFF
+            </span>
+          )}
+          {hasFreeGift && (
+            <span className="bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm shadow-xs">
+              🎁 Free: {item.freeGift.giftQty || 1}x {item.freeGift.giftName}
+            </span>
+          )}
+        </div>
 
         {/* Top-Right Stock Scarcity Badge */}
         {stockCount <= 0 ? (

@@ -103,6 +103,15 @@ export default function AdminOrdersTab({ orders, onUpdateOrderStatus }) {
                       {it.selectedSize ? ` (${it.selectedSize})` : ""}
                     </span>
                   ))}
+                  {Array.isArray(order.freeGifts) &&
+                    order.freeGifts.map((fg, gIdx) => (
+                      <span
+                        key={`fg-${gIdx}`}
+                        className="text-xs bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1 text-emerald-800 font-semibold"
+                      >
+                        🎁 FREE GIFT: {fg.earnedGiftQty}× {fg.giftName}
+                      </span>
+                    ))}
                 </div>
               </div>
             );

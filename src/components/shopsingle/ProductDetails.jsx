@@ -18,8 +18,7 @@ import {
   useNowTick,
 } from "../../utils/discountTimer";
 import {
-  getStoredCartRules,
-  initCartRulesSync,
+  getProductFreeGiftConfig,
   recordRecentlyViewedProduct,
 } from "../../utils/cartPromotions";
 
@@ -47,20 +46,14 @@ export default function ProductDetails() {
   const [quantity, setQuantity] = useState(1);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [showSizeGuide, setShowSizeGuide] = useState(false);
-  const [cartRules, setCartRules] = useState(() => getStoredCartRules());
 
-  // Always prefer the freshest product from catalogProducts so Admin timer/price edits reflect live
+  // Always prefer the freshest product from catalogProducts so Admin timer/price/freeGift edits reflect live
   const targetId = productIdParam || detailsProduct?.id;
   const liveProduct =
     (catalogProducts || []).find((p) => String(p.id) === String(targetId)) ||
     detailsProduct;
 
-  useEffect(() => {
-    const unsub = initCartRulesSync((rules) => setCartRules(rules));
-    return () => {
-      if (typeof unsub === "function") unsub();
-    };
-  }, []);
+  const freeGiftConfig = getProductFreeGiftConfig(liveProduct, catalogProducts);
 
   useEffect(() => {
     if (liveProduct?.id) {
@@ -102,12 +95,13 @@ export default function ProductDetails() {
   const activeImage =
     galleryImages[activeImageIdx] || liveProduct?.thumbnail || "";
 
-  function handleAddToCart(redirectToCheckout = false) {
+  function handleAddToCart(redirectToCheckout = false, customQty = null) {
     if (!liveProduct?.id) return;
     if (stockCount <= 0) {
       toast.error("Sorry, this product is currently out of stock.");
       return;
     }
+    const finalQty = customQty !== null ? customQty : quantity;
     dispatch(
       addToCart({
         id: liveProduct.id,
@@ -115,47 +109,28 @@ export default function ProductDetails() {
         price: discountState.effectivePrice,
         originalPrice: discountState.originalPrice,
         discountPercent: discountState.discountPercent,
+        freeGift: liveProduct.freeGift || null,
         image: liveProduct.thumbnail,
-        quantity,
+        quantity: finalQty,
         size: selectedSize,
         color: selectedColor,
       })
     );
-    toast.success(
-      `Added ${quantity} × ${liveProduct.title} ($${discountState.effectivePrice.toFixed(2)}) to cart!`
-    );
+    if (freeGiftConfig && finalQty >= freeGiftConfig.minBuyQty) {
+      const earnedGifts =
+        Math.floor(finalQty / freeGiftConfig.minBuyQty) *
+        freeGiftConfig.giftQty;
+      toast.success(
+        `Added ${finalQty} × ${liveProduct.title} + 🎁 ${earnedGifts}x FREE "${freeGiftConfig.giftName}" to cart!`
+      );
+    } else {
+      toast.success(
+        `Added ${finalQty} × ${liveProduct.title} ($${discountState.effectivePrice.toFixed(2)}) to cart!`
+      );
+    }
     if (redirectToCheckout) {
       navigate("/billing");
     }
-  }
-
-  function handleBogoBundleAdd() {
-    if (!liveProduct?.id) return;
-    if (stockCount <= 0) {
-      toast.error("Sorry, this product is currently out of stock.");
-      return;
-    }
-    const buyCount = Math.max(1, Number(cartRules?.bogoBuyCount || 2));
-    const freeCount = Math.max(1, Number(cartRules?.bogoFreeCount || 1));
-    const bundleTotalQty = buyCount + freeCount;
-    dispatch(
-      addToCart({
-        id: liveProduct.id,
-        title: liveProduct.title,
-        price: discountState.effectivePrice,
-        originalPrice: discountState.originalPrice,
-        discountPercent: discountState.discountPercent,
-        image: liveProduct.thumbnail,
-        quantity: bundleTotalQty,
-        size: selectedSize,
-        color: selectedColor,
-      })
-    );
-    toast.success(
-      `🎁 Added ${bundleTotalQty} units (Buy ${buyCount} Get ${freeCount} FREE — You save $${(
-        discountState.effectivePrice * freeCount
-      ).toFixed(2)} in cart)!`
-    );
   }
 
   function handleWishList() {
@@ -426,37 +401,45 @@ export default function ProductDetails() {
                 </button>
               </div>
 
-              {/* 1-Click Buy X Get Y Free Bundle Offer */}
-              {cartRules?.bogoEnabled && stockCount >= 3 && (
-                <div className="mt-4 p-3.5 rounded-lg border border-amber-300 bg-amber-50/70 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5 text-xs text-amber-900">
-                    <Gift size={18} className="text-amber-600 shrink-0" />
+              {/* Per-Product Free Gift Offer Set by Admin */}
+              {freeGiftConfig && stockCount > 0 && (
+                <div className="mt-4 p-3.5 rounded-lg border border-emerald-300 bg-emerald-50/70 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 text-xs text-emerald-950">
+                    {freeGiftConfig.giftImage ? (
+                      <img
+                        src={freeGiftConfig.giftImage}
+                        alt={freeGiftConfig.giftName}
+                        className="w-11 h-11 rounded object-contain bg-white border border-emerald-200 p-0.5 shrink-0"
+                      />
+                    ) : (
+                      <Gift size={20} className="text-emerald-700 shrink-0" />
+                    )}
                     <div>
-                      <p className="font-bold uppercase tracking-wide">
-                        Special Offer: Buy {cartRules.bogoBuyCount || 2} Get{" "}
-                        {cartRules.bogoFreeCount || 1} FREE
+                      <p className="font-bold uppercase tracking-wide text-emerald-900">
+                        🎁 Free Gift With This Product!
                       </p>
-                      <p className="text-[11px] text-amber-800">
-                        Get {(cartRules.bogoBuyCount || 2) + (cartRules.bogoFreeCount || 1)} units for only $
-                        {(
-                          discountState.effectivePrice *
-                          (cartRules.bogoBuyCount || 2)
-                        ).toFixed(2)}{" "}
-                        (Save $
-                        {(
-                          discountState.effectivePrice *
-                          (cartRules.bogoFreeCount || 1)
-                        ).toFixed(2)}
-                        !)
+                      <p className="text-[11px] text-emerald-800">
+                        Buy{" "}
+                        <strong>
+                          {freeGiftConfig.minBuyQty} unit
+                          {freeGiftConfig.minBuyQty > 1 ? "s" : ""}
+                        </strong>{" "}
+                        of this product & get{" "}
+                        <strong>
+                          {freeGiftConfig.giftQty}x {freeGiftConfig.giftName}
+                        </strong>{" "}
+                        for <strong className="text-emerald-700">$0.00 (FREE)</strong>!
                       </p>
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={handleBogoBundleAdd}
-                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded cursor-pointer transition-colors"
+                    onClick={() =>
+                      handleAddToCart(false, freeGiftConfig.minBuyQty)
+                    }
+                    className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded cursor-pointer transition-colors"
                   >
-                    + Add Bundle ({(cartRules.bogoBuyCount || 2) + (cartRules.bogoFreeCount || 1)} Units)
+                    + Buy {freeGiftConfig.minBuyQty} & Get Free Gift
                   </button>
                 </div>
               )}

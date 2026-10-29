@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Gift, Plus, Save, Sparkles, Trash2, Truck } from "lucide-react";
+import { Plus, Save, Sparkles, Trash2, Truck } from "lucide-react";
 import toast from "react-hot-toast";
 import {
   DEFAULT_CART_RULES,
@@ -50,7 +50,7 @@ export default function AdminCouponsTab({
       const normalized = await saveStoredCartRules(cartRules);
       setCartRules(normalized);
       toast.success(
-        `Cart Promotions saved! Free Delivery at $${normalized.freeShippingThreshold}, Buy ${normalized.bogoBuyCount} Get ${normalized.bogoFreeCount} Free.`
+        `Cart Rules saved! Free Delivery at $${normalized.freeShippingThreshold}.`
       );
     } catch {
       toast.error("Failed to save cart promotion rules.");
@@ -64,7 +64,7 @@ export default function AdminCouponsTab({
     try {
       const normalized = await saveStoredCartRules(DEFAULT_CART_RULES);
       setCartRules(normalized);
-      toast.success("Reset Cart Rules to International Default ($100 Free Shipping + Buy 2 Get 1 Free).");
+      toast.success("Reset Cart Rules to Default ($100 Free Shipping).");
     } finally {
       setSavingRules(false);
     }
@@ -81,10 +81,12 @@ export default function AdminCouponsTab({
           <div>
             <h3 className="text-sm font-bold uppercase tracking-wider text-gray-900 flex items-center gap-2">
               <Sparkles size={16} className="text-red-600" />
-              Automated Cart Promotions & Smart Rules Engine
+              Cart Free Delivery & VIP Spend Rules
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              Configure Free Delivery Threshold, Buy X Get Y Free (BOGO), and Tiered VIP Spend Rewards across Cart & Checkout in real time.
+              Configure Free Delivery Threshold and VIP Spend Rewards across Cart & Checkout. (To set a Free Gift on a specific product, go to the{" "}
+              <strong>Products</strong> tab and click{" "}
+              <strong>+ Set Free Gift</strong> on any product.)
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -106,13 +108,13 @@ export default function AdminCouponsTab({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
           {/* Rule 1: Free Delivery Threshold */}
           <div className="border border-emerald-200 bg-emerald-50/40 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-emerald-900">
                 <Truck size={15} className="text-emerald-600" />
-                Free Delivery Bar
+                Free Delivery Threshold Bar
               </span>
               <label className="inline-flex items-center gap-1.5 cursor-pointer">
                 <input
@@ -171,103 +173,12 @@ export default function AdminCouponsTab({
             </div>
           </div>
 
-          {/* Rule 2: Buy X Get Y Free (BOGO) */}
-          <div className="border border-amber-200 bg-amber-50/40 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-amber-900">
-                <Gift size={15} className="text-amber-600" />
-                Buy X Get Y Free (BOGO)
-              </span>
-              <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={Boolean(cartRules.bogoEnabled)}
-                  onChange={(e) =>
-                    setCartRules({
-                      ...cartRules,
-                      bogoEnabled: e.target.checked,
-                    })
-                  }
-                  className="accent-amber-600 w-4 h-4"
-                />
-                <span className="font-semibold text-amber-800">Active</span>
-              </label>
-            </div>
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">
-                  Buy Quantity (X)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={cartRules.bogoBuyCount}
-                  onChange={(e) =>
-                    setCartRules({
-                      ...cartRules,
-                      bogoBuyCount: Number(e.target.value),
-                    })
-                  }
-                  className="w-full border border-gray-300 rounded px-3 py-2 bg-white font-semibold text-gray-900"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">
-                  Get Free Qty (Y)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="5"
-                  value={cartRules.bogoFreeCount}
-                  onChange={(e) =>
-                    setCartRules({
-                      ...cartRules,
-                      bogoFreeCount: Number(e.target.value),
-                    })
-                  }
-                  className="w-full border border-gray-300 rounded px-3 py-2 bg-white font-semibold text-gray-900"
-                />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { label: "Buy 1 Get 1", buy: 1, free: 1 },
-                { label: "Buy 2 Get 1", buy: 2, free: 1 },
-                { label: "Buy 3 Get 1", buy: 3, free: 1 },
-              ].map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  onClick={() =>
-                    setCartRules({
-                      ...cartRules,
-                      bogoEnabled: true,
-                      bogoBuyCount: preset.buy,
-                      bogoFreeCount: preset.free,
-                      bogoLabel: `Buy ${preset.buy} Get ${preset.free} FREE`,
-                    })
-                  }
-                  className={`px-2 py-1 rounded text-[11px] font-semibold border cursor-pointer ${
-                    Number(cartRules.bogoBuyCount) === preset.buy &&
-                    Number(cartRules.bogoFreeCount) === preset.free
-                      ? "bg-amber-700 text-white border-amber-700"
-                      : "bg-white text-gray-700 border-gray-300 hover:border-gray-900"
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Rule 3: VIP Spend Tier + Luxury Gift Wrap */}
+          {/* Rule 2: VIP Spend Tier + Luxury Gift Wrap */}
           <div className="border border-purple-200 bg-purple-50/40 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-purple-900">
                 <Sparkles size={15} className="text-purple-600" />
-                VIP Spend Reward & Gift
+                VIP Spend Reward & Gift Wrap
               </span>
               <label className="inline-flex items-center gap-1.5 cursor-pointer">
                 <input

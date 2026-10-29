@@ -1,24 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import CartProduct from "../components/cart/cartproductDesign/CartProduct";
 import { useSelector } from "react-redux";
 import CartFirstTotalBox from "../components/cart/cartfirstTotalbox/CartFirstTotalBox";
 import CartCrossSell from "../components/cart/CartCrossSell";
 import { useNavigate } from "react-router";
-import { getStoredCartRules } from "../utils/cartPromotions";
 
 const CartPage = () => {
   const cartData = useSelector((state) => state.cart.products) || [];
   const navigate = useNavigate();
-  const [cartRules, setCartRules] = useState(() => getStoredCartRules());
-
-  useEffect(() => {
-    const handleUpdate = (e) => {
-      setCartRules(e.detail || getStoredCartRules());
-    };
-    window.addEventListener("ummo:cart-rules-updated", handleUpdate);
-    return () =>
-      window.removeEventListener("ummo:cart-rules-updated", handleUpdate);
-  }, []);
 
   return (
     <div className="container mt-5 sm:mt-16.25 mb-25 px-2.5 xl:px-0">
@@ -113,9 +102,7 @@ const CartPage = () => {
                   price={item.price}
                   size={item.size || item.selectedSize}
                   color={item.color || item.selectedColor}
-                  bogoEnabled={cartRules.bogoEnabled}
-                  bogoBuyCount={cartRules.bogoBuyCount}
-                  bogoFreeCount={cartRules.bogoFreeCount}
+                  freeGift={item.freeGift}
                 />
               ))
             )}
@@ -147,9 +134,7 @@ const CartPage = () => {
                   price={item.price}
                   size={item.size || item.selectedSize}
                   color={item.color || item.selectedColor}
-                  bogoEnabled={cartRules.bogoEnabled}
-                  bogoBuyCount={cartRules.bogoBuyCount}
-                  bogoFreeCount={cartRules.bogoFreeCount}
+                  freeGift={item.freeGift}
                 />
               ))
             )}

@@ -52,6 +52,9 @@ export const cartSlice = createSlice({
 
       if (existing) {
         existing.quantity += incomingQty;
+        if (action.payload.freeGift !== undefined) {
+          existing.freeGift = action.payload.freeGift;
+        }
       } else {
         state.products.push({
           ...action.payload,

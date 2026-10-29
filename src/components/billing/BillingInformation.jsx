@@ -28,8 +28,12 @@ const COUNTRIES = [
   "Bangladesh",
 ];
 
+const EMPTY_LIST = [];
+
 const BillingInformation = () => {
   const ORDER_ITEMS = useSelector((state) => state.cart.products);
+  const catalogProducts =
+    useSelector((state) => state.AllProduct.Products) || EMPTY_LIST;
   const shippingMethodId = useSelector(
     (state) => state.cart.shippingMethod || "flat"
   );
@@ -117,12 +121,15 @@ const BillingInformation = () => {
     };
   }, []);
 
-  const promotions = computeCartPromotions(ORDER_ITEMS, cartRules);
+  const promotions = computeCartPromotions(
+    ORDER_ITEMS,
+    cartRules,
+    catalogProducts
+  );
   const subtotal = promotions.subtotal;
-  const bogoDiscount = promotions.bogoDiscount;
   const tieredDiscount = promotions.tieredDiscount;
   const discount = computeCouponDiscount(
-    Math.max(0, subtotal - bogoDiscount - tieredDiscount),
+    Math.max(0, subtotal - tieredDiscount),
     appliedCoupon
   );
   const rawShippingCost =
@@ -134,7 +141,6 @@ const BillingInformation = () => {
   const total = Math.max(
     0,
     subtotal -
-      bogoDiscount -
       tieredDiscount -
       discount +
       shippingCost +
@@ -165,9 +171,8 @@ const BillingInformation = () => {
         email: email.trim(),
         id: user.uid,
         OrderItems: ORDER_ITEMS,
+        freeGifts: promotions.unlockedFreeGifts || [],
         subtotal: Number(subtotal.toFixed(2)),
-        bogoDiscount: Number(bogoDiscount.toFixed(2)),
-        bogoFreeUnitsCount: promotions.bogoFreeUnitsCount,
         tieredDiscount: Number(tieredDiscount.toFixed(2)),
         discount: Number(discount.toFixed(2)),
         couponCode: appliedCoupon?.code || null,
@@ -378,7 +383,6 @@ const BillingInformation = () => {
           orderItems={ORDER_ITEMS}
           subtotal={subtotal}
           promotions={promotions}
-          bogoDiscount={bogoDiscount}
           tieredDiscount={tieredDiscount}
           discount={discount}
           appliedCoupon={appliedCoupon}

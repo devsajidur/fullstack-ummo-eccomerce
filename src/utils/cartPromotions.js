@@ -1,16 +1,12 @@
 import { onValue, ref, set } from "firebase/database";
 import { db } from "../../firebase.config";
 
-const CART_RULES_STORAGE_KEY = "ummo_admin_cart_rules_v1";
+const CART_RULES_STORAGE_KEY = "ummo_admin_cart_rules_v2";
 const RECENTLY_VIEWED_KEY = "ummo_recently_viewed_v1";
 
 export const DEFAULT_CART_RULES = {
   freeShippingEnabled: true,
   freeShippingThreshold: 100,
-  bogoEnabled: true,
-  bogoBuyCount: 2,
-  bogoFreeCount: 1,
-  bogoLabel: "Buy 2 Get 1 FREE",
   tieredDiscountEnabled: true,
   tieredMinSpend: 200,
   tieredDiscountPercent: 10,
@@ -33,14 +29,16 @@ export function saveStoredCartRules(rules) {
   const merged = {
     ...DEFAULT_CART_RULES,
     ...rules,
-    freeShippingThreshold: Math.max(0, Number(rules.freeShippingThreshold) || 0),
-    bogoBuyCount: Math.max(1, Number(rules.bogoBuyCount) || 2),
-    bogoFreeCount: Math.max(1, Number(rules.bogoFreeCount) || 1),
+    freeShippingThreshold: Math.max(
+      0,
+      Number(rules.freeShippingThreshold) || 0
+    ),
     tieredMinSpend: Math.max(0, Number(rules.tieredMinSpend) || 200),
     tieredDiscountPercent: Math.max(
       0,
       Math.min(80, Number(rules.tieredDiscountPercent) || 10)
     ),
+    giftWrapFee: Math.max(0, Number(rules.giftWrapFee ?? 5)),
   };
   try {
     localStorage.setItem(CART_RULES_STORAGE_KEY, JSON.stringify(merged));
@@ -55,36 +53,101 @@ export function saveStoredCartRules(rules) {
 }
 
 let cartRulesSubscribed = false;
-export function initCartRulesSync() {
-  if (cartRulesSubscribed) return;
-  cartRulesSubscribed = true;
-  try {
-    onValue(ref(db, "storeConfig/cartRules"), (snap) => {
-      if (!snap.exists()) return;
-      const val = snap.val();
-      if (val && typeof val === "object") {
-        const merged = { ...DEFAULT_CART_RULES, ...val };
-        localStorage.setItem(CART_RULES_STORAGE_KEY, JSON.stringify(merged));
-        window.dispatchEvent(
-          new CustomEvent("ummo:cart-rules-updated", { detail: merged })
-        );
-      }
-    });
-  } catch {
-    // ignore
+export function initCartRulesSync(onRulesUpdated) {
+  const handler = (e) => {
+    if (typeof onRulesUpdated === "function" && e?.detail) {
+      onRulesUpdated(e.detail);
+    }
+  };
+  window.addEventListener("ummo:cart-rules-updated", handler);
+
+  if (!cartRulesSubscribed) {
+    cartRulesSubscribed = true;
+    try {
+      onValue(ref(db, "storeConfig/cartRules"), (snap) => {
+        if (!snap.exists()) return;
+        const val = snap.val();
+        if (val && typeof val === "object") {
+          const merged = { ...DEFAULT_CART_RULES, ...val };
+          localStorage.setItem(CART_RULES_STORAGE_KEY, JSON.stringify(merged));
+          window.dispatchEvent(
+            new CustomEvent("ummo:cart-rules-updated", { detail: merged })
+          );
+        }
+      });
+    } catch {
+      // ignore
+    }
   }
+
+  return () => {
+    window.removeEventListener("ummo:cart-rules-updated", handler);
+  };
 }
 
 /**
- * Computes all active international e-commerce cart promotions:
+ * Resolves the active per-product Free Gift configuration set by Admin.
+ * Example: Buy 1 kg oil -> Get 1 Pen Free.
+ */
+export function getProductFreeGiftConfig(product, catalogProducts = []) {
+  if (!product) return null;
+  const liveMatch = Array.isArray(catalogProducts)
+    ? catalogProducts.find((p) => String(p.id) === String(product.id))
+    : null;
+  const fg = liveMatch?.freeGift ?? product.freeGift;
+  if (!fg || !fg.enabled || !String(fg.giftName || "").trim()) {
+    return null;
+  }
+  return {
+    enabled: true,
+    minBuyQty: Math.max(1, Number(fg.minBuyQty || 1)),
+    giftName: String(fg.giftName).trim(),
+    giftQty: Math.max(1, Number(fg.giftQty || 1)),
+    giftImage: fg.giftImage || "",
+    giftProductId: fg.giftProductId || "",
+  };
+}
+
+/**
+ * Computes how many free gift units a single cart item has unlocked (or needs to unlock).
+ */
+export function evaluateCartItemFreeGift(cartItem, catalogProducts = []) {
+  const config = getProductFreeGiftConfig(cartItem, catalogProducts);
+  if (!config) {
+    return { hasFreeGiftRule: false };
+  }
+  const qty = Math.max(1, Number(cartItem?.quantity || 1));
+  const unlocked = qty >= config.minBuyQty;
+  const multiplier = Math.floor(qty / config.minBuyQty);
+  const earnedGiftQty = unlocked ? multiplier * config.giftQty : 0;
+  const qtyNeededToUnlock = unlocked ? 0 : config.minBuyQty - qty;
+
+  return {
+    hasFreeGiftRule: true,
+    unlocked,
+    minBuyQty: config.minBuyQty,
+    giftName: config.giftName,
+    giftQtyPerBundle: config.giftQty,
+    earnedGiftQty,
+    qtyNeededToUnlock,
+    giftImage: config.giftImage,
+    giftProductId: config.giftProductId,
+    parentProductId: cartItem.id,
+    parentProductTitle: cartItem.title,
+  };
+}
+
+/**
+ * Computes all active cart promotions:
  * - Subtotal & Total Unit Count
  * - Free Shipping threshold progress & automatic free delivery unlock
- * - Buy X Get Y Free (BOGO) automatic discount (both per-item & mix-and-match across cart)
+ * - Per-Product Free Gifts unlocked by items in the cart
  * - Tiered Spend automatic VIP discount
  */
 export function computeCartPromotions(
   cartItems = [],
-  rules = getStoredCartRules()
+  rules = getStoredCartRules(),
+  catalogProducts = []
 ) {
   const items = Array.isArray(cartItems) ? cartItems : [];
   const subtotal = Number(
@@ -112,47 +175,26 @@ export function computeCartPromotions(
     ? Math.max(0, Number((threshold - subtotal).toFixed(2)))
     : 0;
   const freeShippingProgress =
-    threshold > 0 ? Math.min(100, Math.round((subtotal / threshold) * 100)) : 100;
+    threshold > 0
+      ? Math.min(100, Math.round((subtotal / threshold) * 100))
+      : 100;
 
-  // 2. Buy X Get Y Free (BOGO) Calculation
-  const buyX = Math.max(1, Number(rules.bogoBuyCount || 2));
-  const getY = Math.max(1, Number(rules.bogoFreeCount || 1));
-  const groupSize = buyX + getY;
+  // 2. Per-Product Free Gifts Calculation (Admin-configured on specific products)
+  const unlockedFreeGifts = [];
+  const pendingFreeGifts = [];
 
-  let bogoDiscount = 0;
-  let bogoFreeUnitsCount = 0;
-  let unitsNeededForNextBogo = 0;
-
-  if (rules.bogoEnabled && totalUnits > 0) {
-    // Expand all units in cart sorted by price ascending so every Nth cheapest unit in each group is free
-    const unitPrices = [];
-    items.forEach((it) => {
-      const qty = Math.max(1, Number(it.quantity || 1));
-      const p = Number(it.price || 0);
-      for (let i = 0; i < qty; i += 1) {
-        unitPrices.push(p);
+  items.forEach((item) => {
+    const evalGift = evaluateCartItemFreeGift(item, catalogProducts);
+    if (evalGift.hasFreeGiftRule) {
+      if (evalGift.unlocked) {
+        unlockedFreeGifts.push(evalGift);
+      } else {
+        pendingFreeGifts.push(evalGift);
       }
-    });
-    unitPrices.sort((a, b) => a - b);
-
-    const fullGroups = Math.floor(totalUnits / groupSize);
-    bogoFreeUnitsCount = fullGroups * getY;
-
-    for (let i = 0; i < bogoFreeUnitsCount; i += 1) {
-      bogoDiscount += unitPrices[i] || 0;
     }
-    bogoDiscount = Number(bogoDiscount.toFixed(2));
-
-    const remainder = totalUnits % groupSize;
-    if (remainder >= buyX) {
-      unitsNeededForNextBogo = groupSize - remainder;
-    } else if (fullGroups === 0) {
-      unitsNeededForNextBogo = groupSize - totalUnits;
-    }
-  }
+  });
 
   // 3. Tiered Spend Automatic Discount
-  const netAfterBogo = Math.max(0, subtotal - bogoDiscount);
   let tieredDiscount = 0;
   const tieredMin = Number(rules.tieredMinSpend || 200);
   const tieredPct = Number(rules.tieredDiscountPercent || 10);
@@ -160,9 +202,9 @@ export function computeCartPromotions(
   if (
     rules.tieredDiscountEnabled &&
     tieredMin > 0 &&
-    netAfterBogo >= tieredMin
+    subtotal >= tieredMin
   ) {
-    tieredDiscount = Number(((netAfterBogo * tieredPct) / 100).toFixed(2));
+    tieredDiscount = Number(((subtotal * tieredPct) / 100).toFixed(2));
   }
 
   return {
@@ -173,17 +215,13 @@ export function computeCartPromotions(
     freeShippingUnlocked,
     amountNeededForFreeShipping,
     freeShippingProgress,
-    bogoEnabled: Boolean(rules.bogoEnabled),
-    bogoBuyCount: buyX,
-    bogoFreeCount: getY,
-    bogoGroupSize: groupSize,
-    bogoFreeUnitsCount,
-    bogoDiscount,
-    unitsNeededForNextBogo,
+    unlockedFreeGifts,
+    pendingFreeGifts,
     tieredDiscountEnabled: Boolean(rules.tieredDiscountEnabled),
     tieredMinSpend: tieredMin,
     tieredDiscountPercent: tieredPct,
     tieredDiscount,
+    giftWrapFee: Number(rules.giftWrapFee ?? 5),
   };
 }
 
@@ -202,6 +240,7 @@ export function recordRecentlyViewedProduct(product) {
       price: product.price,
       discountPercentage: product.discountPercentage,
       discountEndTime: product.discountEndTime,
+      freeGift: product.freeGift || null,
       thumbnail: product.thumbnail,
       category: product.category,
       brand: product.brand,
