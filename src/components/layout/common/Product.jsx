@@ -9,6 +9,11 @@ import {
 import { productDetail } from "../../../slices/ProductDetailsSlice";
 import { useNavigate } from "react-router";
 import toast from "react-hot-toast";
+import {
+  getProductDiscountState,
+  pad2,
+  useNowTick,
+} from "../../../utils/discountTimer";
 
 const Product = ({ item }) => {
   const navigate = useNavigate();
@@ -16,16 +21,31 @@ const Product = ({ item }) => {
   const wishList = useSelector((state) => state.wishList.wishProduct) || [];
   const isWished = wishList.some((w) => String(w.id) === String(item?.id));
 
+  const hasTimer = Boolean(
+    item?.discountEndTime && item.discountEndTime !== "none"
+  );
+  const now = useNowTick(hasTimer);
+  const discountState = getProductDiscountState(item, now);
+  const stockCount = Number(item?.stock ?? 20);
+
   function handleAddtoCart(Citem) {
+    if (stockCount <= 0) {
+      toast.error("Sorry, this product is currently out of stock.");
+      return;
+    }
     dispatch(
       addToCart({
         id: Citem.id,
         title: Citem.title,
-        price: Citem.price,
+        price: discountState.effectivePrice,
+        originalPrice: discountState.originalPrice,
+        discountPercent: discountState.discountPercent,
         image: Citem.thumbnail,
       })
     );
-    toast.success(`"${Citem.title}" added to cart!`);
+    toast.success(
+      `"${Citem.title}" added to cart at $${discountState.effectivePrice.toFixed(2)}!`
+    );
   }
 
   const handleToggleWish = () => {
@@ -47,19 +67,47 @@ const Product = ({ item }) => {
     <div className="max-w-82.5 group relative">
       <div
         onClick={() => handleProductDetails(item)}
-        className="cursor-pointer relative overflow-hidden"
+        className="cursor-pointer relative overflow-hidden bg-[#f8f8f8] rounded-sm"
       >
         <Image
           className="md:h-80 md:w-50 h-40 w-30 block mx-auto object-contain transition-transform duration-300 group-hover:scale-105"
           src={item?.thumbnail}
           alt={item?.title}
         />
-        {Number(item?.discountPercentage) >= 10 && (
-          <span className="absolute top-2 left-2 bg-[#D6001C] text-white text-[10px] font-bold px-2 py-0.5 rounded-sm">
-            -{Math.round(Number(item.discountPercentage))}%
+
+        {/* Top-Left Discount Badge */}
+        {discountState.isDiscountActive && (
+          <span className="absolute top-2 left-2 bg-[#D6001C] text-white text-[10px] font-bold px-2 py-0.5 rounded-sm shadow-xs">
+            -{discountState.discountPercent}% OFF
           </span>
         )}
+
+        {/* Top-Right Stock Scarcity Badge */}
+        {stockCount <= 0 ? (
+          <span className="absolute top-2 right-2 bg-gray-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm">
+            SOLD OUT
+          </span>
+        ) : (
+          stockCount < 10 && (
+            <span className="absolute top-2 right-2 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm">
+              Only {stockCount} left
+            </span>
+          )
+        )}
+
+        {/* Live Countdown Timer Bar on Product Card */}
+        {discountState.hasActiveTimer && (
+          <div className="absolute bottom-0 inset-x-0 bg-black/80 backdrop-blur-[2px] text-white px-2 py-1 flex items-center justify-center gap-1 text-[10px] sm:text-[11px] font-mono font-semibold tracking-tight">
+            <span className="text-amber-400">⚡</span>
+            <span>
+              {discountState.days > 0 ? `${discountState.days}d ` : ""}
+              {pad2(discountState.hours)}h : {pad2(discountState.minutes)}m :{" "}
+              {pad2(discountState.seconds)}s
+            </span>
+          </div>
+        )}
       </div>
+
       <div className="mt-3.2">
         <div className="flex justify-between items-center h-5">
           <h4 className="text-[12px] md:text-sm text-gray font-normal uppercase truncate pr-2">
@@ -103,9 +151,22 @@ const Product = ({ item }) => {
           {item?.title}
         </h3>
         <div className="flex items-center justify-between mt-0.5">
-          <h5 className="md:text-base text-[14px] text-primary font-semibold uppercase">
-            ${item?.price}
-          </h5>
+          <div className="flex items-center gap-2">
+            <h5
+              className={`md:text-base text-[14px] font-semibold uppercase ${
+                discountState.isDiscountActive
+                  ? "text-[#D6001C]"
+                  : "text-primary"
+              }`}
+            >
+              ${discountState.effectivePrice.toFixed(2)}
+            </h5>
+            {discountState.isDiscountActive && (
+              <span className="text-xs text-gray-400 line-through">
+                ${discountState.originalPrice.toFixed(2)}
+              </span>
+            )}
+          </div>
           {item?.rating && (
             <span className="text-[11px] text-amber-600 font-medium">
               ★ {Number(item.rating).toFixed(1)}
@@ -118,9 +179,9 @@ const Product = ({ item }) => {
         <button
           type="button"
           onClick={() => handleAddtoCart(item)}
-          className="absolute md:invisible md:group-hover:visible cursor-pointer bottom-18 md:bottom-25 left-[50%] translate-[-50%] w-[90%] md:w-77.5 shadow-xl shadow-[#3333335b] font-medium text-[12px] md:text-sm bg-white hover:bg-black hover:text-white transition-colors text-black h-7 md:h-12.5 text-center"
+          className="absolute md:invisible md:group-hover:visible cursor-pointer bottom-22 md:bottom-28 left-[50%] translate-[-50%] w-[90%] md:w-77.5 shadow-xl shadow-[#3333335b] font-medium text-[12px] md:text-sm bg-white hover:bg-black hover:text-white transition-colors text-black h-7 md:h-12.5 text-center z-10"
         >
-          ADD TO CART
+          {stockCount <= 0 ? "OUT OF STOCK" : "ADD TO CART"}
         </button>
       </div>
     </div>

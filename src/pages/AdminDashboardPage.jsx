@@ -267,6 +267,7 @@ export default function AdminDashboardPage() {
       brand: productForm.brand.trim() || "UOMO",
       price: Number(productForm.price) || 29.99,
       discountPercentage: Number(productForm.discountPercentage) || 0,
+      discountEndTime: productForm.discountEndTime || "none",
       stock: Number(productForm.stock) || 0,
       sku: productForm.sku.trim() || `UMMO-${Date.now()}`,
       thumbnail: cleanThumb,
@@ -295,7 +296,38 @@ export default function AdminDashboardPage() {
     dispatch(Allitem(nextProducts));
     dispatch(addProduct(nextProducts));
     toast.success(
-      editingProduct ? "Product updated live!" : "New product added to store!"
+      editingProduct
+        ? "Product & discount timer updated live!"
+        : "New product added to store!"
+    );
+  }
+
+  function handleApplyBulkFlashSale(discountPercent, durationHours) {
+    const endTimeIso = new Date(
+      Date.now() + Number(durationHours || 24) * 3600 * 1000
+    ).toISOString();
+    const customList = getCustomAdminProducts();
+    const customMap = new Map(customList.map((item) => [String(item.id), item]));
+
+    // Apply flash sale timer to the top 16 storefront products
+    const updatedProducts = products.map((prod, idx) => {
+      if (idx >= 16) return prod;
+      const updated = {
+        ...prod,
+        discountPercentage: Number(discountPercent) || 20,
+        discountEndTime: endTimeIso,
+      };
+      customMap.set(String(prod.id), updated);
+      return updated;
+    });
+
+    saveCustomAdminProducts(Array.from(customMap.values()));
+    invalidateCatalogCache();
+    setProducts(updatedProducts);
+    dispatch(Allitem(updatedProducts));
+    dispatch(addProduct(updatedProducts));
+    toast.success(
+      `Flash Sale (${discountPercent}% OFF for ${durationHours}h) activated across featured products!`
     );
   }
 
@@ -599,6 +631,7 @@ export default function AdminDashboardPage() {
             onSaveProduct={handleSaveProduct}
             onDeleteProduct={handleDeleteProduct}
             onResetCatalog={handleResetCatalog}
+            onApplyBulkFlashSale={handleApplyBulkFlashSale}
           />
         )}
         {activeTab === "orders" && (

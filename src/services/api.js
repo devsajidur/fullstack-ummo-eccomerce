@@ -289,6 +289,16 @@ export function initStoreConfigSync(onCatalogChanged) {
   }
 }
 
+function getDefaultProductTimer(item, index) {
+  const disc = Number(item?.discountPercentage || 0);
+  if (disc < 10 && index >= 8) return "";
+  // Deterministic rolling future deadline based on current day + product id
+  const dayBucket = Math.floor(Date.now() / (24 * 3600 * 1000));
+  const baseMs = (dayBucket + 1) * 24 * 3600 * 1000;
+  const offsetHours = ((Number(item?.id || index) * 7) % 36) + 6;
+  return new Date(baseMs + offsetHours * 3600 * 1000).toISOString();
+}
+
 function mergeWithAdminCatalog(baseProducts) {
   const customProducts = getCustomAdminProducts();
   const deletedIds = new Set(getDeletedProductIds().map(String));
@@ -302,15 +312,35 @@ function mergeWithAdminCatalog(baseProducts) {
     }
   }
 
-  for (const item of baseProducts) {
+  baseProducts.forEach((item, index) => {
     const idStr = String(item.id);
-    if (deletedIds.has(idStr)) continue;
+    if (deletedIds.has(idStr)) return;
+    const defaultTimer = getDefaultProductTimer(item, index);
+    const defaultDiscount =
+      Number(item.discountPercentage || 0) < 10 && index < 8
+        ? 15
+        : Number(item.discountPercentage || 0);
+
+    const enrichedBase = {
+      ...item,
+      discountPercentage: defaultDiscount,
+      discountEndTime: defaultTimer,
+    };
+
     if (customMap.has(idStr)) {
-      merged.push({ ...item, ...customMap.get(idStr) });
+      const adminOverride = customMap.get(idStr);
+      merged.push({
+        ...enrichedBase,
+        ...adminOverride,
+        discountEndTime:
+          adminOverride.discountEndTime !== undefined
+            ? adminOverride.discountEndTime
+            : enrichedBase.discountEndTime,
+      });
     } else {
-      merged.push(item);
+      merged.push(enrichedBase);
     }
-  }
+  });
 
   return merged;
 }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { FaRegHeart } from "react-icons/fa6";
 import { LuShare2 } from "react-icons/lu";
+import { ShieldCheck, RotateCcw, Truck, Zap } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, useSearchParams } from "react-router";
 import toast, { Toaster } from "react-hot-toast";
@@ -11,6 +12,11 @@ import { addToCart } from "../../slices/cartSlice";
 import { addWishList } from "../../slices/wishListSlice";
 import { productDetail } from "../../slices/ProductDetailsSlice";
 import { fetchCatalogProducts } from "../../services/api";
+import {
+  getProductDiscountState,
+  pad2,
+  useNowTick,
+} from "../../utils/discountTimer";
 
 const SIZES = ["XS", "S", "M", "L", "XL"];
 const COLORS = [
@@ -24,6 +30,7 @@ export default function ProductDetails() {
   const detailsProduct = useSelector(
     (state) => state.clickProductDetails.Details
   );
+  const catalogProducts = useSelector((state) => state.AllProduct.Products);
   const [searchParams] = useSearchParams();
   const productIdParam = searchParams.get("id");
   const dispatch = useDispatch();
@@ -33,8 +40,16 @@ export default function ProductDetails() {
   const [selectedSize, setSelectedSize] = useState("M");
   const [selectedColor, setSelectedColor] = useState("Black");
   const [quantity, setQuantity] = useState(1);
+  const [activeImageIdx, setActiveImageIdx] = useState(0);
+
+  // Always prefer the freshest product from catalogProducts so Admin timer/price edits reflect live
+  const targetId = productIdParam || detailsProduct?.id;
+  const liveProduct =
+    (catalogProducts || []).find((p) => String(p.id) === String(targetId)) ||
+    detailsProduct;
 
   useEffect(() => {
+    setActiveImageIdx(0);
     if (
       !detailsProduct?.id ||
       (productIdParam && String(detailsProduct.id) !== String(productIdParam))
@@ -53,21 +68,41 @@ export default function ProductDetails() {
     }
   }, [detailsProduct?.id, productIdParam, dispatch]);
 
+  const hasTimer = Boolean(
+    liveProduct?.discountEndTime && liveProduct.discountEndTime !== "none"
+  );
+  const now = useNowTick(hasTimer);
+  const discountState = getProductDiscountState(liveProduct, now);
+  const stockCount = Number(liveProduct?.stock ?? 20);
+
+  const galleryImages =
+    Array.isArray(liveProduct?.images) && liveProduct.images.length > 0
+      ? liveProduct.images
+      : [liveProduct?.thumbnail].filter(Boolean);
+  const activeImage =
+    galleryImages[activeImageIdx] || liveProduct?.thumbnail || "";
+
   function handleAddToCart(redirectToCheckout = false) {
-    if (!detailsProduct?.id) return;
+    if (!liveProduct?.id) return;
+    if (stockCount <= 0) {
+      toast.error("Sorry, this product is currently out of stock.");
+      return;
+    }
     dispatch(
       addToCart({
-        id: detailsProduct.id,
-        title: detailsProduct.title,
-        price: detailsProduct.price,
-        image: detailsProduct.thumbnail,
+        id: liveProduct.id,
+        title: liveProduct.title,
+        price: discountState.effectivePrice,
+        originalPrice: discountState.originalPrice,
+        discountPercent: discountState.discountPercent,
+        image: liveProduct.thumbnail,
         quantity,
         size: selectedSize,
         color: selectedColor,
       })
     );
     toast.success(
-      `Added ${quantity} × ${detailsProduct.title} (${selectedSize}, ${selectedColor}) to cart!`
+      `Added ${quantity} × ${liveProduct.title} ($${discountState.effectivePrice.toFixed(2)}) to cart!`
     );
     if (redirectToCheckout) {
       navigate("/billing");
@@ -75,8 +110,8 @@ export default function ProductDetails() {
   }
 
   function handleWishList() {
-    if (!detailsProduct?.id) return;
-    dispatch(addWishList(detailsProduct));
+    if (!liveProduct?.id) return;
+    dispatch(addWishList(liveProduct));
     toast.success("Added to your wishlist!");
   }
 
@@ -85,7 +120,7 @@ export default function ProductDetails() {
     toast.success("Product link copied to clipboard!");
   }
 
-  if (!detailsProduct?.id) {
+  if (!liveProduct?.id) {
     return (
       <div className="min-h-96 flex items-center justify-center font-jost text-gray">
         Loading product details...
@@ -98,17 +133,48 @@ export default function ProductDetails() {
       <Toaster position="top-center" />
       <div className="mx-auto container px-4 py-8 sm:px-4 md:px-0 lg:py-12">
         {/* Main content: gallery + info */}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-25">
-          <div className="flex flex-col-reverse gap-4 sm:flex-row">
-            <Image
-              className="aspect-square w-full overflow-hidden bg-[#EDECE9] object-contain"
-              src={detailsProduct.thumbnail}
-              alt={detailsProduct.title}
-            />
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-20">
+          {/* Interactive Gallery */}
+          <div className="flex flex-col-reverse gap-3 sm:flex-row">
+            {galleryImages.length > 1 && (
+              <div className="flex sm:flex-col gap-2.5 overflow-x-auto sm:overflow-visible">
+                {galleryImages.slice(0, 5).map((imgUrl, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setActiveImageIdx(idx)}
+                    className={`w-16 h-16 sm:w-20 sm:h-20 border-2 rounded-sm bg-[#EDECE9] p-1 shrink-0 cursor-pointer transition-all ${
+                      activeImageIdx === idx
+                        ? "border-primary"
+                        : "border-transparent opacity-70 hover:opacity-100"
+                    }`}
+                  >
+                    <Image
+                      src={imgUrl}
+                      alt={`${liveProduct.title} view ${idx + 1}`}
+                      className="w-full h-full object-contain"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="relative flex-1 bg-[#EDECE9] rounded-sm overflow-hidden">
+              <Image
+                className="aspect-square w-full object-contain"
+                src={activeImage}
+                alt={liveProduct.title}
+              />
+              {discountState.isDiscountActive && (
+                <span className="absolute top-3 left-3 bg-[#D6001C] text-white text-xs font-bold px-3 py-1 rounded-sm shadow">
+                  -{discountState.discountPercent}% OFF
+                </span>
+              )}
+            </div>
           </div>
+
           {/* Product info */}
           <div>
-            <div className="mb-6 flex items-center justify-between text-sm font-medium leading-6 text-primary">
+            <div className="mb-4 flex items-center justify-between text-sm font-medium leading-6 text-primary">
               <div>
                 <span className="cursor-pointer" onClick={() => navigate("/")}>
                   HOME
@@ -123,32 +189,96 @@ export default function ProductDetails() {
               </div>
               <span
                 className={`text-xs font-semibold px-2.5 py-1 rounded ${
-                  Number(detailsProduct.stock ?? 20) > 0
+                  stockCount > 0
                     ? "bg-emerald-50 text-emerald-700"
                     : "bg-red-50 text-red-700"
                 }`}
               >
-                {Number(detailsProduct.stock ?? 20) > 0
-                  ? `In Stock (${detailsProduct.stock ?? 20} available)`
+                {stockCount > 0
+                  ? `In Stock (${stockCount} available)`
                   : "Out of Stock"}
               </span>
             </div>
 
             <div className="flex flex-col">
               <h1 className="text-2xl font-normal sm:text-[26px] text-primary">
-                {detailsProduct.title}
+                {liveProduct.title}
               </h1>
 
-              <p className="mt-2 text-lg sm:text-[22px] font-medium text-primary">
-                ${detailsProduct.price}
-              </p>
+              {/* Price + Discount Savings Display */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-3">
+                <span
+                  className={`text-xl sm:text-[26px] font-bold ${
+                    discountState.isDiscountActive
+                      ? "text-[#D6001C]"
+                      : "text-primary"
+                  }`}
+                >
+                  ${discountState.effectivePrice.toFixed(2)}
+                </span>
+                {discountState.isDiscountActive && (
+                  <>
+                    <span className="text-base sm:text-lg text-gray-400 line-through">
+                      ${discountState.originalPrice.toFixed(2)}
+                    </span>
+                    <span className="text-xs font-bold uppercase tracking-wider bg-red-50 text-[#D6001C] border border-red-200 px-2.5 py-1 rounded-full">
+                      Save ${discountState.savingsAmount.toFixed(2)} (
+                      {discountState.discountPercent}% OFF)
+                    </span>
+                  </>
+                )}
+              </div>
 
-              <p className="mt-5 text-sm leading-6 font-normal text-primary">
-                {detailsProduct.description}
+              {/* Live Flash-Sale Countdown Timer Box */}
+              {discountState.hasActiveTimer && (
+                <div className="mt-4 p-4 rounded-lg bg-gradient-to-r from-[#fff5f5] to-[#fffbeb] border border-red-200">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#D6001C]">
+                      <Zap size={15} className="fill-[#D6001C]" />
+                      <span>Limited-Time Flash Deal Ends In:</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 font-mono">
+                      <TimerBox value={pad2(discountState.days)} label="DAYS" />
+                      <span className="font-bold text-[#D6001C]">:</span>
+                      <TimerBox value={pad2(discountState.hours)} label="HRS" />
+                      <span className="font-bold text-[#D6001C]">:</span>
+                      <TimerBox
+                        value={pad2(discountState.minutes)}
+                        label="MINS"
+                      />
+                      <span className="font-bold text-[#D6001C]">:</span>
+                      <TimerBox
+                        value={pad2(discountState.seconds)}
+                        label="SEC"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Low Stock Urgency Bar */}
+              {stockCount > 0 && stockCount <= 15 && (
+                <div className="mt-4">
+                  <p className="text-xs font-medium text-amber-800 mb-1">
+                    Hurry! Only <strong>{stockCount}</strong> items left in stock.
+                  </p>
+                  <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-500 rounded-full transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.max(15, (stockCount / 20) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <p className="mt-4 text-sm leading-6 font-normal text-primary">
+                {liveProduct.description}
               </p>
 
               {/* Size Selector */}
-              <div className="mt-6">
+              <div className="mt-5">
                 <span className="text-xs font-semibold uppercase tracking-wider text-gray block mb-2">
                   Size: <strong className="text-primary">{selectedSize}</strong>
                 </span>
@@ -171,7 +301,7 @@ export default function ProductDetails() {
               </div>
 
               {/* Color Selector */}
-              <div className="mt-5">
+              <div className="mt-4">
                 <span className="text-xs font-semibold uppercase tracking-wider text-gray block mb-2">
                   Color:{" "}
                   <strong className="text-primary">{selectedColor}</strong>
@@ -195,7 +325,7 @@ export default function ProductDetails() {
               </div>
 
               {/* Quantity + Add to Cart + Buy Now */}
-              <div className="mt-7 flex flex-wrap items-center gap-4">
+              <div className="mt-6 flex flex-wrap items-center gap-4">
                 <div className="flex items-center border-2 border-gray-300 h-12 px-3 gap-4">
                   <button
                     type="button"
@@ -209,7 +339,9 @@ export default function ProductDetails() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setQuantity((q) => q + 1)}
+                    onClick={() =>
+                      setQuantity((q) => Math.min(Math.max(1, stockCount), q + 1))
+                    }
                     className="text-lg font-medium cursor-pointer px-1"
                   >
                     +
@@ -218,22 +350,24 @@ export default function ProductDetails() {
 
                 <button
                   type="button"
+                  disabled={stockCount <= 0}
                   onClick={() => handleAddToCart(false)}
-                  className="cursor-pointer bg-primary px-8 h-12 text-sm uppercase tracking-wider font-medium text-white transition-opacity hover:opacity-90"
+                  className="cursor-pointer bg-primary px-8 h-12 text-sm uppercase tracking-wider font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                 >
-                  Add to Cart
+                  {stockCount <= 0 ? "Out of Stock" : "Add to Cart"}
                 </button>
 
                 <button
                   type="button"
+                  disabled={stockCount <= 0}
                   onClick={() => handleAddToCart(true)}
-                  className="cursor-pointer border-2 border-primary px-6 h-12 text-sm uppercase tracking-wider font-medium text-primary hover:bg-primary hover:text-white transition-colors"
+                  className="cursor-pointer border-2 border-primary px-6 h-12 text-sm uppercase tracking-wider font-medium text-primary hover:bg-primary hover:text-white transition-colors disabled:opacity-50"
                 >
                   Buy Now
                 </button>
               </div>
 
-              <div className="mt-6 flex items-center gap-6 font-medium leading-6 text-[13px] text-primary">
+              <div className="mt-5 flex items-center gap-6 font-medium leading-6 text-[13px] text-primary">
                 <button
                   onClick={handleWishList}
                   className="flex items-center gap-2 transition-colors hover:text-gray cursor-pointer"
@@ -250,26 +384,33 @@ export default function ProductDetails() {
                 </button>
               </div>
 
-              <div className="mt-8 space-y-2 border-t border-gray/15 pt-6 text-xs text-gray">
+              {/* Storefront Guarantee & Delivery Badges */}
+              <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-5 border-t border-gray-200 text-xs text-gray-700">
+                <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded">
+                  <Truck size={16} className="text-primary shrink-0" />
+                  <span>Fast 2–4 Day Delivery</span>
+                </div>
+                <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded">
+                  <RotateCcw size={16} className="text-primary shrink-0" />
+                  <span>30-Day Easy Returns</span>
+                </div>
+                <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded">
+                  <ShieldCheck size={16} className="text-primary shrink-0" />
+                  <span>100% Authentic Guaranteed</span>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-1.5 border-t border-gray/15 pt-4 text-xs text-gray">
                 <p>
                   SKU:{" "}
                   <span className="text-primary">
-                    {detailsProduct.sku || `UMMO-${detailsProduct.id}`}
+                    {liveProduct.sku || `UMMO-${liveProduct.id}`}
                   </span>
                 </p>
                 <p>
                   CATEGORIES:{" "}
-                  <span className="text-primary">{detailsProduct.category}</span>
+                  <span className="text-primary">{liveProduct.category}</span>
                 </p>
-
-                <ul className="flex gap-2">
-                  TAGS:{" "}
-                  {detailsProduct.tags?.map((item, id) => (
-                    <li key={id} className="text-primary">
-                      {item},
-                    </li>
-                  ))}
-                </ul>
               </div>
             </div>
           </div>
@@ -283,7 +424,7 @@ export default function ProductDetails() {
               { id: "additional", label: "ADDITIONAL INFORMATION" },
               {
                 id: "reviews",
-                label: `REVIEWS (${detailsProduct.reviews?.length || 0})`,
+                label: `REVIEWS (${liveProduct.reviews?.length || 0})`,
               },
             ].map((tab) => (
               <button
@@ -308,47 +449,9 @@ export default function ProductDetails() {
         {activeTab === "description" && (
           <div className="mx-auto mt-10 max-w-3xl sm:mt-14">
             <h2 className="text-base font-medium">Product Overview</h2>
-
             <p className="mt-4 text-sm leading-relaxed text-gray">
-              {detailsProduct.description}
+              {liveProduct.description}
             </p>
-
-            <div className="mt-10 grid grid-cols-1 gap-10 sm:grid-cols-2">
-              <div>
-                <h3 className="text-sm font-medium">Why choose this product?</h3>
-                <ul className="mt-4 space-y-2 text-sm text-gray">
-                  {[
-                    "Premium quality materials and craftsmanship",
-                    "Configurable attributes and verified stock availability",
-                    "Backed by official brand warranty and return policy",
-                  ].map((item) => (
-                    <li key={item} className="flex gap-2">
-                      <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-gray" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-medium">Shipping & Returns</h3>
-                <ol className="mt-4 space-y-2 text-sm text-gray">
-                  {[
-                    detailsProduct.shippingInformation ||
-                      "Fast nationwide and international delivery",
-                    detailsProduct.returnPolicy ||
-                      "30-day hassle-free return policy",
-                    detailsProduct.availabilityStatus ||
-                      "In Stock & Ready to Dispatch",
-                  ].map((item, i) => (
-                    <li key={i} className="flex gap-2">
-                      <span className="shrink-0">{i + 1}.</span>
-                      {item}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            </div>
           </div>
         )}
 
@@ -364,6 +467,17 @@ export default function ProductDetails() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function TimerBox({ value, label }) {
+  return (
+    <div className="bg-gray-900 text-white rounded px-2 py-1 text-center min-w-[42px]">
+      <span className="block text-xs sm:text-sm font-bold leading-tight">
+        {value}
+      </span>
+      <span className="block text-[9px] text-gray-300 uppercase">{label}</span>
     </div>
   );
 }
