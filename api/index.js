@@ -21,6 +21,7 @@ import {
 import {
   deductOrderInventory,
   validateAndBuildServerOrder,
+  validateCouponEligibility,
 } from "./orderService.js";
 
 const ALLOWED_ORDER_STATUSES = new Set([
@@ -270,6 +271,47 @@ export default async function handler(req, res) {
       return sendJson(req, res, 200, {
         status: "ok",
         storeConfig: updatedConfig,
+      });
+    }
+
+    // 4b. Authoritative Coupon Verification (POST /coupons/validate)
+    if (path === "/coupons/validate") {
+      if (method !== "POST") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const { sanitized: body, hadOperator } = await parseJsonBody(req);
+      if (hadOperator) {
+        return sendJson(req, res, 400, {
+          error: "Disallowed query operators in payload.",
+        });
+      }
+      const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
+      const subtotal = Math.max(0, Number(body.subtotal || 0));
+      const eligibleAmount = Math.max(
+        0,
+        Number(body.eligibleAmount ?? subtotal)
+      );
+      const userUid = caller.uid || asSafeId(body.userUid, 128);
+      const userEmail = asSafeEmail(body.email) || caller.email || "";
+      const userPhone = asSafeId(body.phone, 40);
+
+      const result = validateCouponEligibility({
+        couponCode: body.couponCode || body.code,
+        subtotal,
+        eligibleAmount,
+        state,
+        userUid,
+        userEmail,
+        userPhone,
+      });
+
+      return sendJson(req, res, 200, {
+        status: "ok",
+        valid: result.valid,
+        couponDiscount: result.couponDiscount,
+        couponCode: result.validatedCouponCode,
+        coupon: result.coupon,
       });
     }
 

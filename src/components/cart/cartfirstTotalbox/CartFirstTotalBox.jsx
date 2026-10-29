@@ -10,11 +10,17 @@ import {
   setGiftWrap,
   setGiftNote,
 } from "../../../slices/cartSlice";
-import { getStoredCoupons } from "../../../services/api";
+import {
+  getStoredCoupons,
+  validateCouponOnServer,
+} from "../../../services/api";
 import {
   computeCartPromotions,
+  evaluateCouponClientEligibility,
+  getCombinedKnownOrders,
   getStoredCartRules,
   initCartRulesSync,
+  isCouponExpired,
 } from "../../../utils/cartPromotions";
 
 const EMPTY_LIST = [];
@@ -25,12 +31,19 @@ export const SHIPPING_OPTIONS = [
   { id: "free", label: "Economy shipping: Free", price: 0 },
 ];
 
-export function computeCouponDiscount(subtotal, coupon) {
-  if (!coupon || subtotal < Number(coupon.minOrder || 0)) return 0;
-  if (coupon.type === "percentage") {
-    return Number(((subtotal * Number(coupon.value)) / 100).toFixed(2));
-  }
-  return Math.min(subtotal, Number(coupon.value || 0));
+export function computeCouponDiscount(
+  eligibleAmount,
+  coupon,
+  grossSubtotal = undefined
+) {
+  if (!coupon) return 0;
+  const checkSubtotal =
+    grossSubtotal !== undefined ? Number(grossSubtotal) : Number(eligibleAmount);
+  const res = evaluateCouponClientEligibility(coupon, {
+    subtotal: checkSubtotal,
+    eligibleAmount: Number(eligibleAmount),
+  });
+  return res.valid ? res.discountAmount : 0;
 }
 
 export default function CartFirstTotalBox() {
@@ -49,16 +62,26 @@ export default function CartFirstTotalBox() {
   const [availableCoupons, setAvailableCoupons] = useState(() =>
     getStoredCoupons()
   );
+  const [knownOrders, setKnownOrders] = useState(() => getCombinedKnownOrders());
 
   useEffect(() => {
     const unsub = initCartRulesSync((rules) => setCartRules(rules));
     const handleCouponsUpdated = () => {
       setAvailableCoupons(getStoredCoupons());
     };
+    const handleOrdersUpdated = () => {
+      setKnownOrders(getCombinedKnownOrders());
+    };
     window.addEventListener("ummo:coupons-updated", handleCouponsUpdated);
+    window.addEventListener("ummo:orders-changed", handleOrdersUpdated);
+    window.addEventListener("ummo:orders-synced", handleOrdersUpdated);
+    window.addEventListener("ummo:auth-changed", handleOrdersUpdated);
     return () => {
       if (typeof unsub === "function") unsub();
       window.removeEventListener("ummo:coupons-updated", handleCouponsUpdated);
+      window.removeEventListener("ummo:orders-changed", handleOrdersUpdated);
+      window.removeEventListener("ummo:orders-synced", handleOrdersUpdated);
+      window.removeEventListener("ummo:auth-changed", handleOrdersUpdated);
     };
   }, []);
 
@@ -69,10 +92,49 @@ export default function CartFirstTotalBox() {
     0,
     subtotal - promo.tieredDiscount
   );
-  const couponDiscount = computeCouponDiscount(
+
+  // Sync appliedCoupon with latest Admin coupon config & auto-remove if no longer eligible
+  const liveAppliedCoupon = appliedCoupon
+    ? availableCoupons.find(
+        (c) =>
+          String(c.code || "").toUpperCase() ===
+          String(appliedCoupon.code || "").toUpperCase()
+      ) || appliedCoupon
+    : null;
+
+  const appliedEligibility = liveAppliedCoupon
+    ? evaluateCouponClientEligibility(liveAppliedCoupon, {
+        subtotal,
+        eligibleAmount: netSubtotalAfterAutoPromos,
+        orders: knownOrders,
+      })
+    : { valid: false, discountAmount: 0 };
+
+  useEffect(() => {
+    if (!liveAppliedCoupon || cartProduct.length === 0) return;
+    const check = evaluateCouponClientEligibility(liveAppliedCoupon, {
+      subtotal,
+      eligibleAmount: netSubtotalAfterAutoPromos,
+      orders: knownOrders,
+    });
+    if (!check.valid) {
+      dispatch(removeCoupon());
+      if (check.reason) {
+        toast.error(check.reason);
+      }
+    }
+  }, [
+    liveAppliedCoupon,
+    subtotal,
     netSubtotalAfterAutoPromos,
-    appliedCoupon
-  );
+    cartProduct.length,
+    knownOrders,
+    dispatch,
+  ]);
+
+  const couponDiscount = appliedEligibility.valid
+    ? appliedEligibility.discountAmount
+    : 0;
 
   const rawShippingCost =
     SHIPPING_OPTIONS.find((o) => o.id === shipping)?.price || 0;
@@ -104,29 +166,51 @@ export default function CartFirstTotalBox() {
     )
   );
 
-  function applyCouponByCode(rawCode) {
+  async function applyCouponByCode(rawCode) {
     const code = String(rawCode || "").trim().toUpperCase();
     if (!code) return;
 
     const allCoupons = getStoredCoupons();
     setAvailableCoupons(allCoupons);
     const matched = allCoupons.find(
-      (c) => String(c.code || "").toUpperCase() === code && c.active !== false
+      (c) => String(c.code || "").toUpperCase() === code
     );
     if (!matched) {
-      toast.error("Invalid or expired coupon code.");
+      toast.error(`Invalid coupon code: ${code}`);
       return;
     }
-    if (subtotal < Number(matched.minOrder || 0)) {
-      toast.error(
-        `Minimum order subtotal of $${matched.minOrder} required for ${code}.`
-      );
+
+    const clientCheck = evaluateCouponClientEligibility(matched, {
+      subtotal,
+      eligibleAmount: netSubtotalAfterAutoPromos,
+      orders: knownOrders,
+    });
+
+    if (!clientCheck.valid) {
+      toast.error(clientCheck.reason || "Coupon is not eligible for this order.");
       return;
+    }
+
+    // Authoritative server check against MongoDB Atlas order history
+    try {
+      await validateCouponOnServer({
+        couponCode: code,
+        subtotal,
+        eligibleAmount: netSubtotalAfterAutoPromos,
+      });
+    } catch (err) {
+      const serverMsg = err?.response?.data?.error;
+      if (serverMsg) {
+        toast.error(serverMsg);
+        return;
+      }
     }
 
     dispatch(applyCoupon(matched));
     setCouponInput("");
-    toast.success(`Coupon ${code} applied!`);
+    toast.success(
+      `Coupon ${code} applied! (-$${clientCheck.discountAmount.toFixed(2)})`
+    );
   }
 
   function handleApplyCoupon(e) {
@@ -234,24 +318,39 @@ export default function CartFirstTotalBox() {
         <div className="mb-4 flex flex-wrap items-center gap-1.5 text-[11px]">
           <span className="text-gray-500 font-medium">Available:</span>
           {availableCoupons
-            .filter((c) => c.active !== false)
+            .filter((c) => c.active !== false && !isCouponExpired(c))
             .slice(0, 6)
-            .map((cp) => (
-              <button
-                key={cp.code}
-                type="button"
-                onClick={() => applyCouponByCode(cp.code)}
-                className={`px-2 py-0.5 rounded border font-mono font-bold cursor-pointer transition-colors ${
-                  appliedCoupon?.code === cp.code
-                    ? "bg-emerald-700 text-white border-emerald-700"
-                    : "bg-gray-50 hover:bg-gray-100 text-gray-800 border-gray-300"
-                }`}
-                title={cp.description || `Min order $${cp.minOrder || 0}`}
-              >
-                {cp.code} (
-                {cp.type === "percentage" ? `${cp.value}%` : `$${cp.value}`} OFF)
-              </button>
-            ))}
+            .map((cp) => {
+              const status = evaluateCouponClientEligibility(cp, {
+                subtotal,
+                eligibleAmount: netSubtotalAfterAutoPromos,
+                orders: knownOrders,
+              });
+              const isUsed = Boolean(status.alreadyUsedByUser);
+              return (
+                <button
+                  key={cp.code}
+                  type="button"
+                  onClick={() => applyCouponByCode(cp.code)}
+                  className={`px-2 py-0.5 rounded border font-mono font-bold transition-colors ${
+                    isUsed
+                      ? "bg-gray-100 text-gray-400 border-gray-200 line-through cursor-not-allowed"
+                      : appliedCoupon?.code === cp.code
+                        ? "bg-emerald-700 text-white border-emerald-700 cursor-pointer"
+                        : "bg-gray-50 hover:bg-gray-100 text-gray-800 border-gray-300 cursor-pointer"
+                  }`}
+                  title={
+                    isUsed
+                      ? `Already used (${status.userUses}/${cp.maxUsesPerUser ?? 1})`
+                      : cp.description || `Min order $${cp.minOrder || 0}`
+                  }
+                >
+                  {cp.code} (
+                  {cp.type === "percentage" ? `${cp.value}%` : `$${cp.value}`}{" "}
+                  OFF{isUsed ? " • USED" : ""})
+                </button>
+              );
+            })}
         </div>
       )}
 

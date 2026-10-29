@@ -322,3 +322,171 @@ export function getRecentlyViewedProducts() {
   }
   return [];
 }
+
+/**
+ * Merges locally cached orders and MongoDB-synced orders (deduplicated by orderId)
+ * so coupon usage limits can be verified immediately on the client as well.
+ */
+export function getCombinedKnownOrders(extraOrders = []) {
+  const byId = new Map();
+  const addList = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const o of list) {
+      const id = String(o?.orderId || o?.id || "").trim();
+      if (id) byId.set(id, o);
+    }
+  };
+  try {
+    const localRaw = localStorage.getItem("ummo_local_orders");
+    if (localRaw) addList(JSON.parse(localRaw));
+    const syncedRaw = localStorage.getItem("ummo_synced_user_orders");
+    if (syncedRaw) addList(JSON.parse(syncedRaw));
+  } catch {
+    // ignore
+  }
+  addList(extraOrders);
+  return Array.from(byId.values());
+}
+
+export function isCouponExpired(coupon) {
+  if (!coupon?.expiresAt || coupon.expiresAt === "none") return false;
+  const expMs = new Date(coupon.expiresAt).getTime();
+  return !Number.isNaN(expMs) && expMs <= Date.now();
+}
+
+/**
+ * Evaluates coupon eligibility, expiration, minimum spend, and per-user / global usage limits.
+ */
+export function evaluateCouponClientEligibility(
+  coupon,
+  {
+    subtotal = 0,
+    eligibleAmount = undefined,
+    userUid = "",
+    userEmail = "",
+    userPhone = "",
+    orders = null,
+  } = {}
+) {
+  if (!coupon || !coupon.code) {
+    return { valid: false, reason: "Invalid coupon code.", discountAmount: 0 };
+  }
+
+  const code = String(coupon.code).trim().toUpperCase();
+
+  if (coupon.active === false) {
+    return {
+      valid: false,
+      reason: `Coupon ${code} is currently inactive.`,
+      discountAmount: 0,
+    };
+  }
+
+  if (isCouponExpired(coupon)) {
+    return {
+      valid: false,
+      reason: `Coupon ${code} has expired.`,
+      discountAmount: 0,
+    };
+  }
+
+  const minOrder = Math.max(0, Number(coupon.minOrder || 0));
+  if (Number(subtotal || 0) < minOrder) {
+    return {
+      valid: false,
+      reason: `Minimum order subtotal of $${minOrder} required for ${code}.`,
+      discountAmount: 0,
+    };
+  }
+
+  const allOrders = Array.isArray(orders) ? orders : getCombinedKnownOrders();
+  const activeRedemptions = allOrders.filter(
+    (o) =>
+      String(o?.status || "").toUpperCase() !== "CANCELLED" &&
+      String(o?.couponCode || "").trim().toUpperCase() === code
+  );
+
+  const maxTotalUses = Number(coupon.maxTotalUses || 0);
+  if (maxTotalUses > 0 && activeRedemptions.length >= maxTotalUses) {
+    return {
+      valid: false,
+      reason: `Coupon ${code} has reached its maximum redemption limit (${maxTotalUses}).`,
+      discountAmount: 0,
+      totalUses: activeRedemptions.length,
+      userUses: 0,
+    };
+  }
+
+  const maxUsesPerUser = Math.max(1, Number(coupon.maxUsesPerUser ?? 1));
+  let activeUid = String(userUid || "").trim();
+  let activeEmail = String(userEmail || "").trim().toLowerCase();
+  const cleanPhone = String(userPhone || "").replace(/\D/g, "");
+
+  if (!activeUid && !activeEmail) {
+    try {
+      const rawUser = localStorage.getItem("ummo_active_user");
+      if (rawUser) {
+        const parsed = JSON.parse(rawUser);
+        activeUid = String(parsed?.uid || "").trim();
+        activeEmail = String(parsed?.email || "").trim().toLowerCase();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  let userUses = 0;
+  if (activeUid || activeEmail || cleanPhone.length >= 6) {
+    userUses = activeRedemptions.filter((o) => {
+      const oUid = String(o?.userUid || o?.id || "").trim();
+      const oEmail = String(o?.email || "").trim().toLowerCase();
+      const oPhone = String(o?.billing?.phone || "").replace(/\D/g, "");
+
+      const uidMatch =
+        activeUid &&
+        activeUid !== "guest" &&
+        oUid &&
+        oUid !== "guest" &&
+        oUid === activeUid;
+      const emailMatch = activeEmail && oEmail && oEmail === activeEmail;
+      const phoneMatch =
+        cleanPhone.length >= 6 && oPhone.length >= 6 && oPhone === cleanPhone;
+      return Boolean(uidMatch || emailMatch || phoneMatch);
+    }).length;
+
+    if (userUses >= maxUsesPerUser) {
+      return {
+        valid: false,
+        reason: `You have already used coupon ${code} (limit: ${maxUsesPerUser} use${maxUsesPerUser > 1 ? "s" : ""} per customer).`,
+        discountAmount: 0,
+        totalUses: activeRedemptions.length,
+        userUses,
+        alreadyUsedByUser: true,
+      };
+    }
+  }
+
+  const baseEligible = Math.max(0, Number(eligibleAmount ?? subtotal ?? 0));
+  let discountAmount;
+  if (coupon.type === "percentage") {
+    const safePct = Math.min(90, Math.max(0, Number(coupon.value || 0)));
+    let rawDisc = (baseEligible * safePct) / 100;
+    const maxCap = Number(coupon.maxDiscountAmount || 0);
+    if (maxCap > 0) {
+      rawDisc = Math.min(rawDisc, maxCap);
+    }
+    discountAmount = Number(Math.min(baseEligible, rawDisc).toFixed(2));
+  } else {
+    const safeFixed = Math.max(0, Number(coupon.value || 0));
+    discountAmount = Number(Math.min(baseEligible, safeFixed).toFixed(2));
+  }
+
+  return {
+    valid: true,
+    reason: "",
+    discountAmount,
+    totalUses: activeRedemptions.length,
+    userUses,
+    maxUsesPerUser,
+  };
+}

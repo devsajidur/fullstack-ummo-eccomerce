@@ -57,6 +57,7 @@ export const DEFAULT_COUPONS = [
     type: "percentage",
     value: 10,
     minOrder: 30,
+    maxUsesPerUser: 1,
     description: "10% off on orders above $30",
     active: true,
   },
@@ -65,6 +66,7 @@ export const DEFAULT_COUPONS = [
     type: "fixed",
     value: 20,
     minOrder: 100,
+    maxUsesPerUser: 1,
     description: "$20 flat discount on orders above $100",
     active: true,
   },
@@ -73,6 +75,7 @@ export const DEFAULT_COUPONS = [
     type: "percentage",
     value: 25,
     minOrder: 200,
+    maxUsesPerUser: 1,
     description: "25% VIP discount on orders above $200",
     active: true,
   },
@@ -399,6 +402,24 @@ export function applyRemoteStoreConfig(val) {
  * directly from MongoDB Atlas (`/api/v1/store-data`) and notifies all mounted subscribers.
  */
 let storeConfigSyncPromise = null;
+export function getSyncedUserOrders() {
+  try {
+    const raw = localStorage.getItem("ummo_synced_user_orders");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+export async function validateCouponOnServer(payload) {
+  const response = await apiClient.post("/coupons/validate", payload);
+  return response.data;
+}
+
 export function initStoreConfigSync(onCatalogChanged) {
   if (typeof onCatalogChanged === "function") {
     catalogSubscribers.add(onCatalogChanged);
@@ -409,6 +430,19 @@ export function initStoreConfigSync(onCatalogChanged) {
       .get("/store-data")
       .then((res) => {
         applyRemoteStoreConfig(res.data?.storeConfig);
+        if (Array.isArray(res.data?.orders)) {
+          try {
+            localStorage.setItem(
+              "ummo_synced_user_orders",
+              JSON.stringify(res.data.orders)
+            );
+            window.dispatchEvent(
+              new CustomEvent("ummo:orders-synced", { detail: res.data.orders })
+            );
+          } catch {
+            // ignore
+          }
+        }
         return res.data;
       })
       .catch(() => null);

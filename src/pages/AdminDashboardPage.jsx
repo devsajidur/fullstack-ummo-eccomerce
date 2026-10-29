@@ -337,15 +337,25 @@ export default function AdminDashboardPage() {
   function handleCreateCoupon(couponForm) {
     const cleanCode = couponForm.code.trim().toUpperCase();
     if (!cleanCode) return;
+    const rawValue = Math.max(1, Number(couponForm.value) || 10);
+    const safeValue =
+      couponForm.type === "percentage" ? Math.min(90, rawValue) : rawValue;
     const next = [
       {
         code: cleanCode,
         type: couponForm.type,
-        value: Number(couponForm.value) || 10,
-        minOrder: Number(couponForm.minOrder) || 0,
+        value: safeValue,
+        minOrder: Math.max(0, Number(couponForm.minOrder) || 0),
+        maxUsesPerUser: Math.max(1, Number(couponForm.maxUsesPerUser || 1)),
+        maxTotalUses: Math.max(0, Number(couponForm.maxTotalUses || 0)),
+        maxDiscountAmount: Math.max(
+          0,
+          Number(couponForm.maxDiscountAmount || 0)
+        ),
+        expiresAt: couponForm.expiresAt || "",
         description:
           couponForm.description.trim() ||
-          `${couponForm.value}${
+          `${safeValue}${
             couponForm.type === "percentage" ? "%" : "$"
           } discount`,
         active: true,
@@ -355,6 +365,18 @@ export default function AdminDashboardPage() {
     setCoupons(next);
     saveStoredCoupons(next);
     toast.success(`Coupon ${cleanCode} created & published!`);
+  }
+
+  function handleToggleCoupon(code) {
+    const next = coupons.map((c) =>
+      c.code === code ? { ...c, active: c.active === false } : c
+    );
+    setCoupons(next);
+    saveStoredCoupons(next);
+    const updated = next.find((c) => c.code === code);
+    toast.success(
+      `Coupon ${code} is now ${updated?.active !== false ? "ACTIVE" : "PAUSED"}.`
+    );
   }
 
   function handleDeleteCoupon(code) {
@@ -606,7 +628,9 @@ export default function AdminDashboardPage() {
         {activeTab === "coupons" && (
           <AdminCouponsTab
             coupons={coupons}
+            orders={orders}
             onCreateCoupon={handleCreateCoupon}
+            onToggleCoupon={handleToggleCoupon}
             onDeleteCoupon={handleDeleteCoupon}
           />
         )}

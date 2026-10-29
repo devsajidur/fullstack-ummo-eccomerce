@@ -15,10 +15,156 @@ const ALLOWED_PAYMENT_METHODS = new Set([
 ]);
 
 const DEFAULT_COUPONS = [
-  { code: "WELCOME10", type: "percentage", value: 10, minOrder: 30, active: true },
-  { code: "UMMO20", type: "fixed", value: 20, minOrder: 100, active: true },
-  { code: "VIP25", type: "percentage", value: 25, minOrder: 200, active: true },
+  { code: "WELCOME10", type: "percentage", value: 10, minOrder: 30, maxUsesPerUser: 1, active: true },
+  { code: "UMMO20", type: "fixed", value: 20, minOrder: 100, maxUsesPerUser: 1, active: true },
+  { code: "VIP25", type: "percentage", value: 25, minOrder: 200, maxUsesPerUser: 1, active: true },
 ];
+
+export function getMergedServerCoupons(storeConfig) {
+  const customCoupons = Array.isArray(storeConfig?.coupons)
+    ? storeConfig.coupons
+    : [];
+  const customCodeSet = new Set(
+    customCoupons.map((c) => String(c?.code || "").trim().toUpperCase())
+  );
+  return [
+    ...customCoupons,
+    ...DEFAULT_COUPONS.filter(
+      (d) => !customCodeSet.has(String(d.code).trim().toUpperCase())
+    ),
+  ];
+}
+
+/**
+ * Authoritatively validates a coupon code against store rules, expiration,
+ * minimum spend, global redemption limits, and per-customer usage history.
+ */
+export function validateCouponEligibility({
+  couponCode,
+  subtotal,
+  eligibleAmount,
+  state,
+  userUid = "",
+  userEmail = "",
+  userPhone = "",
+}) {
+  const submittedCode = asSafeId(couponCode, 32).toUpperCase();
+  if (!submittedCode) {
+    return { valid: true, couponDiscount: 0, validatedCouponCode: null, coupon: null };
+  }
+
+  const availableCoupons = getMergedServerCoupons(state?.storeConfig);
+  const rawMatch = availableCoupons.find(
+    (c) => String(c?.code || "").trim().toUpperCase() === submittedCode
+  );
+
+  if (!rawMatch) {
+    const err = new Error(`Invalid coupon code: ${submittedCode}`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (rawMatch.active === false) {
+    const err = new Error(`Coupon ${submittedCode} is currently inactive.`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // 1. Check expiration timestamp
+  if (rawMatch.expiresAt && rawMatch.expiresAt !== "none") {
+    const expMs = new Date(rawMatch.expiresAt).getTime();
+    if (!Number.isNaN(expMs) && expMs <= Date.now()) {
+      const err = new Error(`Coupon ${submittedCode} has expired.`);
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  // 2. Check minimum order subtotal
+  const minOrder = Math.max(0, Number(rawMatch.minOrder || 0));
+  if (Number(subtotal || 0) < minOrder) {
+    const err = new Error(
+      `Order subtotal ($${Number(subtotal || 0).toFixed(2)}) does not meet minimum requirement ($${minOrder}) for coupon ${submittedCode}.`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // 3. Check global & per-customer usage limits across non-cancelled orders
+  const allOrders = Array.isArray(state?.orders) ? state.orders : [];
+  const activeRedemptions = allOrders.filter(
+    (o) =>
+      String(o?.status || "").toUpperCase() !== "CANCELLED" &&
+      String(o?.couponCode || "").trim().toUpperCase() === submittedCode
+  );
+
+  const maxTotalUses = Number(rawMatch.maxTotalUses || 0);
+  if (maxTotalUses > 0 && activeRedemptions.length >= maxTotalUses) {
+    const err = new Error(
+      `Coupon ${submittedCode} has reached its maximum redemption limit (${maxTotalUses}).`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const maxUsesPerUser = Math.max(1, Number(rawMatch.maxUsesPerUser ?? 1));
+  const cleanUid = String(userUid || "").trim();
+  const cleanEmail = String(userEmail || "").trim().toLowerCase();
+  const cleanPhone = String(userPhone || "").replace(/\D/g, "");
+
+  if (cleanUid || cleanEmail || cleanPhone.length >= 6) {
+    const userRedemptions = activeRedemptions.filter((o) => {
+      const orderUid = String(o?.userUid || o?.id || "").trim();
+      const orderEmail = String(o?.email || "").trim().toLowerCase();
+      const orderPhone = String(o?.billing?.phone || "").replace(/\D/g, "");
+
+      const uidMatched =
+        cleanUid &&
+        cleanUid !== "guest" &&
+        orderUid &&
+        orderUid !== "guest" &&
+        orderUid === cleanUid;
+      const emailMatched = cleanEmail && orderEmail && orderEmail === cleanEmail;
+      const phoneMatched =
+        cleanPhone.length >= 6 &&
+        orderPhone.length >= 6 &&
+        orderPhone === cleanPhone;
+
+      return Boolean(uidMatched || emailMatched || phoneMatched);
+    });
+
+    if (userRedemptions.length >= maxUsesPerUser) {
+      const err = new Error(
+        `You have already used coupon ${submittedCode} (limit: ${maxUsesPerUser} use${maxUsesPerUser > 1 ? "s" : ""} per customer).`
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  // 4. Calculate clamped discount amount
+  const baseEligible = Math.max(0, Number(eligibleAmount ?? subtotal ?? 0));
+  let couponDiscount = 0;
+  if (rawMatch.type === "percentage") {
+    const safePct = Math.min(90, Math.max(0, Number(rawMatch.value || 0)));
+    let rawDisc = (baseEligible * safePct) / 100;
+    const maxCap = Number(rawMatch.maxDiscountAmount || 0);
+    if (maxCap > 0) {
+      rawDisc = Math.min(rawDisc, maxCap);
+    }
+    couponDiscount = Number(Math.min(baseEligible, rawDisc).toFixed(2));
+  } else {
+    const safeFixed = Math.max(0, Number(rawMatch.value || 0));
+    couponDiscount = Number(Math.min(baseEligible, safeFixed).toFixed(2));
+  }
+
+  return {
+    valid: true,
+    couponDiscount,
+    validatedCouponCode: String(rawMatch.code).toUpperCase(),
+    coupon: rawMatch,
+  };
+}
 
 const DEFAULT_CART_RULES = {
   freeShippingEnabled: true,
@@ -235,50 +381,25 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
         )
       : 0;
 
-  // Authoritative Coupon validation
-  let couponDiscount = 0;
-  let validatedCouponCode = null;
-  const submittedCode = asSafeId(body.couponCode, 32).toUpperCase();
-  if (submittedCode) {
-    const customCoupons = Array.isArray(state.storeConfig?.coupons)
-      ? state.storeConfig.coupons
-      : [];
-    const customCodeSet = new Set(
-      customCoupons.map((c) => String(c?.code || "").toUpperCase())
-    );
-    const availableCoupons = [
-      ...customCoupons,
-      ...DEFAULT_COUPONS.filter(
-        (d) => !customCodeSet.has(String(d.code).toUpperCase())
-      ),
-    ];
-    const matchedCoupon = availableCoupons.find(
-      (c) => String(c.code || "").toUpperCase() === submittedCode && c.active !== false
-    );
-    const eligibleAmount = Math.max(0, authoritativeSubtotal - tieredDiscount);
-    if (!matchedCoupon) {
-      const err = new Error(`Invalid or expired coupon code: ${submittedCode}`);
-      err.statusCode = 400;
-      throw err;
-    }
-    if (eligibleAmount < Number(matchedCoupon.minOrder || 0)) {
-      const err = new Error(
-        `Order subtotal does not meet minimum requirement ($${matchedCoupon.minOrder}) for coupon ${submittedCode}.`
-      );
-      err.statusCode = 400;
-      throw err;
-    }
-    validatedCouponCode = matchedCoupon.code;
-    if (matchedCoupon.type === "percentage") {
-      couponDiscount = Number(
-        ((eligibleAmount * Number(matchedCoupon.value || 0)) / 100).toFixed(2)
-      );
-    } else {
-      couponDiscount = Number(
-        Math.min(eligibleAmount, Number(matchedCoupon.value || 0)).toFixed(2)
-      );
-    }
-  }
+  const resolvedUserUid =
+    caller?.uid || asSafeId(body.userUid || body.id, 128) || "guest";
+  const resolvedEmail = asSafeEmail(body.email) || caller?.email || "";
+  const rawBilling = body.billing && typeof body.billing === "object" ? body.billing : {};
+
+  // Authoritative Coupon validation (expiry, minOrder, per-user & global limits)
+  const eligibleAmount = Math.max(0, authoritativeSubtotal - tieredDiscount);
+  const {
+    couponDiscount,
+    validatedCouponCode,
+  } = validateCouponEligibility({
+    couponCode: body.couponCode,
+    subtotal: authoritativeSubtotal,
+    eligibleAmount,
+    state,
+    userUid: resolvedUserUid,
+    userEmail: resolvedEmail,
+    userPhone: rawBilling.phone || body.phone || "",
+  });
 
   // Authoritative Shipping calculation
   const shippingMethod = Object.prototype.hasOwnProperty.call(
@@ -313,13 +434,9 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
     ? body.paymentMethod
     : "bank-transfer";
 
-  const resolvedUserUid =
-    caller?.uid || asSafeId(body.userUid || body.id, 128) || "guest";
   const orderId =
     asSafeId(body.orderId, 64) ||
     (idempotencyKey ? `ORD-${idempotencyKey.slice(0, 24)}` : `ORD-${Date.now()}`);
-
-  const rawBilling = body.billing && typeof body.billing === "object" ? body.billing : {};
 
   return {
     orderId,
@@ -329,7 +446,7 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
     username: asSafeId(body.username || `${body.firstName || ""} ${body.lastName || ""}`.trim(), 120),
     firstName: asSafeId(body.firstName, 60),
     lastName: asSafeId(body.lastName, 60),
-    email: asSafeEmail(body.email) || caller?.email || "",
+    email: resolvedEmail,
     OrderItems: validatedItems,
     freeGifts: unlockedFreeGifts,
     subtotal: authoritativeSubtotal,

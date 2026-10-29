@@ -4,13 +4,14 @@ import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
 import { onUserChanged, saveLocalOrder } from "../../services/authSession";
 import toast, { Toaster } from "react-hot-toast";
-import { EmptyCart } from "../../slices/cartSlice";
+import { EmptyCart, removeCoupon } from "../../slices/cartSlice";
 import {
   SHIPPING_OPTIONS,
   computeCouponDiscount,
 } from "../cart/cartfirstTotalbox/CartFirstTotalBox";
 import {
   computeCartPromotions,
+  evaluateCouponClientEligibility,
   getStoredCartRules,
   initCartRulesSync,
   resolveCartItemPricing,
@@ -140,7 +141,8 @@ const BillingInformation = () => {
   const tieredDiscount = promotions.tieredDiscount;
   const discount = computeCouponDiscount(
     Math.max(0, subtotal - tieredDiscount),
-    appliedCoupon
+    appliedCoupon,
+    subtotal
   );
   const rawShippingCost =
     SHIPPING_OPTIONS.find((o) => o.id === shippingMethodId)?.price || 0;
@@ -172,6 +174,23 @@ const BillingInformation = () => {
       return;
     }
 
+    if (appliedCoupon) {
+      const couponCheck = evaluateCouponClientEligibility(appliedCoupon, {
+        subtotal,
+        eligibleAmount: Math.max(0, subtotal - tieredDiscount),
+        userUid: user.uid,
+        userEmail: email.trim() || user.email || "",
+        userPhone: phone.trim(),
+      });
+      if (!couponCheck.valid) {
+        dispatch(removeCoupon());
+        toast.error(
+          couponCheck.reason || "Applied coupon is no longer valid for this order."
+        );
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       const orderPayload = {
@@ -180,12 +199,13 @@ const BillingInformation = () => {
         lastName: lastName.trim(),
         email: email.trim(),
         id: user.uid,
+        userUid: user.uid,
         OrderItems: pricedOrderItems,
         freeGifts: promotions.unlockedFreeGifts || [],
         subtotal: Number(subtotal.toFixed(2)),
         tieredDiscount: Number(tieredDiscount.toFixed(2)),
         discount: Number(discount.toFixed(2)),
-        couponCode: appliedCoupon?.code || null,
+        couponCode: discount > 0 && appliedCoupon?.code ? appliedCoupon.code : null,
         shipping: shippingCost,
         freeShippingUnlocked: promotions.freeShippingUnlocked,
         shippingMethod: shippingMethodId,
@@ -218,25 +238,37 @@ const BillingInformation = () => {
         userUid: user.uid,
       };
 
-      saveLocalOrder(fullOrder);
-
+      let finalOrder = fullOrder;
       try {
         const res = await submitBackendOrder(fullOrder);
-        if (res?.data?.orderId) {
-          saveLocalOrder({
+        const serverOrder = res?.order || res?.data;
+        if (serverOrder?.orderId) {
+          finalOrder = {
             ...fullOrder,
-            ...res.data,
-            id: res.data.orderId,
-            orderId: res.data.orderId,
-          });
+            ...serverOrder,
+            id: serverOrder.orderId,
+            orderId: serverOrder.orderId,
+          };
         }
-      } catch {
-        // Saved locally above if offline
+      } catch (apiErr) {
+        const status = apiErr?.response?.status;
+        if (status && status >= 400 && status < 500) {
+          const errMsg =
+            apiErr?.response?.data?.error ||
+            "Order validation failed. Please review your cart.";
+          if (/coupon/i.test(errMsg)) {
+            dispatch(removeCoupon());
+          }
+          toast.error(errMsg);
+          return;
+        }
+        // Only fall back to local order saving when offline / network unreachable
       }
 
+      saveLocalOrder(finalOrder);
       dispatch(EmptyCart());
       toast.success("Order placed successfully!");
-      navigate(`/ordercomplete?orderId=${generatedOrderId}`);
+      navigate(`/ordercomplete?orderId=${finalOrder.orderId}`);
     } catch (error) {
       console.error("Error placing order: ", error);
       toast.error("Could not place your order. Please try again.");

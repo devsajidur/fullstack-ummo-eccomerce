@@ -812,6 +812,247 @@ test("Phase 5.4: Discount Timer Engine, Multi-Quantity Cart Addition & Per-Produ
   assert.equal(order.shipping, 0);
 });
 
+test("Phase 8: Coupon Anti-Abuse Engine blocks repeated single-user redemptions (by UID, Email, or Phone), enforces global limits, expiry dates, paused state, and max discount cap", async () => {
+  const mockState = createInitialMemoryState();
+  const futureIso = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+  const pastIso = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+
+  mockState.storeConfig.customProducts = [
+    {
+      id: "PROD-COUPON-1",
+      title: "Cashmere Coat",
+      price: 120,
+      discountPercentage: 0,
+      stock: 50,
+    },
+  ];
+  mockState.storeConfig.coupons = [
+    {
+      code: "ONCEONLY20",
+      type: "fixed",
+      value: 20,
+      minOrder: 50,
+      maxUsesPerUser: 1,
+      active: true,
+    },
+    {
+      code: "GLOBALCAP2",
+      type: "fixed",
+      value: 15,
+      minOrder: 50,
+      maxUsesPerUser: 1,
+      maxTotalUses: 2,
+      active: true,
+    },
+    {
+      code: "EXPIREDCODE",
+      type: "percentage",
+      value: 20,
+      minOrder: 30,
+      expiresAt: pastIso,
+      active: true,
+    },
+    {
+      code: "PAUSEDCODE",
+      type: "percentage",
+      value: 20,
+      minOrder: 30,
+      active: false,
+    },
+    {
+      code: "CAPPED50",
+      type: "percentage",
+      value: 50,
+      minOrder: 50,
+      maxDiscountAmount: 25,
+      expiresAt: futureIso,
+      active: true,
+    },
+  ];
+
+  // 1. First order by Customer 1 with ONCEONLY20 succeeds
+  const order1 = validateAndBuildServerOrder(
+    {
+      userUid: "cust-repeat-1",
+      email: "repeat@ummo.test",
+      billing: { phone: "+8801711223344" },
+      couponCode: "ONCEONLY20",
+      OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+    },
+    mockState,
+    { uid: "cust-repeat-1", email: "repeat@ummo.test", isAdmin: false }
+  );
+  assert.equal(order1.discount, 20);
+  assert.equal(order1.couponCode, "ONCEONLY20");
+  mockState.orders.push(order1);
+
+  // 2. Second attempt by same userUid is blocked!
+  assert.throws(
+    () =>
+      validateAndBuildServerOrder(
+        {
+          userUid: "cust-repeat-1",
+          email: "different@ummo.test",
+          billing: { phone: "+8801999888777" },
+          couponCode: "ONCEONLY20",
+          OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+        },
+        mockState,
+        { uid: "cust-repeat-1", email: "different@ummo.test", isAdmin: false }
+      ),
+    (err) => err.statusCode === 400 && /already used coupon ONCEONLY20/i.test(err.message)
+  );
+
+  // 3. Second attempt with different UID but same Email is blocked!
+  assert.throws(
+    () =>
+      validateAndBuildServerOrder(
+        {
+          userUid: "cust-spoof-uid",
+          email: "REPEAT@ummo.test",
+          billing: { phone: "+8801999000111" },
+          couponCode: "ONCEONLY20",
+          OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+        },
+        mockState,
+        { uid: "cust-spoof-uid", email: "repeat@ummo.test", isAdmin: false }
+      ),
+    (err) => err.statusCode === 400 && /already used coupon ONCEONLY20/i.test(err.message)
+  );
+
+  // 4. Second attempt with different UID and different Email but same Phone is blocked!
+  assert.throws(
+    () =>
+      validateAndBuildServerOrder(
+        {
+          userUid: "cust-spoof-uid-2",
+          email: "brandnew@ummo.test",
+          billing: { phone: "880-1711-223344" },
+          couponCode: "ONCEONLY20",
+          OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+        },
+        mockState,
+        { uid: "cust-spoof-uid-2", email: "brandnew@ummo.test", isAdmin: false }
+      ),
+    (err) => err.statusCode === 400 && /already used coupon ONCEONLY20/i.test(err.message)
+  );
+
+  // 5. If the previous order is CANCELLED, the customer can redeem ONCEONLY20 again!
+  order1.status = "CANCELLED";
+  const orderAfterCancel = validateAndBuildServerOrder(
+    {
+      userUid: "cust-repeat-1",
+      email: "repeat@ummo.test",
+      billing: { phone: "+8801711223344" },
+      couponCode: "ONCEONLY20",
+      OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+    },
+    mockState,
+    { uid: "cust-repeat-1", email: "repeat@ummo.test", isAdmin: false }
+  );
+  assert.equal(orderAfterCancel.discount, 20);
+
+  // 6. Global usage limit (maxTotalUses: 2) blocks the 3rd customer across the store
+  const g1 = validateAndBuildServerOrder(
+    {
+      userUid: "u-global-1",
+      email: "g1@ummo.test",
+      couponCode: "GLOBALCAP2",
+      OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+    },
+    mockState,
+    { uid: "u-global-1", email: "g1@ummo.test", isAdmin: false }
+  );
+  mockState.orders.push(g1);
+
+  const g2 = validateAndBuildServerOrder(
+    {
+      userUid: "u-global-2",
+      email: "g2@ummo.test",
+      couponCode: "GLOBALCAP2",
+      OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+    },
+    mockState,
+    { uid: "u-global-2", email: "g2@ummo.test", isAdmin: false }
+  );
+  mockState.orders.push(g2);
+
+  assert.throws(
+    () =>
+      validateAndBuildServerOrder(
+        {
+          userUid: "u-global-3",
+          email: "g3@ummo.test",
+          couponCode: "GLOBALCAP2",
+          OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+        },
+        mockState,
+        { uid: "u-global-3", email: "g3@ummo.test", isAdmin: false }
+      ),
+    (err) => err.statusCode === 400 && /maximum redemption limit/i.test(err.message)
+  );
+
+  // 7. Expired coupon & Paused coupon are rejected
+  assert.throws(
+    () =>
+      validateAndBuildServerOrder(
+        {
+          userUid: "u-exp",
+          email: "exp@ummo.test",
+          couponCode: "EXPIREDCODE",
+          OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+        },
+        mockState,
+        { uid: "u-exp", email: "exp@ummo.test", isAdmin: false }
+      ),
+    (err) => err.statusCode === 400 && /expired/i.test(err.message)
+  );
+
+  assert.throws(
+    () =>
+      validateAndBuildServerOrder(
+        {
+          userUid: "u-pause",
+          email: "pause@ummo.test",
+          couponCode: "PAUSEDCODE",
+          OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+        },
+        mockState,
+        { uid: "u-pause", email: "pause@ummo.test", isAdmin: false }
+      ),
+    (err) => err.statusCode === 400 && /inactive/i.test(err.message)
+  );
+
+  // 8. Max discount cap ($25 cap on 50% off $120 item -> $25 instead of $60)
+  const cappedOrder = validateAndBuildServerOrder(
+    {
+      userUid: "u-cap",
+      email: "cap@ummo.test",
+      couponCode: "CAPPED50",
+      OrderItems: [{ id: "PROD-COUPON-1", quantity: 1, price: 120 }],
+    },
+    mockState,
+    { uid: "u-cap", email: "cap@ummo.test", isAdmin: false }
+  );
+  assert.equal(cappedOrder.discount, 25);
+
+  // 9. Verify POST /api/v1/coupons/validate endpoint
+  const { req, res } = createMockReqRes({
+    method: "POST",
+    url: "/api/v1/coupons/validate",
+    headers: { "x-user-uid": "u-validate-test", "x-user-email": "val@ummo.test" },
+    body: {
+      couponCode: "WELCOME10",
+      subtotal: 100,
+      eligibleAmount: 100,
+    },
+  });
+  await handler(req, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json.valid, true);
+  assert.equal(res.json.couponDiscount, 10);
+});
+
 test.after(async () => {
   await closeMongoConnection();
 });

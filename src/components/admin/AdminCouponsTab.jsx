@@ -5,12 +5,15 @@ import {
   DEFAULT_CART_RULES,
   getStoredCartRules,
   initCartRulesSync,
+  isCouponExpired,
   saveStoredCartRules,
 } from "../../utils/cartPromotions";
 
 export default function AdminCouponsTab({
   coupons,
+  orders = [],
   onCreateCoupon,
+  onToggleCoupon,
   onDeleteCoupon,
 }) {
   const [couponForm, setCouponForm] = useState({
@@ -18,6 +21,10 @@ export default function AdminCouponsTab({
     type: "percentage",
     value: "",
     minOrder: "50",
+    maxUsesPerUser: "1",
+    maxTotalUses: "",
+    maxDiscountAmount: "",
+    expiresAt: "",
     description: "",
   });
 
@@ -39,6 +46,10 @@ export default function AdminCouponsTab({
       type: "percentage",
       value: "",
       minOrder: "50",
+      maxUsesPerUser: "1",
+      maxTotalUses: "",
+      maxDiscountAmount: "",
+      expiresAt: "",
       description: "",
     });
   }
@@ -313,15 +324,88 @@ export default function AdminCouponsTab({
                 />
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Min Order ($)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={couponForm.minOrder}
+                  onChange={(e) =>
+                    setCouponForm({ ...couponForm, minOrder: e.target.value })
+                  }
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Limit / Customer
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={couponForm.maxUsesPerUser}
+                  onChange={(e) =>
+                    setCouponForm({
+                      ...couponForm,
+                      maxUsesPerUser: e.target.value,
+                    })
+                  }
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  title="Maximum times a single customer can redeem this coupon"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Global Max Uses
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Unlimited"
+                  value={couponForm.maxTotalUses}
+                  onChange={(e) =>
+                    setCouponForm({
+                      ...couponForm,
+                      maxTotalUses: e.target.value,
+                    })
+                  }
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Max Cap ($)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Optional"
+                  value={couponForm.maxDiscountAmount}
+                  onChange={(e) =>
+                    setCouponForm({
+                      ...couponForm,
+                      maxDiscountAmount: e.target.value,
+                    })
+                  }
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                />
+              </div>
+            </div>
             <div>
               <label className="block font-semibold text-gray-700 mb-1">
-                Minimum Order Subtotal ($)
+                Expiration Date (Optional)
               </label>
               <input
-                type="number"
-                value={couponForm.minOrder}
+                type="datetime-local"
+                value={couponForm.expiresAt}
                 onChange={(e) =>
-                  setCouponForm({ ...couponForm, minOrder: e.target.value })
+                  setCouponForm({ ...couponForm, expiresAt: e.target.value })
                 }
                 className="w-full border border-gray-300 rounded px-3 py-2"
               />
@@ -332,7 +416,7 @@ export default function AdminCouponsTab({
               </label>
               <input
                 type="text"
-                placeholder="e.g. 30% off summer collection"
+                placeholder="e.g. 30% off summer collection (1x per user)"
                 value={couponForm.description}
                 onChange={(e) =>
                   setCouponForm({ ...couponForm, description: e.target.value })
@@ -352,38 +436,97 @@ export default function AdminCouponsTab({
         {/* Active Coupons List */}
         <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-6 shadow-xs">
           <h3 className="text-sm font-bold uppercase tracking-wider text-gray-900 mb-4">
-            Active Storefront Coupons ({coupons.length})
+            Storefront Coupons & Anti-Abuse Limits ({coupons.length})
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {coupons.map((cp) => (
-              <div
-                key={cp.code}
-                className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex items-start justify-between"
-              >
-                <div>
-                  <span className="font-mono text-sm font-bold bg-gray-900 text-white px-2.5 py-1 rounded">
-                    {cp.code}
-                  </span>
-                  <p className="text-xs font-semibold text-gray-800 mt-2">
-                    {cp.type === "percentage"
-                      ? `${cp.value}% OFF`
-                      : `$${cp.value} FLAT OFF`}{" "}
-                    (Min. Order ${cp.minOrder || 0})
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {cp.description}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onDeleteCoupon(cp.code)}
-                  className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
-                  title="Delete Coupon"
+            {coupons.map((cp) => {
+              const codeUpper = String(cp.code || "").toUpperCase();
+              const usedCount = (Array.isArray(orders) ? orders : []).filter(
+                (o) =>
+                  String(o?.status || "").toUpperCase() !== "CANCELLED" &&
+                  String(o?.couponCode || "").toUpperCase() === codeUpper
+              ).length;
+              const isExpired = isCouponExpired(cp);
+              const isActive = cp.active !== false && !isExpired;
+              const perUserLimit = Math.max(1, Number(cp.maxUsesPerUser ?? 1));
+
+              return (
+                <div
+                  key={cp.code}
+                  className={`border-2 border-dashed rounded-lg p-4 flex items-start justify-between ${
+                    isActive
+                      ? "border-gray-300 bg-white"
+                      : "border-gray-200 bg-gray-50 opacity-75"
+                  }`}
                 >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            ))}
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-mono text-sm font-bold bg-gray-900 text-white px-2.5 py-1 rounded">
+                        {cp.code}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                          isExpired
+                            ? "bg-red-100 text-red-700"
+                            : cp.active !== false
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        {isExpired
+                          ? "Expired"
+                          : cp.active !== false
+                            ? "Active"
+                            : "Paused"}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-gray-800 mt-1.5">
+                      {cp.type === "percentage"
+                        ? `${cp.value}% OFF`
+                        : `$${cp.value} FLAT OFF`}{" "}
+                      (Min. ${cp.minOrder || 0}
+                      {Number(cp.maxDiscountAmount || 0) > 0
+                        ? ` • Cap $${cp.maxDiscountAmount}`
+                        : ""}
+                      )
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium text-gray-600">
+                      <span className="bg-gray-100 px-2 py-0.5 rounded">
+                        Limit: {perUserLimit}× / customer
+                      </span>
+                      <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded">
+                        Used: {usedCount}
+                        {Number(cp.maxTotalUses || 0) > 0
+                          ? ` / ${cp.maxTotalUses}`
+                          : "×"}
+                      </span>
+                    </div>
+                    {cp.description && (
+                      <p className="text-xs text-gray-500">{cp.description}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    {typeof onToggleCoupon === "function" && (
+                      <button
+                        type="button"
+                        onClick={() => onToggleCoupon(cp.code)}
+                        className="text-[11px] font-semibold px-2 py-1 rounded border border-gray-300 hover:bg-gray-100 cursor-pointer"
+                      >
+                        {cp.active !== false ? "Pause" : "Activate"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onDeleteCoupon(cp.code)}
+                      className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                      title="Delete Coupon"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
