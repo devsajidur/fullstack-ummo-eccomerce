@@ -172,6 +172,19 @@ const DiscountsPage = () => {
           </span>
         </nav>
 
+        {/* Department Quick Switcher Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 no-scrollbar">
+          {departments.map((dept) => (
+            <Link
+              key={dept.slug}
+              to={`/category/${dept.slug}`}
+              className="px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+            >
+              {lang === "bn" ? dept.nameBn : dept.name}
+            </Link>
+          ))}
+        </div>
+
         {/* Hero Banner */}
         <div className="rounded-2xl bg-gradient-to-r from-[#111827] via-[#1f2937] to-[#7f1d1d] text-white p-5 sm:p-8 md:p-10 mb-6 shadow-md">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -402,7 +415,11 @@ const DiscountsPage = () => {
                       productTitle={product.title}
                       productPrice={product.price}
                       discountBadge={product.discountPercentage}
-                      priority={idx < 2}
+                      priority={
+                        idx === 0 &&
+                        typeof window !== "undefined" &&
+                        window.innerWidth >= 768
+                      }
                     />
                   ))}
                 </div>

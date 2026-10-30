@@ -72,7 +72,7 @@ export const TRANSLATIONS = {
     "product.tags": "Tags",
 
     // Discounts & Category Browsing
-    "discounts.heroTitle": "Today's Best Deals & Discounts",
+    "discounts.heroTitle": "Today's Best Deals, Flash Sales & Discounts",
     "discounts.heroSubtitle": "Verified markdowns across Men, Women, Kids, Beauty, Electronics & Lifestyle collections.",
     "discounts.bestDealsTitle": "Best Deals for You",
     "discounts.bestDealsSubtitle": "Handpicked limited-time savings — real prices, verified stock",

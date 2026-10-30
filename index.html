@@ -28,30 +28,33 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=optional"
+      href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=optional"
       media="print"
       onload="this.media='all'"
     />
     <noscript>
       <link
         rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=optional"
+        href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=optional"
       />
     </noscript>
     <script>
       (function () {
         try {
           var p = window.location.pathname || "/";
+          var isMob = window.innerWidth < 768;
           var base = "https://res.cloudinary.com/wxjt7d8q/image/upload/f_auto,q_auto,";
           var urls = [];
           if (p === "/" || p === "/index.html") {
-            urls.push(base + "w_720,c_limit/ummo_banners/SLIDER");
-            urls.push(base + "w_480,c_limit/ummo_banners/category1");
+            if (isMob) {
+              urls.push("/images/category1.webp");
+            } else {
+              urls.push("/images/slider-hero.webp");
+            }
           } else if (p === "/shop") {
-            urls.push(base + "w_960,c_limit/ummo_banners/shopBanner");
-          } else if (p === "/discounts") {
-            urls.push(base + "w_280,c_limit/ummo_products/product_6");
-            urls.push(base + "w_280,c_limit/ummo_products/product_190");
+            urls.push("/images/shop-banner.webp");
+          } else if (!isMob && p === "/discounts") {
+            urls.push(base + "w_280,c_limit/ummo_products/product_124");
           } else if (p.indexOf("/shop/") === 0) {
             var id = p.split("/")[2];
             if (id && /^\d+$/.test(id)) {

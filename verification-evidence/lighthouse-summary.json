@@ -1,5 +1,5 @@
 {
-  "executedAt": "2026-10-30T09:51:00.733Z",
+  "executedAt": "2026-10-30T13:06:46.473Z",
   "lighthouseVersion": "13.6.0",
   "baseUrl": "http://localhost:4173",
   "results": [
@@ -9,17 +9,17 @@
       "mode": "mobile",
       "reportFile": "verification-evidence/lighthouse/lh-home-mobile.json",
       "scores": {
-        "performance": 91,
-        "accessibility": 96,
+        "performance": 96,
+        "accessibility": 100,
         "bestPractices": 100,
         "seo": 100
       },
       "metrics": {
         "fcp": "1.1 s",
-        "lcp": "2.9 s",
-        "tbt": "230 ms",
+        "lcp": "2.5 s",
+        "tbt": "130 ms",
         "cls": "0",
-        "si": "1.3 s"
+        "si": "1.2 s"
       }
     },
     {
@@ -29,16 +29,16 @@
       "reportFile": "verification-evidence/lighthouse/lh-home-desktop.json",
       "scores": {
         "performance": 100,
-        "accessibility": 96,
+        "accessibility": 100,
         "bestPractices": 100,
         "seo": 100
       },
       "metrics": {
         "fcp": "0.3 s",
-        "lcp": "0.7 s",
-        "tbt": "10 ms",
-        "cls": "0.002",
-        "si": "0.5 s"
+        "lcp": "0.6 s",
+        "tbt": "0 ms",
+        "cls": "0.011",
+        "si": "0.4 s"
       }
     },
     {
@@ -47,17 +47,17 @@
       "mode": "mobile",
       "reportFile": "verification-evidence/lighthouse/lh-shop-mobile.json",
       "scores": {
-        "performance": 95,
+        "performance": 90,
         "accessibility": 100,
         "bestPractices": 100,
         "seo": 100
       },
       "metrics": {
         "fcp": "1.1 s",
-        "lcp": "2.9 s",
-        "tbt": "80 ms",
-        "cls": "0",
-        "si": "1.3 s"
+        "lcp": "3.1 s",
+        "tbt": "230 ms",
+        "cls": "0.001",
+        "si": "1.2 s"
       }
     },
     {
@@ -73,10 +73,10 @@
       },
       "metrics": {
         "fcp": "0.3 s",
-        "lcp": "0.7 s",
-        "tbt": "30 ms",
-        "cls": "0",
-        "si": "0.6 s"
+        "lcp": "0.6 s",
+        "tbt": "50 ms",
+        "cls": "0.003",
+        "si": "0.5 s"
       }
     },
     {
@@ -85,7 +85,7 @@
       "mode": "mobile",
       "reportFile": "verification-evidence/lighthouse/lh-category-women-mobile.json",
       "scores": {
-        "performance": 99,
+        "performance": 96,
         "accessibility": 100,
         "bestPractices": 100,
         "seo": 100
@@ -93,9 +93,9 @@
       "metrics": {
         "fcp": "1.1 s",
         "lcp": "1.1 s",
-        "tbt": "110 ms",
-        "cls": "0",
-        "si": "1.1 s"
+        "tbt": "230 ms",
+        "cls": "0.001",
+        "si": "1.2 s"
       }
     },
     {
@@ -111,9 +111,9 @@
       },
       "metrics": {
         "fcp": "0.3 s",
-        "lcp": "0.7 s",
+        "lcp": "0.8 s",
         "tbt": "0 ms",
-        "cls": "0",
+        "cls": "0.003",
         "si": "0.4 s"
       }
     },
@@ -123,17 +123,17 @@
       "mode": "mobile",
       "reportFile": "verification-evidence/lighthouse/lh-discounts-mobile.json",
       "scores": {
-        "performance": 92,
+        "performance": 94,
         "accessibility": 100,
         "bestPractices": 100,
         "seo": 100
       },
       "metrics": {
         "fcp": "1.1 s",
-        "lcp": "3.1 s",
-        "tbt": "130 ms",
-        "cls": "0.04",
-        "si": "1.1 s"
+        "lcp": "1.1 s",
+        "tbt": "270 ms",
+        "cls": "0.001",
+        "si": "1.2 s"
       }
     },
     {
@@ -142,16 +142,16 @@
       "mode": "desktop",
       "reportFile": "verification-evidence/lighthouse/lh-discounts-desktop.json",
       "scores": {
-        "performance": 95,
+        "performance": 100,
         "accessibility": 100,
         "bestPractices": 100,
         "seo": 100
       },
       "metrics": {
         "fcp": "0.3 s",
-        "lcp": "0.7 s",
-        "tbt": "0 ms",
-        "cls": "0.129",
+        "lcp": "0.3 s",
+        "tbt": "10 ms",
+        "cls": "0.003",
         "si": "0.4 s"
       }
     },
@@ -161,17 +161,17 @@
       "mode": "mobile",
       "reportFile": "verification-evidence/lighthouse/lh-product-1-mobile.json",
       "scores": {
-        "performance": 95,
+        "performance": 86,
         "accessibility": 100,
         "bestPractices": 100,
         "seo": 100
       },
       "metrics": {
         "fcp": "1.1 s",
-        "lcp": "2.7 s",
-        "tbt": "130 ms",
-        "cls": "0",
-        "si": "1.2 s"
+        "lcp": "3.0 s",
+        "tbt": "350 ms",
+        "cls": "0.001",
+        "si": "1.8 s"
       }
     },
     {
@@ -180,16 +180,16 @@
       "mode": "desktop",
       "reportFile": "verification-evidence/lighthouse/lh-product-1-desktop.json",
       "scores": {
-        "performance": 99,
+        "performance": 100,
         "accessibility": 100,
         "bestPractices": 100,
         "seo": 100
       },
       "metrics": {
         "fcp": "0.3 s",
-        "lcp": "0.9 s",
-        "tbt": "10 ms",
-        "cls": "0",
+        "lcp": "0.6 s",
+        "tbt": "0 ms",
+        "cls": "0.003",
         "si": "0.5 s"
       }
     }

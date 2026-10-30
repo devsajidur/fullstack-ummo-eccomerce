@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-10-30T09:54:50.237Z",
+  "startedAt": "2026-10-30T13:09:38.420Z",
   "baseUrl": "http://localhost:4173",
   "browser": "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   "viewportMatrix": [
@@ -12,6 +12,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -23,6 +25,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -34,6 +38,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -45,6 +51,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -55,7 +63,9 @@
       "innerWidth": 320,
       "hasOverflow": false,
       "adminLinksCount": 0,
-      "countdownCount": 0,
+      "countdownCount": 1,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -67,6 +77,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -78,6 +90,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -89,6 +103,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -100,6 +116,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -110,7 +128,9 @@
       "innerWidth": 360,
       "hasOverflow": false,
       "adminLinksCount": 0,
-      "countdownCount": 0,
+      "countdownCount": 1,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -122,6 +142,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -133,6 +155,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -144,6 +168,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -155,6 +181,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -165,7 +193,9 @@
       "innerWidth": 390,
       "hasOverflow": false,
       "adminLinksCount": 0,
-      "countdownCount": 0,
+      "countdownCount": 1,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -177,6 +207,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -188,6 +220,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -199,6 +233,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -210,6 +246,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -220,7 +258,9 @@
       "innerWidth": 412,
       "hasOverflow": false,
       "adminLinksCount": 0,
-      "countdownCount": 0,
+      "countdownCount": 1,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -232,6 +272,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -243,6 +285,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -254,6 +298,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -265,6 +311,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -275,7 +323,9 @@
       "innerWidth": 768,
       "hasOverflow": false,
       "adminLinksCount": 0,
-      "countdownCount": 0,
+      "countdownCount": 1,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -287,6 +337,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -298,6 +350,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -309,6 +363,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -320,6 +376,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -330,7 +388,9 @@
       "innerWidth": 1024,
       "hasOverflow": false,
       "adminLinksCount": 0,
-      "countdownCount": 0,
+      "countdownCount": 1,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -342,6 +402,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -353,6 +415,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -364,6 +428,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -375,6 +441,8 @@
       "hasOverflow": false,
       "adminLinksCount": 0,
       "countdownCount": 0,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     },
     {
@@ -385,22 +453,24 @@
       "innerWidth": 1440,
       "hasOverflow": false,
       "adminLinksCount": 0,
-      "countdownCount": 0,
+      "countdownCount": 1,
+      "cardTimerOrSaveLeaks": 0,
+      "discountedCardsValid": true,
       "langAttr": "en"
     }
   ],
   "bilingualChecks": [],
   "customerJourney": {
-    "orderId": "ORD-1793354146690",
+    "orderId": "ORD-1793365839596",
     "optionalMessageVerified": true,
     "sandboxSimulatorHiddenByDefault": true,
     "profileZeroAdminLinks": true
   },
   "adminSecurityAndMobileOps": {},
   "consoleErrors": [],
-  "assertionsPassed": 121,
+  "assertionsPassed": 134,
   "assertionsFailed": 0,
   "failures": [],
-  "completedAt": "2026-10-30T09:56:20.688Z",
+  "completedAt": "2026-10-30T13:11:17.927Z",
   "traceArchive": "C:\\Users\\User\\.gemini\\antigravity\\scratch\\Ummo-Ecommerce\\verification-evidence\\traces\\ummo-e2e-verification-trace.zip"
 }

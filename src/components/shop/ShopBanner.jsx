@@ -51,17 +51,18 @@ const ShopBanner = () => {
     dispatch(setShopOptions({ category: tab.category }));
   }
 
+  const isMobileViewport =
+    typeof window !== "undefined" && window.innerWidth < 768;
+  const bannerWidth = isMobileViewport ? 480 : 960;
+
   return (
     <div>
       <div className="2xl:px-5 relative overflow-hidden">
         <Image
           className="w-full h-[180px] sm:h-[240px] lg:h-[280px] object-cover"
-          src={
-            shopHeader.image ||
-            "https://res.cloudinary.com/wxjt7d8q/image/upload/f_auto,q_auto,w_960,c_limit/ummo_banners/shopBanner"
-          }
+          src={shopHeader.image || "/images/shop-banner.webp"}
           alt={shopHeader.title || "Shop Banner"}
-          width={960}
+          width={bannerWidth}
           height={280}
           loading="eager"
           fetchPriority="high"

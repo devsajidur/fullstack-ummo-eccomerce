@@ -110,7 +110,7 @@ export const DEFAULT_BANNERS = {
       subtitle: "",
       ctaText: "",
       ctaLink: "/shop",
-      image: getCloudinaryBannerUrl("SLIDER"),
+      image: "/images/slider-hero.webp",
     },
     {
       id: 2,
@@ -192,7 +192,7 @@ function getCatalogCacheKey() {
     const cp = localStorage.getItem("ummo_admin_custom_products") || "";
     const del = localStorage.getItem("ummo_admin_deleted_ids") || "";
     const camp = localStorage.getItem("ummo_admin_discount_campaigns") || "";
-    const tax = localStorage.getItem("ummo_custom_taxonomy_v1") || "";
+    const tax = localStorage.getItem("ummo_admin_custom_taxonomy_v1") || "";
     return `${cp.length}:${del.length}:${camp.length}:${tax.length}:${cp.slice(0, 64)}:${camp.slice(0, 64)}`;
   } catch {
     return "default";
@@ -456,21 +456,31 @@ export function applyRemoteStoreConfig(val) {
   if (Array.isArray(val.discountCampaigns)) {
     const nextJson = JSON.stringify(val.discountCampaigns);
     const prevJson = localStorage.getItem("ummo_admin_discount_campaigns");
+    const baselineJson = prevJson ?? JSON.stringify(DEFAULT_DISCOUNT_CAMPAIGNS);
     if (prevJson !== nextJson) {
       localStorage.setItem("ummo_admin_discount_campaigns", nextJson);
-      window.dispatchEvent(
-        new CustomEvent("ummo:discount-campaigns-updated", {
-          detail: val.discountCampaigns,
-        })
-      );
-      catalogChanged = true;
+      if (baselineJson !== nextJson) {
+        window.dispatchEvent(
+          new CustomEvent("ummo:discount-campaigns-updated", {
+            detail: val.discountCampaigns,
+          })
+        );
+        catalogChanged = true;
+      }
     }
   }
   if (val.customTaxonomy && typeof val.customTaxonomy === "object") {
     const nextJson = JSON.stringify(val.customTaxonomy);
-    if (localStorage.getItem("ummo_custom_taxonomy_v1") !== nextJson) {
+    const prevTaxJson = localStorage.getItem("ummo_admin_custom_taxonomy_v1");
+    if (prevTaxJson !== nextJson) {
       saveCustomTaxonomyOverrides(val.customTaxonomy);
-      catalogChanged = true;
+      if (
+        prevTaxJson !== null ||
+        (typeof window !== "undefined" &&
+          window.location?.pathname?.startsWith("/admin"))
+      ) {
+        catalogChanged = true;
+      }
     }
   }
   if (catalogChanged) {
@@ -576,32 +586,40 @@ export function initStoreConfigSync(onCatalogChanged) {
   }
 
   if (!storeConfigSyncPromise) {
-    storeConfigSyncPromise = apiClient
-      .get("/store-data")
-      .then((res) => {
-        applyRemoteStoreConfig(res.data?.storeConfig);
-        if (Array.isArray(res.data?.orders)) {
-          try {
-            localStorage.setItem(
-              "ummo_synced_user_orders",
-              JSON.stringify(res.data.orders)
-            );
-            window.dispatchEvent(
-              new CustomEvent("ummo:orders-synced", { detail: res.data.orders })
-            );
-          } catch {
-            // ignore
+    const isAdminRoute =
+      typeof window !== "undefined" &&
+      window.location?.pathname?.startsWith("/admin");
+    const runSync = () =>
+      apiClient
+        .get("/store-data")
+        .then((res) => {
+          applyRemoteStoreConfig(res.data?.storeConfig);
+          if (Array.isArray(res.data?.orders)) {
+            try {
+              localStorage.setItem(
+                "ummo_synced_user_orders",
+                JSON.stringify(res.data.orders)
+              );
+              window.dispatchEvent(
+                new CustomEvent("ummo:orders-synced", {
+                  detail: res.data.orders,
+                })
+              );
+            } catch {
+              // ignore
+            }
           }
-        }
-        return res.data;
-      })
-      .catch(() => null);
-  } else if (typeof onCatalogChanged === "function" && cachedBaseProducts) {
-    storeConfigSyncPromise.then(() => {
-      if (cachedBaseProducts) {
-        onCatalogChanged(mergeWithAdminCatalog(cachedBaseProducts));
-      }
-    });
+          return res.data;
+        })
+        .catch(() => null);
+
+    storeConfigSyncPromise = isAdminRoute
+      ? runSync()
+      : new Promise((resolve) => {
+          setTimeout(() => {
+            runSync().then(resolve);
+          }, 2200);
+        });
   }
 
   return () => {

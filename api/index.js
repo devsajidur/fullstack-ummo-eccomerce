@@ -13,17 +13,18 @@ import {
   asSafeEmail,
   asSafeId,
   canAccessUser,
-  checkAdminLoginRateLimit,
-  clearAdminLoginFailures,
+  checkAdminLoginRateLimitDurable,
+  clearAdminLoginFailuresDurable,
   createAdminSessionToken,
   isSandboxPaymentSimulationEnabled,
   MASTER_ADMIN_EMAIL,
   MASTER_ADMIN_UID,
   parseJsonBody,
-  recordAdminLoginFailure,
+  recordAdminLoginFailureDurable,
   resolveCaller,
-  revokeAdminSessionToken,
+  revokeAdminSessionTokenDurable,
   sendJson,
+  syncSecurityGuardFromDb,
   verifyAdminPasswordCredentials,
 } from "./security.js";
 import {
@@ -95,6 +96,18 @@ export default async function handler(req, res) {
       });
     }
 
+    // Synchronize durable session revocations & login rate limits across Vercel serverless instances
+    const hasAdminAuthHeader = Boolean(
+      req.headers?.["x-admin-token"] ||
+        req.headers?.["X-Admin-Token"] ||
+        req.headers?.authorization ||
+        path.startsWith("/admin")
+    );
+    const securityDb = hasAdminAuthHeader ? await getMongoDb() : null;
+    if (securityDb) {
+      await syncSecurityGuardFromDb(securityDb);
+    }
+
     // 1b. Dedicated Administrator Authentication, Rate Limiting, Session Verification & Revocation
     if (path === "/admin/login") {
       if (method !== "POST") {
@@ -121,7 +134,10 @@ export default async function handler(req, res) {
           .split(",")[0]
           .trim() || "local";
       const rateLimitKey = `${clientIp}::${email}`;
-      const rateStatus = checkAdminLoginRateLimit(rateLimitKey);
+      const rateStatus = await checkAdminLoginRateLimitDurable(
+        rateLimitKey,
+        securityDb
+      );
       if (!rateStatus.allowed) {
         res.setHeader("Retry-After", String(rateStatus.retryAfterSeconds));
         return sendJson(req, res, 429, {
@@ -137,7 +153,7 @@ export default async function handler(req, res) {
       );
 
       if (!isMasterValid) {
-        recordAdminLoginFailure(rateLimitKey);
+        await recordAdminLoginFailureDurable(rateLimitKey, securityDb);
         if (matchingDbUser && matchingDbUser.role !== "ADMIN") {
           return sendJson(req, res, 403, {
             error:
@@ -149,7 +165,7 @@ export default async function handler(req, res) {
         });
       }
 
-      clearAdminLoginFailures(rateLimitKey);
+      await clearAdminLoginFailuresDurable(rateLimitKey, securityDb);
 
       const adminUser = {
         uid: matchingDbUser?.uid || MASTER_ADMIN_UID,
@@ -180,7 +196,10 @@ export default async function handler(req, res) {
         (String(req.headers?.authorization || "").startsWith("Bearer ")
           ? String(req.headers.authorization).slice(7).trim()
           : "");
-      const revoked = revokeAdminSessionToken(String(tokenHeader || ""));
+      const revoked = await revokeAdminSessionTokenDurable(
+        String(tokenHeader || ""),
+        securityDb
+      );
       return sendJson(req, res, 200, {
         status: "ok",
         revoked,

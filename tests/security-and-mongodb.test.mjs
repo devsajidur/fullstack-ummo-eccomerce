@@ -15,6 +15,7 @@ import {
   canAccessUser,
   containsNoSqlOperator,
   createAdminSessionToken,
+  evictLocalSecurityCacheForTest,
   isSandboxPaymentSimulationEnabled,
   MASTER_ADMIN_EMAIL,
   MASTER_ADMIN_UID,
@@ -1732,6 +1733,86 @@ test("Gates 6, 7, 8 & 10: Discount Engine Scheduled Start/End Windows & Bilingua
     bnKeys.sort(),
     "English and Bangla translation dictionaries must have 100% key parity"
   );
+});
+
+test("Pre-Merge Correction Gate #2: Multi-Instance Vercel Serverless Durable Session Revocation & Login Rate Limiting", async () => {
+  const db = await getMongoDb();
+  await resetAdminRateLimitsForTest(db);
+
+  // 1. Issue an admin session token on Instance A
+  const token = createAdminSessionToken({
+    uid: MASTER_ADMIN_UID,
+    email: MASTER_ADMIN_EMAIL,
+    role: "ADMIN",
+  });
+
+  // Verify token is valid on Instance A
+  const sessionOk = createMockReqRes({
+    method: "GET",
+    url: "/api/v1/admin/session",
+    headers: { "x-admin-token": token },
+  });
+  await handler(sessionOk.req, sessionOk.res);
+  assert.equal(sessionOk.res.statusCode, 200);
+
+  // 2. Revoke token via /api/v1/admin/logout on Instance A (persisted to MongoDB security_guard)
+  const logoutCall = createMockReqRes({
+    method: "POST",
+    url: "/api/v1/admin/logout",
+    headers: { "x-admin-token": token },
+  });
+  await handler(logoutCall.req, logoutCall.res);
+  assert.equal(logoutCall.res.statusCode, 200);
+  assert.equal(logoutCall.res.json.revoked, true);
+
+  // 3. Simulate a cold start on a separate Vercel serverless Instance B by wiping all process-local Maps
+  evictLocalSecurityCacheForTest();
+
+  // 4. Attempt to use the revoked token on Instance B -> must be rejected with HTTP 401 via MongoDB sync
+  const sessionAfterColdStart = createMockReqRes({
+    method: "GET",
+    url: "/api/v1/admin/session",
+    headers: { "x-admin-token": token },
+  });
+  await handler(sessionAfterColdStart.req, sessionAfterColdStart.res);
+  assert.equal(
+    sessionAfterColdStart.res.statusCode,
+    401,
+    "Revoked admin token must remain rejected (401) across serverless instance cold starts"
+  );
+
+  // 5. Simulate brute-force login attempts distributed across multiple serverless instances
+  const testIp = "203.0.113.199";
+  for (let i = 1; i <= 5; i += 1) {
+    // Wipe process-local memory before each attempt to simulate hitting a different serverless instance
+    evictLocalSecurityCacheForTest();
+    const failReq = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      headers: { "x-forwarded-for": testIp },
+      body: { email: MASTER_ADMIN_EMAIL, password: `WrongPass_${i}` },
+    });
+    await handler(failReq.req, failReq.res);
+    assert.equal(failReq.res.statusCode, 401);
+  }
+
+  // 6. On the 6th attempt on a fresh cold-start instance, durable rate limit must return HTTP 429
+  evictLocalSecurityCacheForTest();
+  const lockedReq = createMockReqRes({
+    method: "POST",
+    url: "/api/v1/admin/login",
+    headers: { "x-forwarded-for": testIp },
+    body: { email: MASTER_ADMIN_EMAIL, password: "Admin@12345" },
+  });
+  await handler(lockedReq.req, lockedReq.res);
+  assert.equal(
+    lockedReq.res.statusCode,
+    429,
+    "Brute-force lockout (429) must persist across serverless instance cold starts via MongoDB"
+  );
+
+  // Clean up test rate-limit state in MongoDB
+  await resetAdminRateLimitsForTest(db);
 });
 
 test.after(async () => {

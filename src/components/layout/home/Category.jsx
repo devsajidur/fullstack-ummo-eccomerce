@@ -5,6 +5,8 @@ import { useNavigate } from "react-router";
 
 const Category = () => {
   const navigate = useNavigate();
+  const isMobileViewport =
+    typeof window !== "undefined" && window.innerWidth < 768;
 
   function handleNavigateDepartment(id) {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -39,10 +41,12 @@ const Category = () => {
                 className="h-full w-full object-cover object-[80%] transition-transform duration-500 group-hover:scale-105"
                 src={item.image}
                 alt={`${item.name} collection`}
-                width={480}
+                width={
+                  isMobileViewport ? (item.id == 1 ? 360 : 300) : 480
+                }
                 height={320}
                 loading={item.id == 1 ? "eager" : "lazy"}
-                fetchPriority={item.id == 1 ? "high" : "auto"}
+                fetchPriority={item.id == 1 ? "high" : "low"}
               />
               <div className="absolute bottom-6 left-6 sm:bottom-10 sm:left-10 md:bottom-3 pr-2 md:left-3 lg:left-5 lg:bottom-5 xl:bottom-10 xl:left-10">
                 <h3 className="uppercase text-xs md:text-[12px] lg:text-sm leading-6 font-semibold tracking-wider text-primary">

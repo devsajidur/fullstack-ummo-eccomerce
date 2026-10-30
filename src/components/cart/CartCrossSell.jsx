@@ -8,8 +8,6 @@ import { addToCart } from "../../slices/cartSlice";
 import { productDetail } from "../../slices/ProductDetailsSlice";
 import {
   getProductDiscountState,
-  pad2,
-  useNowTick,
 } from "../../utils/discountTimer";
 import { getRecentlyViewedProducts } from "../../utils/cartPromotions";
 
@@ -22,7 +20,6 @@ export default function CartCrossSell() {
   const allProducts =
     useSelector((state) => state.AllProduct.Products) || EMPTY_ARRAY;
   const [activeTab, setActiveTab] = useState("recommended");
-  const now = useNowTick(true);
 
   const recentlyViewed = useMemo(() => {
     const cartIds = new Set(cartItems.map((i) => String(i.id)));
@@ -68,7 +65,7 @@ export default function CartCrossSell() {
   if (displayList.length === 0) return null;
 
   function handleQuickAdd(item) {
-    const dState = getProductDiscountState(item, now);
+    const dState = getProductDiscountState(item);
     dispatch(
       addToCart({
         id: item.id,
@@ -87,7 +84,7 @@ export default function CartCrossSell() {
 
   function handleBundleAll() {
     displayList.forEach((item) => {
-      const dState = getProductDiscountState(item, now);
+      const dState = getProductDiscountState(item);
       dispatch(
         addToCart({
           id: item.id,
@@ -109,7 +106,7 @@ export default function CartCrossSell() {
 
   function handleOpenProduct(item) {
     dispatch(productDetail(item));
-    navigate(`/shopsingle?id=${item.id}`);
+    navigate(`/shop/${item.id}`);
   }
 
   return (
@@ -167,7 +164,7 @@ export default function CartCrossSell() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {displayList.map((item) => {
-          const dState = getProductDiscountState(item, now);
+          const dState = getProductDiscountState(item);
           return (
             <div
               key={item.id}
@@ -190,13 +187,6 @@ export default function CartCrossSell() {
                     <span className="absolute top-2 left-2 bg-[#D6001C] text-white text-[10px] font-bold px-2 py-0.5 rounded-sm">
                       -{dState.discountPercent}% OFF
                     </span>
-                  )}
-                  {dState.hasActiveTimer && (
-                    <div className="absolute bottom-0 inset-x-0 bg-black/75 text-white text-[10px] font-mono font-semibold py-0.5 text-center">
-                      ⚡ {dState.days > 0 ? `${dState.days}d ` : ""}
-                      {pad2(dState.hours)}h:{pad2(dState.minutes)}m:
-                      {pad2(dState.seconds)}s
-                    </div>
                   )}
                 </div>
 

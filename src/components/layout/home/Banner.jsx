@@ -39,6 +39,11 @@ const Banner = () => {
   const item = safeSlides[currentIdx] || {};
   const hasCustomOverlay = Boolean(item.title || item.tag);
   const resolvedSrc = resolveSlideImage(item.image, currentIdx);
+  const isMobileViewport =
+    typeof window !== "undefined" && window.innerWidth < 768;
+  const heroWidth = isMobileViewport ? 360 : 720;
+  const heroLoading = isMobileViewport ? "lazy" : "eager";
+  const heroFetchPriority = isMobileViewport ? "low" : "high";
 
   return (
     <section className="flex relative overflow-hidden">
@@ -53,9 +58,9 @@ const Banner = () => {
                 className="w-full min-h-[240px] sm:min-h-[360px] md:min-h-[460px] max-h-[650px] object-cover"
                 src={resolvedSrc}
                 alt={item.title || "UOMO Hero Banner"}
-                loading="eager"
-                fetchPriority="high"
-                width={720}
+                loading={heroLoading}
+                fetchPriority={heroFetchPriority}
+                width={heroWidth}
                 height={360}
                 onError={(e) => {
                   e.currentTarget.src = "/images/SLIDER.png";
@@ -102,9 +107,9 @@ const Banner = () => {
                 className="w-full h-full block object-cover"
                 src={resolvedSrc}
                 alt="UOMO Collection Banner"
-                loading="eager"
-                fetchPriority="high"
-                width={720}
+                loading={heroLoading}
+                fetchPriority={heroFetchPriority}
+                width={heroWidth}
                 height={300}
                 onError={(e) => {
                   e.currentTarget.src = "/images/SLIDER.png";

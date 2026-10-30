@@ -23,6 +23,19 @@ async function loadFirebaseAuth() {
 function hasStoredFirebaseUser() {
   try {
     if (typeof localStorage === "undefined") return false;
+    const activeRaw = localStorage.getItem("ummo_active_user");
+    if (activeRaw) {
+      const parsed = JSON.parse(activeRaw);
+      if (
+        parsed &&
+        parsed.uid &&
+        parsed.uid !== "admin-ummo-master" &&
+        !String(parsed.uid).startsWith("customer-demo") &&
+        !String(parsed.uid).startsWith("qa-customer")
+      ) {
+        return true;
+      }
+    }
     for (let i = 0; i < localStorage.length; i += 1) {
       const key = localStorage.key(i);
       if (key && key.startsWith("firebase:authUser:")) {
@@ -356,7 +369,19 @@ export function onUserChanged(callback) {
     emitEffectiveUser();
   };
 
+  const handleStorageEvent = (event) => {
+    if (
+      !event ||
+      !event.key ||
+      event.key === ACTIVE_USER_KEY ||
+      event.key === ADMIN_SESSION_TOKEN_KEY
+    ) {
+      emitEffectiveUser();
+    }
+  };
+
   window.addEventListener("ummo:auth-changed", handleCustomEvent);
+  window.addEventListener("storage", handleStorageEvent);
   emitEffectiveUser();
 
   return () => {
@@ -365,6 +390,7 @@ export function onUserChanged(callback) {
       unsubFirebase();
     }
     window.removeEventListener("ummo:auth-changed", handleCustomEvent);
+    window.removeEventListener("storage", handleStorageEvent);
   };
 }
 

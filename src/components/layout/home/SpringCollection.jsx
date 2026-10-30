@@ -3,13 +3,11 @@ import Image from "../common/Image";
 import { Link } from "react-router";
 import { getStoredBanners } from "../../../services/api";
 import { getCloudinaryBannerUrl } from "../../../services/cloudinary";
-import { useNowTick } from "../../../utils/discountTimer";
 
 const SpringImage = getCloudinaryBannerUrl("springImage", 700);
 
 const SpringCollection = () => {
   const [deal, setDeal] = useState(() => getStoredBanners().dealBanner || {});
-  const now = useNowTick(true);
 
   useEffect(() => {
     const handleUpdate = (e) => {
@@ -24,18 +22,6 @@ const SpringCollection = () => {
       window.removeEventListener("ummo:banners-updated", handleUpdate);
   }, []);
 
-  const targetTime = Date.parse(
-    deal.countdownDate || "2026-12-31T23:59:59.000Z"
-  );
-  const diffSec = Math.max(
-    0,
-    Math.floor(((Number.isFinite(targetTime) ? targetTime : now) - now) / 1000)
-  );
-  const days = Math.floor(diffSec / 86400);
-  const hours = Math.floor((diffSec % 86400) / 3600);
-  const minutes = Math.floor((diffSec % 3600) / 60);
-  const seconds = diffSec % 60;
-
   return (
     <section
       style={{ backgroundColor: deal.bgColor || "#ebebeb" }}
@@ -46,71 +32,30 @@ const SpringCollection = () => {
           <div>
             <h3 className="md:text-sm text-xs font-semibold leading-6 text-[#c32929] flex items-center gap-2.5 uppercase">
               <div className="w-6 sm:w-10 h-0.5 bg-[#c32929]"></div>
-              {deal.tag || "DEAL OF THE WEEK"}
+              {deal.tag || "SEASONAL HIGHLIGHT"}
             </h3>
             <h2 className="uppercase text-lg sm:text-2xl md:text-5xl xl:text-[70px] font-normal text-primary">
               <span className="font-bold">{deal.titleBold || "Spring"}</span>{" "}
               {deal.titleRegular || "Collection"}
             </h2>
+            <p className="text-xs sm:text-sm text-gray-700 mt-2 max-w-md">
+              Explore curated seasonal essentials with verified markdowns across Women, Men, and Lifestyle collections.
+            </p>
             <Link
               to={deal.ctaLink || "/shop"}
-              className='uppercase text-primary text-xs sm:text-sm leading-6 after:content-[""] after:w-0 after:duration-300 hover:after:w-12.5 after:h-0.5 after:bg-primary after:absolute after:bottom-0 relative after:left-0'
+              className='inline-block mt-4 uppercase text-primary font-semibold text-xs sm:text-sm leading-6 after:content-[""] after:w-0 after:duration-300 hover:after:w-12.5 after:h-0.5 after:bg-primary after:absolute after:bottom-0 relative after:left-0'
             >
               {deal.ctaText || "SHOP NOW"}
             </Link>
-
-            <div className="flex gap-1.5 xs:gap-2 sm:gap-4 md:gap-6.25 xl:mt-16 mt-5">
-              <div>
-                <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
-                  {days}
-                </h2>
-                <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
-                  DAYS
-                </h3>
-              </div>
-
-              <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] leading-6 sm:leading-7.5 font-normal text-primary">
-                :
-              </h2>
-              <div>
-                <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
-                  {hours}
-                </h2>
-                <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
-                  HOURS
-                </h3>
-              </div>
-
-              <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] leading-6 sm:leading-7.5 font-normal text-primary">
-                :
-              </h2>
-              <div>
-                <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
-                  {minutes}
-                </h2>
-                <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
-                  MINS
-                </h3>
-              </div>
-
-              <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] leading-6 sm:leading-7.5 font-normal text-primary">
-                :
-              </h2>
-              <div>
-                <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
-                  {seconds}
-                </h2>
-                <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
-                  SEC
-                </h3>
-              </div>
-            </div>
           </div>
           <div>
             <Image
               className="w-36 xs:w-48 sm:w-80 object-cover"
               src={deal.image || SpringImage}
-              alt="Deal of the week banner"
+              alt="Seasonal collection banner"
+              width={320}
+              height={320}
+              loading="lazy"
             />
           </div>
         </div>

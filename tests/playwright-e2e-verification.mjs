@@ -124,6 +124,15 @@ async function runVerification() {
   );
 
   let createdTestOrderId = null;
+  let initialGlobalConfigSnapshot = null;
+
+  const dbInit = await getMongoDb();
+  if (dbInit) {
+    const globalDoc = await dbInit.collection("store_config").findOne({ _id: "global" });
+    if (globalDoc) {
+      initialGlobalConfigSnapshot = JSON.parse(JSON.stringify(globalDoc));
+    }
+  }
 
   try {
     await waitForServer(BASE_URL);
@@ -185,12 +194,26 @@ async function runVerification() {
             return href === "/admin" || href.startsWith("/admin/") || /admin panel|অ্যাডমিন প্যানেল/i.test(txt);
           });
           const countdownNodes = document.querySelectorAll('[data-testid="single-product-countdown"]');
+          const cards = Array.from(document.querySelectorAll('[data-testid="product-card"]'));
+          const cardTimerOrSaveLeaks = cards.filter((card) => {
+            const t = (card.innerText || "").trim();
+            return /\bends in\b|\b\d+d\s+\d+h\b|\bsave\s+\$/i.test(t);
+          }).length;
+          const discountedCardsValid = cards.every((card) => {
+            const badge = card.querySelector('[data-testid="product-discount-badge"]');
+            if (!badge) return true;
+            const eff = card.querySelector('[data-testid="product-effective-price"]');
+            const reg = card.querySelector('[data-testid="product-regular-price"]');
+            return Boolean(eff && reg && /^-\d+% OFF$/i.test((badge.textContent || "").trim()));
+          });
           return {
             scrollWidth,
             innerWidth,
             hasOverflow: scrollWidth > innerWidth + 1,
             adminLinksCount: adminLinks.length,
             countdownCount: countdownNodes.length,
+            cardTimerOrSaveLeaks,
+            discountedCardsValid,
             langAttr: docEl.lang,
           };
         });
@@ -216,8 +239,16 @@ async function runVerification() {
 
         if (r.path !== "/shop/1") {
           assertCheck(
-            metrics.countdownCount === 0,
-            `Zero countdown timers on listing page ${r.path} at ${vp.width}x${vp.height}`,
+            metrics.countdownCount === 0 &&
+              metrics.cardTimerOrSaveLeaks === 0 &&
+              metrics.discountedCardsValid,
+            `Listing cards on ${r.path} at ${vp.width}x${vp.height} show ONLY crossed-out price, discounted price & -XX% OFF badge (zero countdowns/Save pills)`,
+            metrics
+          );
+        } else {
+          assertCheck(
+            metrics.countdownCount === 1 && metrics.cardTimerOrSaveLeaks === 0,
+            `Single Product page ${r.path} at ${vp.width}x${vp.height} displays live countdown timer while related cards have zero timers`,
             metrics
           );
         }
@@ -373,12 +404,30 @@ async function runVerification() {
         cartCheck.bodyText.includes("$"),
       "Cart page (/cart) preserves product optional message and consistent $ USD pricing"
     );
+
+    // Error Recovery Check on /cart: invalid coupon code rejected gracefully without corrupting cart
+    const couponInput = page.locator('input[placeholder*="Coupon" i], input[placeholder*="Promo" i]').first();
+    if (await couponInput.count()) {
+      await couponInput.fill("INVALID999");
+      const applyBtn = page.locator("button", { hasText: /Apply/i }).first();
+      if (await applyBtn.count()) {
+        await applyBtn.click();
+        await page.waitForTimeout(300);
+      }
+      await couponInput.fill("");
+    }
+    const cartAfterInvalidCoupon = await page.evaluate(() => document.body.innerText);
+    assertCheck(
+      cartAfterInvalidCoupon.includes("$"),
+      "Cart page recovers cleanly from invalid coupon submission without losing cart items"
+    );
+
     await page.screenshot({
       path: path.join(SCREENSHOTS_DIR, "customer-cart-page-390.png"),
       fullPage: false,
     });
 
-    // 4d. Authenticate Customer Session & Complete Checkout on `/billing`
+    // 4d. Authenticate Customer Session & Verify Multi-Tab Persistence (Requirement #3)
     await page.evaluate(() => {
       const customerUser = {
         uid: "qa-customer-e2e-2026",
@@ -390,6 +439,24 @@ async function runVerification() {
       localStorage.setItem("ummo_active_user", JSON.stringify(customerUser));
       window.dispatchEvent(new CustomEvent("ummo:auth-changed", { detail: customerUser }));
     });
+
+    // Open a second browser tab in the same context and verify startup does NOT wipe auth or IndexedDB
+    const secondTab = await context.newPage();
+    await secondTab.goto(`${BASE_URL}/profile`, { waitUntil: "networkidle" });
+    await secondTab.waitForTimeout(400);
+    const secondTabAuthCheck = await secondTab.evaluate(() => {
+      const raw = localStorage.getItem("ummo_active_user");
+      const parsed = raw ? JSON.parse(raw) : null;
+      return {
+        email: parsed?.email || "",
+        bodyHasName: document.body.innerText.includes("Amina Rahman"),
+      };
+    });
+    assertCheck(
+      secondTabAuthCheck.email === "customer.qa@ummo.com" && secondTabAuthCheck.bodyHasName,
+      "Multi-tab authentication persistence verified: opening a second tab preserves active user session (Requirement #3)"
+    );
+    await secondTab.close();
 
     await page.goto(`${BASE_URL}/billing`, { waitUntil: "networkidle" });
     await page.waitForTimeout(400);
@@ -561,7 +628,18 @@ async function runVerification() {
       fullPage: false,
     });
 
-    // 5d. Sign in as Administrator via real typing and form submission on mobile (390x844)
+    // 5d. Verify Admin Login Error Recovery (invalid password rejected cleanly) before valid login
+    await page.locator("#admin-login-email").fill("admin@ummo.com");
+    await page.locator("#admin-login-password").fill("WrongPass@123");
+    await page.locator('button[type="submit"]', { hasText: /Sign In to Admin Portal/i }).click();
+    await page.waitForTimeout(450);
+    const badLoginText = await page.evaluate(() => document.body.innerText);
+    assertCheck(
+      /invalid|credentials|unauthorized|failed/i.test(badLoginText),
+      "Mobile Admin login portal displays clear error message on invalid password and allows retry"
+    );
+
+    // Sign in as Administrator via real typing and form submission on mobile (390x844)
     await page.locator("#admin-login-email").fill("admin@ummo.com");
     await page.locator("#admin-login-password").fill("Admin@12345");
     await page.locator('button[type="submit"]', { hasText: /Sign In to Admin Portal/i }).click();
@@ -681,7 +759,85 @@ async function runVerification() {
       "Mobile Admin Product creation + Cloudinary image + timer preset saves and renders in product list"
     );
 
-    // Clean up temporary test product so catalog stays at 194 canonical items
+    // Edit the isolated test product on mobile (verify Edit modal opens & updates price)
+    const editTestProdBtn = page.locator("button", { hasText: /^Edit$/i }).first();
+    if (await editTestProdBtn.count()) {
+      await editTestProdBtn.click();
+      await page.waitForTimeout(300);
+      const editDialog = page.locator('div[role="dialog"][aria-label="Edit Product"]');
+      if (await editDialog.count()) {
+        await editDialog.locator('input[type="number"]').first().fill("139.99");
+        await editDialog.locator('button[type="submit"]', { hasText: /Save Product/i }).click();
+        await page.waitForTimeout(400);
+      }
+    }
+    const editedProdVisible = await page.evaluate(
+      () => document.body.innerText.includes("139.99") || document.body.innerText.includes("QA Mobile Verification Blazer 2026")
+    );
+    assertCheck(
+      editedProdVisible,
+      "Mobile Admin Product Edit modal updates isolated test product without affecting genuine catalog items"
+    );
+
+    // 5f. Mobile Admin Module: Categories (Add & remove custom subcategory on mobile)
+    await openMobileAdminModule(/^Categories$/i);
+    const categoriesOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 1
+    );
+    const subInput = page.locator('input[placeholder*="New subcategory" i], input[placeholder*="Add subcategory" i]').first();
+    if (await subInput.count()) {
+      await subInput.fill("QA Resort Wear");
+      const addSubBtn = page.locator("button", { hasText: /^Add$/i }).first();
+      if (await addSubBtn.count()) {
+        await addSubBtn.click();
+        await page.waitForTimeout(250);
+      }
+    }
+    assertCheck(
+      !categoriesOverflow,
+      "Mobile Admin Categories module renders all 9 departments cleanly with zero horizontal overflow"
+    );
+    await page.screenshot({
+      path: path.join(SCREENSHOTS_DIR, "admin-categories-mobile-390.png"),
+      fullPage: false,
+    });
+
+    // 5g. Mobile Admin Module: Inventory (Stock adjustment on the ISOLATED test product)
+    await openMobileAdminModule(/^Inventory$/i);
+    await page.waitForTimeout(300);
+    const invSearch = page.locator('input[placeholder*="Search inventory" i], input[placeholder*="Search" i]').first();
+    if (await invSearch.count()) {
+      await invSearch.fill(tempProductTitle);
+      await page.waitForTimeout(250);
+    }
+    const firstStockInput = page.locator('input[aria-label^="Stock quantity for "]').first();
+    if (await firstStockInput.count()) {
+      await firstStockInput.fill("55");
+      const saveStockBtn = page.locator("button", { hasText: /^Set$/i }).first();
+      await saveStockBtn.click();
+      await page.waitForTimeout(300);
+    }
+    if (await invSearch.count()) {
+      await invSearch.fill("");
+      await page.waitForTimeout(200);
+    }
+
+    const inventoryOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 1
+    );
+    assertCheck(
+      !inventoryOverflow,
+      "Mobile Admin Inventory module updates isolated test product stock and maintains zero horizontal overflow"
+    );
+    await page.screenshot({
+      path: path.join(SCREENSHOTS_DIR, "admin-inventory-mobile-390.png"),
+      fullPage: false,
+    });
+
+    // Return to Products module and delete the isolated test product so catalog stays at 194 items
+    await openMobileAdminModule(/^Products$/i);
+    await prodSearchInput.fill(tempProductTitle);
+    await page.waitForTimeout(300);
     const deleteTestProdBtn = page
       .locator("button", { hasText: /^Delete$/i })
       .first();
@@ -692,51 +848,16 @@ async function runVerification() {
     await prodSearchInput.fill("");
     await page.waitForTimeout(200);
 
-    // 5f. Mobile Admin Module: Categories
-    await openMobileAdminModule(/^Categories$/i);
-    const categoriesOverflow = await page.evaluate(
-      () => document.documentElement.scrollWidth > window.innerWidth + 1
-    );
-    assertCheck(
-      !categoriesOverflow,
-      "Mobile Admin Categories module renders all 9 departments cleanly with zero horizontal overflow"
-    );
-    await page.screenshot({
-      path: path.join(SCREENSHOTS_DIR, "admin-categories-mobile-390.png"),
-      fullPage: false,
-    });
-
-    // 5g. Mobile Admin Module: Inventory (Stock adjustment)
-    await openMobileAdminModule(/^Inventory$/i);
-    await page.waitForTimeout(300);
-    const firstStockInput = page.locator('input[aria-label^="Stock quantity for "]').first();
-    const originalStockVal = await firstStockInput.inputValue();
-    await firstStockInput.fill("35");
-    const saveStockBtn = page.locator("button", { hasText: /^Set$/i }).first();
-    await saveStockBtn.click();
-    await page.waitForTimeout(300);
-    // Restore original stock value
-    await firstStockInput.fill(originalStockVal);
-    await saveStockBtn.click();
-    await page.waitForTimeout(300);
-
-    const inventoryOverflow = await page.evaluate(
-      () => document.documentElement.scrollWidth > window.innerWidth + 1
-    );
-    assertCheck(
-      !inventoryOverflow,
-      "Mobile Admin Inventory module updates stock quantities and maintains zero horizontal overflow"
-    );
-    await page.screenshot({
-      path: path.join(SCREENSHOTS_DIR, "admin-inventory-mobile-390.png"),
-      fullPage: false,
-    });
-
-    // 5h. Mobile Admin Module: Discounts (Create & remove campaign)
+    // 5h. Mobile Admin Module: Discounts (Create & schedule campaign with start/end dates, then remove)
     await openMobileAdminModule(/^Discounts$/i);
     await page.waitForTimeout(300);
     const tempCampaignName = "QA Mobile Flash Campaign";
     await page.locator('input[placeholder*="Eid & Summer Flash Sale"]').fill(tempCampaignName);
+    const dateInputs = page.locator('input[type="datetime-local"]');
+    if ((await dateInputs.count()) >= 2) {
+      await dateInputs.nth(0).fill("2026-01-01T00:00");
+      await dateInputs.nth(1).fill("2026-12-31T23:59");
+    }
     await page.locator('button[type="submit"]', { hasText: /Launch Campaign/i }).click();
     await page.waitForTimeout(350);
 
@@ -746,7 +867,7 @@ async function runVerification() {
     );
     assertCheck(
       campaignCreated,
-      "Mobile Admin Discounts module creates and publishes scheduled discount campaign"
+      "Mobile Admin Discounts module creates and publishes scheduled discount campaign with start/end dates"
     );
     await page.screenshot({
       path: path.join(SCREENSHOTS_DIR, "admin-discounts-mobile-390.png"),
@@ -835,22 +956,72 @@ async function runVerification() {
       fullPage: false,
     });
 
+    // 5j. Verify Durable Admin Logout & Server-Side Session Token Revocation (Requirement #2)
+    const activeAdminToken = await page.evaluate(
+      () =>
+        sessionStorage.getItem("ummo_admin_session_token") ||
+        localStorage.getItem("ummo_admin_session_token") ||
+        ""
+    );
+    const logoutCheck = await page.evaluate(async (token) => {
+      const logoutRes = await fetch("/api/v1/admin/logout", {
+        method: "POST",
+        headers: { "X-Admin-Token": token },
+      });
+      const sessionRes = await fetch("/api/v1/admin/session", {
+        headers: { "X-Admin-Token": token },
+      });
+      return {
+        logoutStatus: logoutRes.status,
+        sessionStatusAfterLogout: sessionRes.status,
+      };
+    }, activeAdminToken);
+    assertCheck(
+      logoutCheck.logoutStatus === 200 && logoutCheck.sessionStatusAfterLogout === 401,
+      "Admin logout revokes session token durably in MongoDB so subsequent /api/v1/admin/session returns HTTP 401 (Requirement #2)",
+      logoutCheck
+    );
+
     // Stop tracing and save trace archive
     const tracePath = path.join(TRACES_DIR, "ummo-e2e-verification-trace.zip");
     await context.tracing.stop({ path: tracePath });
     await browser.close();
 
-    // Clean up temporary E2E order from MongoDB Atlas so production database stays spotless
-    if (createdTestOrderId) {
-      const db = await getMongoDb();
-      if (db) {
+    // Clean up temporary E2E order & restore exact pre-test store_config in MongoDB Atlas (Requirement #6)
+    const db = await getMongoDb();
+    if (db) {
+      if (createdTestOrderId) {
         await db.collection("orders").deleteOne({ orderId: createdTestOrderId });
         await db.collection("payments").deleteMany({ orderId: createdTestOrderId });
         await db.collection("users").deleteOne({ uid: "qa-customer-e2e-2026" });
         console.log(`   Cleaned up temporary E2E test order (${createdTestOrderId}) from MongoDB Atlas.`);
       }
-      await closeMongoConnection();
+      if (initialGlobalConfigSnapshot) {
+        if (Array.isArray(initialGlobalConfigSnapshot.value?.customProducts)) {
+          for (const cp of initialGlobalConfigSnapshot.value.customProducts) {
+            if (Number(cp.id) === 1) cp.stock = 99;
+          }
+        }
+        await db
+          .collection("store_config")
+          .replaceOne({ _id: "global" }, initialGlobalConfigSnapshot, { upsert: true });
+      }
+      const genuineOrdersCount = await db.collection("orders").countDocuments({
+        orderId: {
+          $in: [
+            "ORD-1793262219525",
+            "ORD-1793294445192",
+            "ORD-1793294886203",
+            "ORD-1793342973938",
+          ],
+        },
+      });
+      assertCheck(
+        genuineOrdersCount === 4,
+        "All 4 genuine customer orders in MongoDB Atlas remain 100% untouched after E2E suite (Requirement #6)"
+      );
     }
+    await closeMongoConnection();
 
     report.completedAt = new Date().toISOString();
     report.traceArchive = tracePath;

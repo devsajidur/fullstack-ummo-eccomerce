@@ -50,8 +50,65 @@ export function isSandboxPaymentSimulationEnabled(env = process.env) {
   return paymentMode === "sandbox" && allowSandbox === "true";
 }
 
+const SECURITY_GUARD_DOC_ID = "security_guard";
+
+function normalizeRateLimitKey(key) {
+  return String(key || "anonymous").trim().toLowerCase().slice(0, 160);
+}
+
+function hashRateLimitKey(key) {
+  return crypto
+    .createHash("sha256")
+    .update(normalizeRateLimitKey(key))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+/**
+ * Synchronizes durable admin token revocations and brute-force login attempt buckets
+ * from MongoDB Atlas (`store_config` document `_id: "security_guard"`) into the
+ * current serverless instance's memory cache so multi-instance Vercel deployments
+ * enforce revocations and rate limits globally across instances.
+ */
+export async function syncSecurityGuardFromDb(db, nowMs = Date.now()) {
+  if (!db) return;
+  try {
+    const doc = await db
+      .collection("store_config")
+      .findOne({ _id: SECURITY_GUARD_DOC_ID });
+    if (!doc || typeof doc !== "object") return;
+
+    if (doc.revokedJtis && typeof doc.revokedJtis === "object") {
+      for (const [jti, exp] of Object.entries(doc.revokedJtis)) {
+        const numExp = Number(exp);
+        if (Number.isFinite(numExp) && numExp > nowMs) {
+          revokedAdminTokenJtis.set(String(jti), numExp);
+        }
+      }
+    }
+
+    if (doc.loginAttempts && typeof doc.loginAttempts === "object") {
+      for (const entry of Object.values(doc.loginAttempts)) {
+        if (!entry || typeof entry !== "object" || !entry.safeKey) continue;
+        const stillLocked = entry.lockedUntil && Number(entry.lockedUntil) > nowMs;
+        const withinWindow =
+          nowMs - Number(entry.firstAttemptAt || 0) <= ADMIN_LOGIN_WINDOW_MS;
+        if (stillLocked || withinWindow) {
+          adminLoginAttempts.set(String(entry.safeKey), {
+            count: Number(entry.count || 0),
+            firstAttemptAt: Number(entry.firstAttemptAt || nowMs),
+            lockedUntil: Number(entry.lockedUntil || 0),
+          });
+        }
+      }
+    }
+  } catch {
+    // Fallback to process-local memory if MongoDB query fails transiently
+  }
+}
+
 export function checkAdminLoginRateLimit(key, nowMs = Date.now()) {
-  const safeKey = String(key || "anonymous").trim().toLowerCase().slice(0, 160);
+  const safeKey = normalizeRateLimitKey(key);
   const record = adminLoginAttempts.get(safeKey);
   if (!record) {
     return { allowed: true, remainingAttempts: ADMIN_LOGIN_MAX_ATTEMPTS, retryAfterSeconds: 0 };
@@ -68,8 +125,19 @@ export function checkAdminLoginRateLimit(key, nowMs = Date.now()) {
   return { allowed: remaining > 0, remainingAttempts: remaining, retryAfterSeconds: 0 };
 }
 
+export async function checkAdminLoginRateLimitDurable(
+  key,
+  db = null,
+  nowMs = Date.now()
+) {
+  if (db) {
+    await syncSecurityGuardFromDb(db, nowMs);
+  }
+  return checkAdminLoginRateLimit(key, nowMs);
+}
+
 export function recordAdminLoginFailure(key, nowMs = Date.now()) {
-  const safeKey = String(key || "anonymous").trim().toLowerCase().slice(0, 160);
+  const safeKey = normalizeRateLimitKey(key);
   const existing = adminLoginAttempts.get(safeKey);
   if (!existing || nowMs - existing.firstAttemptAt > ADMIN_LOGIN_WINDOW_MS) {
     const next = { count: 1, firstAttemptAt: nowMs, lockedUntil: 0 };
@@ -84,13 +152,83 @@ export function recordAdminLoginFailure(key, nowMs = Date.now()) {
   return existing;
 }
 
+export async function recordAdminLoginFailureDurable(
+  key,
+  db = null,
+  nowMs = Date.now()
+) {
+  if (db) {
+    await syncSecurityGuardFromDb(db, nowMs);
+  }
+  const safeKey = normalizeRateLimitKey(key);
+  const updated = recordAdminLoginFailure(safeKey, nowMs);
+  if (db) {
+    const keyHash = hashRateLimitKey(safeKey);
+    try {
+      await db.collection("store_config").updateOne(
+        { _id: SECURITY_GUARD_DOC_ID },
+        {
+          $set: {
+            [`loginAttempts.${keyHash}`]: {
+              safeKey,
+              count: updated.count,
+              firstAttemptAt: updated.firstAttemptAt,
+              lockedUntil: updated.lockedUntil,
+            },
+            updatedAt: new Date(nowMs).toISOString(),
+          },
+        },
+        { upsert: true }
+      );
+    } catch {
+      // ignore transient write failure
+    }
+  }
+  return updated;
+}
+
 export function clearAdminLoginFailures(key) {
-  const safeKey = String(key || "anonymous").trim().toLowerCase().slice(0, 160);
+  const safeKey = normalizeRateLimitKey(key);
   adminLoginAttempts.delete(safeKey);
 }
 
-export function resetAdminRateLimitsForTest() {
+export async function clearAdminLoginFailuresDurable(key, db = null) {
+  const safeKey = normalizeRateLimitKey(key);
+  clearAdminLoginFailures(safeKey);
+  if (db) {
+    const keyHash = hashRateLimitKey(safeKey);
+    try {
+      await db.collection("store_config").updateOne(
+        { _id: SECURITY_GUARD_DOC_ID },
+        {
+          $unset: { [`loginAttempts.${keyHash}`]: "" },
+          $set: { updatedAt: new Date().toISOString() },
+        }
+      );
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export function evictLocalSecurityCacheForTest() {
   adminLoginAttempts.clear();
+  revokedAdminTokenJtis.clear();
+}
+
+export async function resetAdminRateLimitsForTest(db = null) {
+  adminLoginAttempts.clear();
+  if (db) {
+    try {
+      await db.collection("store_config").updateOne(
+        { _id: SECURITY_GUARD_DOC_ID },
+        { $set: { loginAttempts: {}, updatedAt: new Date().toISOString() } },
+        { upsert: true }
+      );
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function verifyAdminPasswordCredentials(email, password) {
@@ -186,6 +324,31 @@ export function revokeAdminSessionToken(token) {
     String(verified.jti),
     Number(verified.exp) || Date.now() + ADMIN_TOKEN_TTL_MS
   );
+  return true;
+}
+
+export async function revokeAdminSessionTokenDurable(token, db = null) {
+  const verified = verifyAdminSessionToken(token);
+  if (!verified || !verified.jti) return false;
+  const exp = Number(verified.exp) || Date.now() + ADMIN_TOKEN_TTL_MS;
+  const safeJti = String(verified.jti).replace(/[.$]/g, "_");
+  revokedAdminTokenJtis.set(String(verified.jti), exp);
+  if (db) {
+    try {
+      await db.collection("store_config").updateOne(
+        { _id: SECURITY_GUARD_DOC_ID },
+        {
+          $set: {
+            [`revokedJtis.${safeJti}`]: exp,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+        { upsert: true }
+      );
+    } catch {
+      // ignore transient DB failure
+    }
+  }
   return true;
 }
 

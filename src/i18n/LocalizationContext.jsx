@@ -50,6 +50,14 @@ export function LocalizationProvider({ children }) {
   useEffect(() => {
     if (typeof document !== "undefined") {
       document.documentElement.lang = lang === "bn" ? "bn-BD" : "en";
+      if (lang === "bn" && !document.getElementById("ummo-bn-font")) {
+        const link = document.createElement("link");
+        link.id = "ummo-bn-font";
+        link.rel = "stylesheet";
+        link.href =
+          "https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap";
+        document.head.appendChild(link);
+      }
     }
   }, [lang]);
 

@@ -27,6 +27,14 @@ const Product = ({
   prioritizeFirstRow = false,
 }) => {
   const isPriority = Boolean(priority || prioritizeFirstRow);
+  const resolvedId = id ?? item?.id;
+  const resolvedImage =
+    productImage ||
+    item?.thumbnail ||
+    item?.image ||
+    (Array.isArray(item?.images) ? item.images[0] : "");
+  const resolvedTitle = productTitle || item?.title || "Product";
+  const resolvedCategory = productCatagory || item?.category || "";
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { t } = useLocalization();
@@ -34,7 +42,7 @@ const Product = ({
 
   const wishProduct = useSelector((state) => state.wishList.wishProduct || []);
   const isWishlisted = wishProduct.some(
-    (w) => String(w.id) === String(item?.id ?? id)
+    (w) => String(w.id) === String(resolvedId)
   );
   const stockCount = item?.stock !== undefined ? Number(item.stock) : 99;
   const isOutOfStock = stockCount <= 0;
@@ -49,7 +57,11 @@ const Product = ({
   const activeDiscountPct = discountState.discountPercentage;
 
   const taxonomy = classifyProductTaxonomy(
-    item || { id, title: productTitle, category: productCatagory }
+    item || {
+      id: resolvedId,
+      title: resolvedTitle,
+      category: resolvedCategory,
+    }
   );
 
   const handleAddToCart = (e) => {
@@ -61,18 +73,18 @@ const Product = ({
     dispatch(
       addToCart({
         ...item,
-        id: item?.id ?? id,
-        title: item?.title ?? productTitle,
+        id: resolvedId,
+        title: resolvedTitle,
         price: regularPrice,
         discountPercentage: activeDiscountPct,
         effectivePrice,
-        thumbnail: item?.thumbnail ?? productImage,
-        category: item?.category ?? productCatagory,
+        thumbnail: resolvedImage,
+        category: resolvedCategory,
         qun: 1,
       })
     );
     setJustAdded(true);
-    toast.success(`"${productTitle}" added to cart`);
+    toast.success(`"${resolvedTitle}" added to cart`);
     setTimeout(() => setJustAdded(false), 1400);
   };
 
@@ -80,13 +92,13 @@ const Product = ({
     e.stopPropagation();
     const payload = {
       ...item,
-      id: item?.id ?? id,
-      title: item?.title ?? productTitle,
+      id: resolvedId,
+      title: resolvedTitle,
       price: regularPrice,
       discountPercentage: activeDiscountPct,
       effectivePrice,
-      thumbnail: item?.thumbnail ?? productImage,
-      category: item?.category ?? productCatagory,
+      thumbnail: resolvedImage,
+      category: resolvedCategory,
       quantity: 1,
       qun: 1,
     };
@@ -97,14 +109,14 @@ const Product = ({
     }
     toast.success(
       isWishlisted
-        ? `Removed "${productTitle}" from Wishlist`
-        : `Saved "${productTitle}" to Wishlist`
+        ? `Removed "${resolvedTitle}" from Wishlist`
+        : `Saved "${resolvedTitle}" to Wishlist`
     );
   };
 
   const handleNavigateDetail = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-    navigate(`/shop/${id}`);
+    navigate(`/shop/${resolvedId}`);
   };
 
   const ratingValue = Math.max(
@@ -119,8 +131,10 @@ const Product = ({
         className="cursor-pointer relative overflow-hidden bg-[#F7F7F7] rounded-t-lg aspect-[4/5] flex items-center justify-center"
       >
         <Image
-          src={productImage}
-          alt={productTitle}
+          item={item}
+          productId={resolvedId}
+          src={resolvedImage}
+          alt={resolvedTitle}
           width={280}
           height={340}
           loading={isPriority ? "eager" : "lazy"}
@@ -199,7 +213,7 @@ const Product = ({
         <div>
           <Flex className="justify-between items-center gap-1">
             <span className="text-[11px] text-[#666666] font-medium uppercase tracking-wider truncate">
-              {taxonomy?.departmentName || productCatagory}
+              {taxonomy?.departmentName || resolvedCategory}
             </span>
             <div
               role="img"
@@ -213,11 +227,11 @@ const Product = ({
           </Flex>
 
           <h2 className="text-xs sm:text-sm font-semibold text-gray-900 line-clamp-1 mt-1 group-hover:text-[#C32929] transition-colors">
-            {productTitle}
+            {resolvedTitle}
           </h2>
         </div>
 
-        {/* Gate 6: Clear Discount & Regular Price Hierarchy */}
+        {/* Gate 6: Clear Discount & Regular Price Hierarchy (only discounted price & crossed-out original price) */}
         <div className="mt-2 pt-1.5 border-t border-gray-100 flex items-baseline justify-between gap-1.5 flex-wrap">
           {discountState.isDiscountActive ? (
             <div className="flex items-baseline gap-2 flex-wrap">
@@ -240,12 +254,6 @@ const Product = ({
               data-testid="product-regular-price"
             >
               ${regularPrice.toFixed(2)}
-            </span>
-          )}
-
-          {discountState.isDiscountActive && discountState.savingsAmount > 0 && (
-            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-              Save ${discountState.savingsAmount.toFixed(2)}
             </span>
           )}
         </div>

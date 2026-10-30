@@ -211,6 +211,10 @@ export default function ProductDetails() {
                       src={imgUrl}
                       alt={`${liveProduct.title} view ${idx + 1}`}
                       className="w-full h-full object-contain"
+                      width={80}
+                      height={80}
+                      loading="lazy"
+                      fetchPriority="low"
                     />
                   </button>
                 ))}
