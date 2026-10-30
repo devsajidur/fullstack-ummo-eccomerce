@@ -8,6 +8,48 @@ export const MASTER_ADMIN_EMAIL =
   (process.env.ADMIN_EMAIL || "admin@ummo.com").trim().toLowerCase();
 export const MASTER_ADMIN_PASSWORD =
   process.env.ADMIN_PASSWORD || "Admin@12345";
+
+// Public, intentionally shared DEMO administrator (this is a demo project).
+// Works like an admin for catalog/inventory/discount/category/banner/order-status
+// testing, but the server blocks money movement and privilege changes (see
+// isDemoAdminBlockedRequest). Disable with DEMO_ADMIN_ENABLED=false.
+export const DEMO_ADMIN_UID = "admin-ummo-demo";
+export const DEMO_ADMIN_EMAIL = (
+  process.env.DEMO_ADMIN_EMAIL || "demo.admin@ummo.com"
+)
+  .trim()
+  .toLowerCase();
+export const DEMO_ADMIN_PASSWORD =
+  process.env.DEMO_ADMIN_PASSWORD || "DemoAdmin@2026";
+export const DEMO_ADMIN_ENABLED =
+  String(process.env.DEMO_ADMIN_ENABLED || "true").toLowerCase() !== "false";
+
+export function verifyDemoAdminCredentials(email, password) {
+  if (!DEMO_ADMIN_ENABLED) return false;
+  const safeEmail = String(email || "").trim().toLowerCase();
+  const safePass = String(password || "");
+  if (!safeEmail || !safePass) return false;
+  const h = (v) => crypto.createHash("sha256").update(v).digest();
+  return (
+    crypto.timingSafeEqual(h(safeEmail), h(DEMO_ADMIN_EMAIL)) &&
+    crypto.timingSafeEqual(h(safePass), h(DEMO_ADMIN_PASSWORD))
+  );
+}
+
+/** Server-side guard: demo admin may not move money or change privileges. */
+export function isDemoAdminBlockedRequest(method, path) {
+  const m = String(method || "GET").toUpperCase();
+  if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
+  return (
+    path === "/payments/reconcile" ||
+    path === "/payments/refund" ||
+    path === "/payments/sandbox-confirm" ||
+    path === "/users/role" ||
+    path === "/users" ||
+    path === "/messages" ||
+    path === "/subscribers"
+  );
+}
 export const ADMIN_ACCESS_KEY =
   process.env.UMMO_ADMIN_KEY || "UMMO_ADMIN_SHIELD_2026";
 const ADMIN_TOKEN_SECRET =
@@ -255,6 +297,7 @@ export function createAdminSessionToken({
   uid = MASTER_ADMIN_UID,
   email = MASTER_ADMIN_EMAIL,
   role = "ADMIN",
+  demo = false,
   ttlMs = ADMIN_TOKEN_TTL_MS,
   jti = crypto.randomUUID(),
 } = {}) {
@@ -264,6 +307,7 @@ export function createAdminSessionToken({
     uid: String(uid || MASTER_ADMIN_UID),
     email: String(email || MASTER_ADMIN_EMAIL).toLowerCase(),
     role: String(role || "ADMIN").toUpperCase(),
+    ...(demo ? { demo: true } : {}),
     iat: now,
     exp: now + Number(ttlMs),
   };
@@ -560,6 +604,7 @@ export function resolveCaller(req, state) {
     email: resolvedEmail,
     isAuthenticated: Boolean(resolvedUid || isAdmin),
     isAdmin,
+    isDemoAdmin: Boolean(verifiedAdminSession?.demo),
     dbUser,
     adminSession: verifiedAdminSession || null,
   };

@@ -1815,6 +1815,80 @@ test("Pre-Merge Correction Gate #2: Multi-Instance Vercel Serverless Durable Ses
   await resetAdminRateLimitsForTest(db);
 });
 
+test("Demo Admin: public demo credentials grant admin panel access but server blocks payments, refunds, roles and customer data deletion", async () => {
+  const db = await getMongoDb();
+  await resetAdminRateLimitsForTest(db);
+
+  // Wrong demo password is rejected
+  const bad = createMockReqRes({
+    method: "POST",
+    url: "/api/v1/admin/login",
+    headers: { "x-forwarded-for": "198.51.100.77" },
+    body: { email: "demo.admin@ummo.com", password: "nope" },
+  });
+  await handler(bad.req, bad.res);
+  assert.equal(bad.res.statusCode, 401);
+
+  // Correct demo credentials -> admin session flagged demo
+  const ok = createMockReqRes({
+    method: "POST",
+    url: "/api/v1/admin/login",
+    headers: { "x-forwarded-for": "198.51.100.77" },
+    body: { email: "demo.admin@ummo.com", password: "DemoAdmin@2026" },
+  });
+  await handler(ok.req, ok.res);
+  assert.equal(ok.res.statusCode, 200);
+  assert.ok(ok.res.json.adminToken);
+  assert.equal(ok.res.json.user.isDemo, true);
+  const token = ok.res.json.adminToken;
+
+  // Session is valid
+  const sess = createMockReqRes({
+    method: "GET",
+    url: "/api/v1/admin/session",
+    headers: { "x-admin-token": token },
+  });
+  await handler(sess.req, sess.res);
+  assert.equal(sess.res.statusCode, 200);
+
+  // Protected actions are blocked with 403 + demoRestricted
+  for (const [method, url] of [
+    ["POST", "/api/v1/payments/refund"],
+    ["POST", "/api/v1/payments/reconcile"],
+    ["PATCH", "/api/v1/users/role"],
+    ["POST", "/api/v1/users"],
+    ["DELETE", "/api/v1/messages"],
+    ["DELETE", "/api/v1/subscribers"],
+  ]) {
+    const r = createMockReqRes({
+      method,
+      url,
+      headers: { "x-admin-token": token },
+      body: { orderId: "ORD-DEMO-NONE", uid: "x", role: "ADMIN", amount: 1 },
+    });
+    await handler(r.req, r.res);
+    assert.equal(r.res.statusCode, 403, `${method} ${url} must be blocked for demo admin`);
+    assert.equal(r.res.json?.demoRestricted, true);
+  }
+
+  // The master admin token is NOT restricted by the demo guard
+  const masterTok = createAdminSessionToken({
+    uid: MASTER_ADMIN_UID,
+    email: MASTER_ADMIN_EMAIL,
+    role: "ADMIN",
+  });
+  const masterReq = createMockReqRes({
+    method: "POST",
+    url: "/api/v1/payments/refund",
+    headers: { "x-admin-token": masterTok },
+    body: { orderId: "ORD-DEMO-NONE", amount: 1 },
+  });
+  await handler(masterReq.req, masterReq.res);
+  assert.notEqual(masterReq.res.json?.demoRestricted, true);
+
+  await resetAdminRateLimitsForTest(db);
+});
+
 test.after(async () => {
   await closeMongoConnection();
 });

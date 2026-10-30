@@ -604,7 +604,7 @@ async function runVerification() {
       const emailInput = document.querySelector("#admin-login-email");
       const passInput = document.querySelector("#admin-login-password");
       const demoButtons = Array.from(document.querySelectorAll("button")).filter((b) =>
-        /demo|auto-fill|quick login/i.test(b.textContent || "")
+        /auto-fill|quick login/i.test(b.textContent || "")
       );
       return {
         hasEmailInput: Boolean(emailInput),
@@ -621,7 +621,7 @@ async function runVerification() {
         loginFormCheck.emailVal === "" &&
         loginFormCheck.passVal === "" &&
         loginFormCheck.demoButtonsCount === 0,
-      "Unauthenticated /admin renders clean Administrator Sign In form with empty inputs and zero demo buttons"
+      "Unauthenticated /admin renders Administrator Sign In form with empty inputs (inputs are never pre-filled; demo credentials shown only as a hint)"
     );
     await page.screenshot({
       path: path.join(SCREENSHOTS_DIR, "admin-login-portal-390.png"),

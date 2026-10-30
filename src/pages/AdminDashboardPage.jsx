@@ -826,6 +826,35 @@ export default function AdminDashboardPage() {
             </button>
           </form>
 
+          <div
+            className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-left"
+            data-testid="demo-admin-hint"
+          >
+            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-900">
+              {language === "bn" ? "ডেমো অ্যাডমিন (পরীক্ষার জন্য)" : "Demo Admin (for testing)"}
+            </p>
+            <p className="mt-1.5 text-xs text-amber-900 break-all">
+              Email: <span className="font-mono font-semibold">demo.admin@ummo.com</span>
+              <br />
+              Password: <span className="font-mono font-semibold">DemoAdmin@2026</span>
+            </p>
+            <p className="mt-1.5 text-[11px] text-amber-800">
+              {language === "bn"
+                ? "এটি ডেমো প্রজেক্ট। ডেমো অ্যাডমিন পেমেন্ট, রিফান্ড ও ইউজার রোল পরিবর্তন করতে পারে না।"
+                : "This is a demo project. Demo admin cannot change payments, refunds or user roles."}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setAdminEmail("demo.admin@ummo.com");
+                setAdminPass("DemoAdmin@2026");
+              }}
+              className="mt-2 text-xs font-bold text-amber-900 underline cursor-pointer"
+            >
+              {language === "bn" ? "ডেমো তথ্য পূরণ করুন" : "Fill demo credentials"}
+            </button>
+          </div>
+
           <div className="mt-6 pt-4 border-t border-gray-100 text-center">
             <button
               type="button"

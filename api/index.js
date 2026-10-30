@@ -19,6 +19,11 @@ import {
   isSandboxPaymentSimulationEnabled,
   MASTER_ADMIN_EMAIL,
   MASTER_ADMIN_UID,
+  DEMO_ADMIN_EMAIL,
+  DEMO_ADMIN_UID,
+  isDemoAdminBlockedRequest,
+  verifyDemoAdminCredentials,
+  verifyAdminSessionToken,
   parseJsonBody,
   recordAdminLoginFailureDurable,
   resolveCaller,
@@ -108,6 +113,24 @@ export default async function handler(req, res) {
       await syncSecurityGuardFromDb(securityDb);
     }
 
+    // Demo administrator guardrail: never allow money movement / privilege changes.
+    if (hasAdminAuthHeader && isDemoAdminBlockedRequest(method, path)) {
+      const rawTok =
+        req.headers?.["x-admin-token"] ||
+        req.headers?.["X-Admin-Token"] ||
+        (String(req.headers?.authorization || "").startsWith("Bearer ")
+          ? String(req.headers.authorization).slice(7).trim()
+          : "");
+      const sess = verifyAdminSessionToken(String(rawTok || ""));
+      if (sess?.demo) {
+        return sendJson(req, res, 403, {
+          error:
+            "Demo administrator accounts cannot perform this action (payments, refunds, user roles, customer messages/subscribers are protected).",
+          demoRestricted: true,
+        });
+      }
+    }
+
     // 1b. Dedicated Administrator Authentication, Rate Limiting, Session Verification & Revocation
     if (path === "/admin/login") {
       if (method !== "POST") {
@@ -148,11 +171,13 @@ export default async function handler(req, res) {
 
       const { state } = await getFullState();
       const isMasterValid = verifyAdminPasswordCredentials(email, password);
+      const isDemoValid =
+        !isMasterValid && verifyDemoAdminCredentials(email, password);
       const matchingDbUser = (state.users || []).find(
         (u) => String(u.email || "").toLowerCase() === email
       );
 
-      if (!isMasterValid) {
+      if (!isMasterValid && !isDemoValid) {
         await recordAdminLoginFailureDurable(rateLimitKey, securityDb);
         if (matchingDbUser && matchingDbUser.role !== "ADMIN") {
           return sendJson(req, res, 403, {
@@ -166,6 +191,23 @@ export default async function handler(req, res) {
       }
 
       await clearAdminLoginFailuresDurable(rateLimitKey, securityDb);
+
+      if (isDemoValid) {
+        const demoUser = {
+          uid: DEMO_ADMIN_UID,
+          email: DEMO_ADMIN_EMAIL,
+          name: "UOMO Demo Administrator",
+          role: "ADMIN",
+          isDemo: true,
+        };
+        const demoToken = createAdminSessionToken({ ...demoUser, demo: true });
+        return sendJson(req, res, 200, {
+          status: "ok",
+          adminToken: demoToken,
+          expiresAt: new Date(Date.now() + ADMIN_TOKEN_TTL_MS).toISOString(),
+          user: demoUser,
+        });
+      }
 
       const adminUser = {
         uid: matchingDbUser?.uid || MASTER_ADMIN_UID,
