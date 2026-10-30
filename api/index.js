@@ -12,11 +12,13 @@ import {
   asSafeEmail,
   asSafeId,
   canAccessUser,
+  createAdminSessionToken,
   MASTER_ADMIN_EMAIL,
   MASTER_ADMIN_UID,
   parseJsonBody,
   resolveCaller,
   sendJson,
+  verifyAdminPasswordCredentials,
 } from "./security.js";
 import {
   deductOrderInventory,
@@ -84,6 +86,90 @@ export default async function handler(req, res) {
         database: `${DB_NAME} (MongoDB Atlas)`,
         cloudinaryCloudName: CLOUDINARY_CLOUD_NAME,
         firebaseAuthProject: "ummo-eccomerce",
+      });
+    }
+
+    // 1b. Dedicated Administrator Authentication & Session Verification (POST /admin/login, GET /admin/session)
+    if (path === "/admin/login") {
+      if (method !== "POST") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const { sanitized: body, hadOperator } = await parseJsonBody(req);
+      if (hadOperator) {
+        return sendJson(req, res, 400, { error: "Invalid request parameters" });
+      }
+      const email = asSafeEmail(body.email);
+      const password = typeof body.password === "string" ? body.password : "";
+      if (!email || !password) {
+        return sendJson(req, res, 400, {
+          error: "Administrator email and password are required.",
+        });
+      }
+
+      const { state } = await getFullState();
+      const isMasterValid = verifyAdminPasswordCredentials(email, password);
+      const matchingDbUser = (state.users || []).find(
+        (u) => String(u.email || "").toLowerCase() === email
+      );
+
+      if (!isMasterValid) {
+        if (matchingDbUser && matchingDbUser.role !== "ADMIN") {
+          return sendJson(req, res, 403, {
+            error:
+              "Forbidden: Your account does not have Administrator privileges.",
+          });
+        }
+        return sendJson(req, res, 401, {
+          error: "Invalid administrator email or password.",
+        });
+      }
+
+      const adminUser = {
+        uid: matchingDbUser?.uid || MASTER_ADMIN_UID,
+        email: MASTER_ADMIN_EMAIL,
+        name:
+          matchingDbUser?.displayName ||
+          matchingDbUser?.username ||
+          "UOMO Store Administrator",
+        role: "ADMIN",
+      };
+      const adminToken = createAdminSessionToken(adminUser);
+
+      return sendJson(req, res, 200, {
+        status: "ok",
+        adminToken,
+        user: adminUser,
+      });
+    }
+
+    if (path === "/admin/session") {
+      if (method !== "GET") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
+      if (caller.isAdmin) {
+        return sendJson(req, res, 200, {
+          status: "ok",
+          isAdmin: true,
+          user: {
+            uid: caller.uid || MASTER_ADMIN_UID,
+            email: caller.email || MASTER_ADMIN_EMAIL,
+            role: "ADMIN",
+          },
+        });
+      }
+      if (caller.isAuthenticated) {
+        return sendJson(req, res, 403, {
+          status: "forbidden",
+          isAdmin: false,
+          error: "Forbidden: Administrator role required.",
+        });
+      }
+      return sendJson(req, res, 401, {
+        status: "unauthenticated",
+        isAdmin: false,
+        error: "Administrator authentication required.",
       });
     }
 
@@ -271,6 +357,12 @@ export default async function handler(req, res) {
           : {}),
         ...(body.cartRules && typeof body.cartRules === "object"
           ? { cartRules: body.cartRules }
+          : {}),
+        ...(Array.isArray(body.discountCampaigns)
+          ? { discountCampaigns: body.discountCampaigns }
+          : {}),
+        ...(body.customTaxonomy && typeof body.customTaxonomy === "object"
+          ? { customTaxonomy: body.customTaxonomy }
           : {}),
         updatedAt: new Date().toISOString(),
       };
@@ -676,6 +768,12 @@ export default async function handler(req, res) {
         return sendJson(req, res, 400, { error: "Invalid request parameters" });
       }
       const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
+      if (process.env.ALLOW_SANDBOX_CONFIRM === "false") {
+        return sendJson(req, res, 403, {
+          error: "Sandbox payment simulation is disabled in live production.",
+        });
+      }
       const orderId = asSafeId(body.orderId, 64);
       const gateway = asSafeId(body.gateway || "sslcommerz", 32).toLowerCase();
       const outcome = asSafeId(body.outcome || "PAID", 32).toUpperCase();
@@ -685,6 +783,18 @@ export default async function handler(req, res) {
       );
       if (!targetOrder) {
         return sendJson(req, res, 404, { error: "Order not found." });
+      }
+      if (
+        !caller.isAdmin &&
+        caller.uid &&
+        targetOrder.userUid &&
+        targetOrder.userUid !== "guest" &&
+        String(targetOrder.userUid) !== caller.uid
+      ) {
+        return sendJson(req, res, 403, {
+          error:
+            "Forbidden: Cannot confirm sandbox payment for another user's order.",
+        });
       }
 
       let result;
@@ -868,7 +978,7 @@ export default async function handler(req, res) {
         orderId: asSafeId(body.orderId, 64),
         refundAmount: body.refundAmount,
         reason: asSafeId(body.reason || "", 300),
-        restockItems: body.restockItems !== false,
+        restockItems: body.restockItems,
         state,
         caller,
       });

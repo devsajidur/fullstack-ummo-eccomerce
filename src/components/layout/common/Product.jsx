@@ -1,234 +1,251 @@
-import React, { memo } from "react";
+import React, { useState } from "react";
 import Image from "./Image";
+import Flex from "./Flex";
+import { FaHeart, FaRegHeart, FaStar, FaCheck } from "react-icons/fa6";
 import { useDispatch, useSelector } from "react-redux";
 import { addToCart } from "../../../slices/cartSlice";
 import {
   addWishList,
   deleteWishEndevisual,
 } from "../../../slices/wishListSlice";
-import { productDetail } from "../../../slices/ProductDetailsSlice";
 import { useNavigate } from "react-router";
 import toast from "react-hot-toast";
-import {
-  getProductDiscountState,
-  pad2,
-  useNowTick,
-} from "../../../utils/discountTimer";
+import { getProductDiscountState } from "../../../utils/discountTimer";
+import { classifyProductTaxonomy } from "../../../utils/categoryTaxonomy";
+import { useLocalization } from "../../../i18n/LocalizationContext";
 
-/**
- * Isolated countdown pill so 1-second timer ticks only update this tiny text span
- * and never re-render the parent Product card or image.
- */
-const ProductCountdownPill = memo(function ProductCountdownPill({ item }) {
-  const now = useNowTick(true);
-  const discountState = getProductDiscountState(item, now);
-  if (!discountState.hasActiveTimer) return null;
-
-  return (
-    <div className="absolute bottom-0 inset-x-0 bg-black/80 backdrop-blur-[2px] text-white px-2 py-1 flex items-center justify-center gap-1 text-[10px] sm:text-[11px] font-mono font-semibold tracking-tight">
-      <span className="text-amber-400">⚡</span>
-      <span>
-        {discountState.days > 0 ? `${discountState.days}d ` : ""}
-        {pad2(discountState.hours)}h : {pad2(discountState.minutes)}m :{" "}
-        {pad2(discountState.seconds)}s
-      </span>
-    </div>
-  );
-});
-
-const Product = memo(function Product({ item, prioritizeFirstRow = false }) {
+const Product = ({
+  item,
+  productImage,
+  badgeText,
+  discountBadge,
+  productCatagory,
+  productTitle,
+  productPrice,
+  id,
+}) => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const isWished = useSelector((state) =>
-    (state.wishList.wishProduct || []).some(
-      (w) => String(w.id) === String(item?.id)
-    )
+  const { t } = useLocalization();
+  const [justAdded, setJustAdded] = useState(false);
+
+  const wishProduct = useSelector((state) => state.wishList.wishProduct || []);
+  const isWishlisted = wishProduct.some(
+    (w) => String(w.id) === String(item?.id ?? id)
+  );
+  const stockCount = item?.stock !== undefined ? Number(item.stock) : 99;
+  const isOutOfStock = stockCount <= 0;
+
+  const discountState = getProductDiscountState({
+    ...item,
+    price: item?.price ?? productPrice,
+    discountPercentage: item?.discountPercentage ?? discountBadge,
+  });
+  const effectivePrice = discountState.effectivePrice;
+  const regularPrice = discountState.regularPrice;
+  const activeDiscountPct = discountState.discountPercentage;
+
+  const taxonomy = classifyProductTaxonomy(
+    item || { id, title: productTitle, category: productCatagory }
   );
 
-  const hasTimer = Boolean(
-    item?.discountEndTime && item.discountEndTime !== "none"
-  );
-  const discountState = getProductDiscountState(item);
-  const stockCount = Number(item?.stock ?? 20);
-
-  const hasFreeGift =
-    Boolean(item?.freeGift?.enabled) &&
-    Boolean(String(item?.freeGift?.giftName || "").trim());
-
-  function handleAddtoCart(Citem) {
-    if (stockCount <= 0) {
-      toast.error("Sorry, this product is currently out of stock.");
+  const handleAddToCart = (e) => {
+    e.stopPropagation();
+    if (isOutOfStock) {
+      toast.error(t("product.outOfStock", "Sorry, this item is currently out of stock."));
       return;
     }
-    const latestDiscount = getProductDiscountState(Citem);
     dispatch(
       addToCart({
-        id: Citem.id,
-        title: Citem.title,
-        price: latestDiscount.effectivePrice,
-        originalPrice: latestDiscount.originalPrice,
-        discountPercent: latestDiscount.discountPercent,
-        discountPercentage: Citem.discountPercentage,
-        discountEndTime: Citem.discountEndTime || null,
-        freeGift: Citem.freeGift || null,
-        image: Citem.thumbnail,
-        quantity: 1,
-        size: "M",
-        color: "Black",
+        ...item,
+        id: item?.id ?? id,
+        title: item?.title ?? productTitle,
+        price: regularPrice,
+        discountPercentage: activeDiscountPct,
+        effectivePrice,
+        thumbnail: item?.thumbnail ?? productImage,
+        category: item?.category ?? productCatagory,
+        qun: 1,
       })
     );
-    if (hasFreeGift) {
-      toast.success(
-        `"${Citem.title}" added! Free Gift: ${item.freeGift.giftQty || 1}x ${item.freeGift.giftName}`
-      );
-    } else {
-      toast.success(
-        `"${Citem.title}" added to cart at $${latestDiscount.effectivePrice.toFixed(2)}!`
-      );
-    }
-  }
-
-  const handleToggleWish = () => {
-    if (isWished) {
-      dispatch(deleteWishEndevisual(item));
-      toast("Removed from wishlist", { icon: "🗑️" });
-    } else {
-      dispatch(addWishList(item));
-      toast.success("Saved to wishlist ❤️");
-    }
+    setJustAdded(true);
+    toast.success(`"${productTitle}" added to cart`);
+    setTimeout(() => setJustAdded(false), 1400);
   };
 
-  const handleProductDetails = (dtail) => {
-    dispatch(productDetail(dtail));
-    navigate(`/shopsingle?id=${dtail.id}`);
+  const handleWishlist = (e) => {
+    e.stopPropagation();
+    const payload = {
+      ...item,
+      id: item?.id ?? id,
+      title: item?.title ?? productTitle,
+      price: regularPrice,
+      discountPercentage: activeDiscountPct,
+      effectivePrice,
+      thumbnail: item?.thumbnail ?? productImage,
+      category: item?.category ?? productCatagory,
+      quantity: 1,
+      qun: 1,
+    };
+    if (isWishlisted) {
+      dispatch(deleteWishEndevisual(payload));
+    } else {
+      dispatch(addWishList(payload));
+    }
+    toast.success(
+      isWishlisted
+        ? `Removed "${productTitle}" from Wishlist`
+        : `Saved "${productTitle}" to Wishlist`
+    );
   };
+
+  const handleNavigateDetail = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    navigate(`/shop/${id}`);
+  };
+
+  const ratingValue = Math.max(
+    1,
+    Math.min(5, Math.round(Number(item?.rating || 4.5)))
+  );
 
   return (
-    <div className="max-w-82.5 group relative">
+    <article className="relative group flex flex-col h-full bg-white rounded-lg overflow-hidden transition-shadow hover:shadow-md border border-transparent hover:border-gray-100">
       <div
-        onClick={() => handleProductDetails(item)}
-        className="cursor-pointer relative overflow-hidden bg-[#f8f8f8] rounded-sm"
+        onClick={handleNavigateDetail}
+        className="cursor-pointer relative overflow-hidden bg-[#F7F7F7] rounded-t-lg aspect-[4/5] flex items-center justify-center"
       >
         <Image
-          product={item}
-          className="md:h-80 md:w-50 h-40 w-30 block mx-auto object-contain transition-transform duration-300 group-hover:scale-105"
-          src={item?.thumbnail}
-          alt={item?.title}
-          width={200}
-          height={320}
-          loading={prioritizeFirstRow ? "eager" : "lazy"}
-          fetchPriority={prioritizeFirstRow ? "high" : undefined}
+          src={productImage}
+          alt={productTitle}
+          width={280}
+          height={340}
+          className="w-full h-full object-contain p-3 bg-[#F7F7F7] transition-transform duration-300 group-hover:scale-105"
         />
 
-        {/* Top-Left Discount & Free Gift Badges */}
-        <div className="absolute top-2 left-2 flex flex-col items-start gap-1">
-          {discountState.isDiscountActive && (
-            <span className="bg-[#D6001C] text-white text-[10px] font-bold px-2 py-0.5 rounded-sm shadow-xs">
-              -{discountState.discountPercent}% OFF
-            </span>
-          )}
-          {hasFreeGift && (
-            <span className="bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm shadow-xs">
-              🎁 Free: {item.freeGift.giftQty || 1}x {item.freeGift.giftName}
-            </span>
-          )}
-        </div>
-
-        {/* Top-Right Stock Scarcity Badge */}
-        {stockCount <= 0 ? (
-          <span className="absolute top-2 right-2 bg-gray-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm">
-            SOLD OUT
-          </span>
-        ) : (
-          stockCount < 10 && (
-            <span className="absolute top-2 right-2 bg-amber-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm">
-              Only {stockCount} left
-            </span>
-          )
-        )}
-
-        {/* Live Countdown Timer Bar on Product Card */}
-        {hasTimer && <ProductCountdownPill item={item} />}
-      </div>
-
-      <div className="mt-3.2">
-        <div className="flex justify-between items-center h-5">
-          <p className="text-[12px] md:text-sm text-gray-600 font-normal uppercase truncate pr-2">
-            {item?.category}
-          </p>
-          <button
-            type="button"
-            aria-label="Toggle Wishlist"
-            className="cursor-pointer shrink-0"
-            onClick={handleToggleWish}
-          >
-            {isWished ? (
-              <span className="text-[15px]">❤️</span>
-            ) : (
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <g clipPath="url(#clip0_31_61)">
-                  <path
-                    d="M14.7145 2.64647C12.9744 0.906815 10.1436 0.906815 8.40393 2.64647L7.99986 3.0503L7.59603 2.64647C5.85637 0.906579 3.02531 0.906579 1.28565 2.64647C-0.418689 4.35081 -0.429756 7.05236 1.25998 8.93071C2.80114 10.6433 7.34643 14.3432 7.53928 14.4998C7.6702 14.6063 7.82773 14.6581 7.98432 14.6581C7.9895 14.6581 7.99468 14.6581 7.99963 14.6578C8.16163 14.6654 8.32481 14.6098 8.45997 14.4998C8.65282 14.3432 13.1986 10.6433 14.7402 8.93048C16.4297 7.05236 16.4186 4.35081 14.7145 2.64647ZM13.69 7.98554C12.4884 9.32042 9.18546 12.0735 7.99963 13.0505C6.8138 12.0738 3.51155 9.32089 2.31018 7.98577C1.13142 6.67561 1.12035 4.80974 2.28452 3.64557C2.87908 3.05125 3.6599 2.75385 4.44072 2.75385C5.22154 2.75385 6.00236 3.05101 6.59693 3.64557L7.48512 4.53377C7.59085 4.6395 7.72412 4.7026 7.86399 4.72474C8.09099 4.77348 8.33729 4.71014 8.51389 4.53401L9.40256 3.64557C10.5919 2.45668 12.5266 2.45692 13.7152 3.64557C14.8794 4.80974 14.8683 6.67561 13.69 7.98554Z"
-                    fill="#767676"
-                  />
-                </g>
-                <defs>
-                  <clipPath id="clip0_31_61">
-                    <rect width="16" height="16" fill="white" />
-                  </clipPath>
-                </defs>
-              </svg>
-            )}
-          </button>
-        </div>
-        <h3
-          onClick={() => handleProductDetails(item)}
-          className="cursor-pointer clamp font-medium text-sm text-primary hover:underline"
-        >
-          {item?.title}
-        </h3>
-        <div className="flex items-center justify-between mt-0.5">
-          <div className="flex items-center gap-2">
-            <span
-              className={`md:text-base text-[14px] font-semibold uppercase ${
-                discountState.isDiscountActive
-                  ? "text-[#D6001C]"
-                  : "text-primary"
-              }`}
-            >
-              ${discountState.effectivePrice.toFixed(2)}
-            </span>
-            {discountState.isDiscountActive && (
-              <span className="text-xs text-gray-600 line-through">
-                ${discountState.originalPrice.toFixed(2)}
-              </span>
-            )}
-          </div>
-          {item?.rating && (
-            <span className="text-[11px] text-amber-800 font-medium">
-              ★ {Number(item.rating).toFixed(1)}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div>
+        {/* Wishlist Heart Quick Button */}
         <button
           type="button"
-          onClick={() => handleAddtoCart(item)}
-          className="absolute md:invisible md:group-hover:visible cursor-pointer bottom-22 md:bottom-28 left-[50%] translate-[-50%] w-[90%] md:w-77.5 shadow-xl shadow-[#3333335b] font-medium text-[12px] md:text-sm bg-white hover:bg-black hover:text-white transition-colors text-black h-7 md:h-12.5 text-center z-10"
+          aria-label={
+            isWishlisted ? "Remove from wishlist" : "Add to wishlist"
+          }
+          onClick={handleWishlist}
+          className="absolute top-2.5 right-2.5 z-10 w-9 h-9 rounded-full bg-white/90 backdrop-blur-sm shadow-sm flex items-center justify-center text-gray-700 hover:text-red-600 transition-colors cursor-pointer"
         >
-          {stockCount <= 0 ? "OUT OF STOCK" : "ADD TO CART"}
+          {isWishlisted ? (
+            <FaHeart className="text-red-600 text-sm" />
+          ) : (
+            <FaRegHeart className="text-sm" />
+          )}
         </button>
+
+        {/* Add to Cart Bar (No ticking timer on listing cards per Gate 6) */}
+        <button
+          type="button"
+          onClick={handleAddToCart}
+          disabled={isOutOfStock}
+          className={`w-[calc(100%-16px)] min-h-[38px] py-2 font-bold text-[11px] sm:text-xs uppercase tracking-wider cursor-pointer rounded-md absolute bottom-2 left-2 right-2 duration-200 flex items-center justify-center gap-1.5 shadow-sm ${
+            isOutOfStock
+              ? "bg-gray-300 text-gray-600 cursor-not-allowed opacity-100"
+              : justAdded
+                ? "bg-emerald-600 text-white opacity-100"
+                : "bg-white/95 hover:bg-primary hover:text-white text-primary opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+          }`}
+        >
+          {isOutOfStock ? (
+            t("product.outOfStock", "OUT OF STOCK")
+          ) : justAdded ? (
+            <>
+              <FaCheck /> {t("product.addedToCart", "ADDED")}
+            </>
+          ) : (
+            t("product.addToCart", "ADD TO CART")
+          )}
+        </button>
+
+        {/* Top-Left Status / Discount Badges */}
+        <div className="flex flex-col gap-1 absolute top-2.5 left-2.5 z-10 pointer-events-none">
+          {isOutOfStock ? (
+            <span className="py-1 px-2 bg-gray-900 font-bold text-[10px] uppercase tracking-wider text-white rounded">
+              {t("product.outOfStock", "SOLD OUT")}
+            </span>
+          ) : (
+            <>
+              {badgeText && (
+                <span className="py-0.5 px-2 bg-gray-900 font-bold text-[10px] uppercase tracking-wider text-white rounded">
+                  {badgeText}
+                </span>
+              )}
+              {discountState.isDiscountActive && (
+                <span className="py-1 px-2 bg-[#C32929] font-extrabold text-[11px] text-white rounded shadow-sm">
+                  -{activeDiscountPct}% {t("product.off", "OFF")}
+                </span>
+              )}
+            </>
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* Product Card Details */}
+      <div
+        onClick={handleNavigateDetail}
+        className="flex flex-col flex-1 justify-between pt-2.5 pb-2 px-2 cursor-pointer"
+      >
+        <div>
+          <Flex className="justify-between items-center gap-1">
+            <span className="text-[11px] text-[#666666] font-medium uppercase tracking-wider truncate">
+              {taxonomy?.departmentName || productCatagory}
+            </span>
+            <div
+              className="flex items-center gap-0.5 text-[#E5A800] text-[10px] shrink-0"
+              aria-label={`Rated ${ratingValue} out of 5 stars`}
+            >
+              {Array.from({ length: ratingValue }).map((_, idx) => (
+                <FaStar key={idx} />
+              ))}
+            </div>
+          </Flex>
+
+          <h3 className="text-xs sm:text-sm font-semibold text-gray-900 line-clamp-1 mt-1 group-hover:text-[#C32929] transition-colors">
+            {productTitle}
+          </h3>
+        </div>
+
+        {/* Gate 6: Clear Discount & Regular Price Hierarchy */}
+        <div className="mt-2 pt-1.5 border-t border-gray-100 flex items-baseline justify-between gap-1.5 flex-wrap">
+          {discountState.isDiscountActive ? (
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span
+                className="text-sm sm:text-[15px] font-extrabold text-[#C32929]"
+                data-testid="product-effective-price"
+              >
+                ${effectivePrice.toFixed(2)}
+              </span>
+              <span
+                className="text-xs font-medium text-gray-400 line-through"
+                data-testid="product-regular-price"
+              >
+                ${regularPrice.toFixed(2)}
+              </span>
+            </div>
+          ) : (
+            <span
+              className="text-sm sm:text-[15px] font-bold text-gray-900"
+              data-testid="product-regular-price"
+            >
+              ${regularPrice.toFixed(2)}
+            </span>
+          )}
+
+          {discountState.isDiscountActive && discountState.savingsAmount > 0 && (
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+              Save ${discountState.savingsAmount.toFixed(2)}
+            </span>
+          )}
+        </div>
+      </div>
+    </article>
   );
-});
+};
 
 export default Product;

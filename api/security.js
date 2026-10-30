@@ -1,10 +1,90 @@
+import crypto from "crypto";
+
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 export const MAX_BODY_BYTES = 512 * 1024; // 512 KB
 
 export const MASTER_ADMIN_UID = "admin-ummo-master";
-export const MASTER_ADMIN_EMAIL = "admin@ummo.com";
+export const MASTER_ADMIN_EMAIL =
+  (process.env.ADMIN_EMAIL || "admin@ummo.com").trim().toLowerCase();
+export const MASTER_ADMIN_PASSWORD =
+  process.env.ADMIN_PASSWORD || "Admin@12345";
 export const ADMIN_ACCESS_KEY =
   process.env.UMMO_ADMIN_KEY || "UMMO_ADMIN_SHIELD_2026";
+const ADMIN_TOKEN_SECRET =
+  process.env.ADMIN_TOKEN_SECRET ||
+  `${ADMIN_ACCESS_KEY}::ummo_enterprise_hmac_2026`;
+const ADMIN_TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+export function verifyAdminPasswordCredentials(email, password) {
+  const safeEmail = String(email || "").trim().toLowerCase();
+  const safePass = String(password || "");
+  if (!safeEmail || !safePass) return false;
+  const emailHashA = crypto.createHash("sha256").update(safeEmail).digest();
+  const emailHashB = crypto
+    .createHash("sha256")
+    .update(MASTER_ADMIN_EMAIL)
+    .digest();
+  const passHashA = crypto.createHash("sha256").update(safePass).digest();
+  const passHashB = crypto
+    .createHash("sha256")
+    .update(MASTER_ADMIN_PASSWORD)
+    .digest();
+  return (
+    crypto.timingSafeEqual(emailHashA, emailHashB) &&
+    crypto.timingSafeEqual(passHashA, passHashB)
+  );
+}
+
+export function createAdminSessionToken({
+  uid = MASTER_ADMIN_UID,
+  email = MASTER_ADMIN_EMAIL,
+  role = "ADMIN",
+} = {}) {
+  const now = Date.now();
+  const payload = {
+    uid: String(uid || MASTER_ADMIN_UID),
+    email: String(email || MASTER_ADMIN_EMAIL).toLowerCase(),
+    role: String(role || "ADMIN").toUpperCase(),
+    iat: now,
+    exp: now + ADMIN_TOKEN_TTL_MS,
+  };
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString(
+    "base64url"
+  );
+  const sig = crypto
+    .createHmac("sha256", ADMIN_TOKEN_SECRET)
+    .update(encoded)
+    .digest("base64url");
+  return `${encoded}.${sig}`;
+}
+
+export function verifyAdminSessionToken(token) {
+  if (!token || typeof token !== "string" || !token.includes(".")) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [encoded, providedSig] = parts;
+  if (!encoded || !providedSig) return null;
+  try {
+    const expectedSig = crypto
+      .createHmac("sha256", ADMIN_TOKEN_SECRET)
+      .update(encoded)
+      .digest("base64url");
+    const bufA = Buffer.from(providedSig, "utf8");
+    const bufB = Buffer.from(expectedSig, "utf8");
+    if (bufA.length !== bufB.length || !crypto.timingSafeEqual(bufA, bufB)) {
+      return null;
+    }
+    const decoded = JSON.parse(
+      Buffer.from(encoded, "base64url").toString("utf8")
+    );
+    if (!decoded || typeof decoded !== "object") return null;
+    if (decoded.role !== "ADMIN") return null;
+    if (!decoded.exp || Number(decoded.exp) <= Date.now()) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Recursively strips MongoDB operators ($ne, $gt, $where, etc.), dot-path keys,
@@ -183,6 +263,7 @@ export function resolveCaller(req, state) {
   const uid = asSafeId(getHeader(req, "x-user-uid"), 128);
   const email = asSafeEmail(getHeader(req, "x-user-email"));
   const adminKey = getHeader(req, "x-admin-key");
+  const adminTokenHeader = getHeader(req, "x-admin-token");
   const authHeader = getHeader(req, "authorization");
   const bearerToken = authHeader.startsWith("Bearer ")
     ? authHeader.slice(7).trim()
@@ -195,17 +276,26 @@ export function resolveCaller(req, state) {
       ? dbUsers.find((u) => String(u.email || "").toLowerCase() === email)
       : null;
 
+  const verifiedAdminSession =
+    verifyAdminSessionToken(adminTokenHeader) ||
+    verifyAdminSessionToken(bearerToken);
+
   const hasValidAdminSecret =
-    adminKey === ADMIN_ACCESS_KEY || bearerToken === ADMIN_ACCESS_KEY;
+    Boolean(verifiedAdminSession) ||
+    adminKey === ADMIN_ACCESS_KEY ||
+    bearerToken === ADMIN_ACCESS_KEY;
 
   const isAdmin = Boolean(hasValidAdminSecret);
+  const resolvedUid = verifiedAdminSession?.uid || uid;
+  const resolvedEmail = verifiedAdminSession?.email || email;
 
   return {
-    uid,
-    email,
-    isAuthenticated: Boolean(uid || isAdmin),
+    uid: resolvedUid,
+    email: resolvedEmail,
+    isAuthenticated: Boolean(resolvedUid || isAdmin),
     isAdmin,
     dbUser,
+    adminSession: verifiedAdminSession || null,
   };
 }
 
@@ -246,7 +336,7 @@ export function sendJson(req, res, statusCode, payload) {
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, Idempotency-Key, X-User-Uid, X-User-Email, X-Admin-Key"
+    "Content-Type, Authorization, Idempotency-Key, X-User-Uid, X-User-Email, X-Admin-Key, X-Admin-Token"
   );
   res.end(JSON.stringify(payload));
 }

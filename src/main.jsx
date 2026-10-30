@@ -4,12 +4,14 @@ import './index.css'
 import App from './App.jsx'
 import { Provider } from 'react-redux'
 import { store } from './app/store.js'
+import { LocalizationProvider } from './i18n/LocalizationContext.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <Provider store={store}>
-
-    <App />
+      <LocalizationProvider>
+        <App />
+      </LocalizationProvider>
     </Provider>
   </StrictMode>,
 )

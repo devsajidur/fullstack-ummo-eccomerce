@@ -24,6 +24,7 @@ import {
   getProductFreeGiftConfig,
   recordRecentlyViewedProduct,
 } from "../../utils/cartPromotions";
+import { classifyProductTaxonomy } from "../../utils/categoryTaxonomy";
 
 const SIZES = ["XS", "S", "M", "L", "XL"];
 const COLORS = [
@@ -221,18 +222,49 @@ export default function ProductDetails() {
 
           {/* Product info */}
           <div>
-            <div className="mb-4 flex items-center justify-between text-sm font-medium leading-6 text-primary">
-              <div>
-                <span className="cursor-pointer" onClick={() => navigate("/")}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-medium leading-6 text-primary">
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="cursor-pointer hover:underline" onClick={() => navigate("/")}>
                   HOME
                 </span>
-                <span className="mx-1.5">/</span>
+                <span className="mx-1">/</span>
                 <span
-                  className="cursor-pointer"
+                  className="cursor-pointer hover:underline"
                   onClick={() => navigate("/shop")}
                 >
-                  THE SHOP
+                  SHOP
                 </span>
+                {(() => {
+                  const tax = classifyProductTaxonomy(liveProduct);
+                  return (
+                    <>
+                      <span className="mx-1">/</span>
+                      <span
+                        className="cursor-pointer uppercase font-bold hover:underline"
+                        onClick={() => navigate(`/category/${tax.department}`)}
+                      >
+                        {tax.departmentName}
+                      </span>
+                      {tax.subcategory && (
+                        <>
+                          <span className="mx-1">/</span>
+                          <span
+                            className="cursor-pointer uppercase text-gray-600 hover:underline"
+                            onClick={() =>
+                              navigate(
+                                `/category/${tax.department}?sub=${encodeURIComponent(
+                                  tax.subcategory
+                                )}`
+                              )
+                            }
+                          >
+                            {tax.subcategory}
+                          </span>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <span
                 className={`text-xs font-semibold px-2.5 py-1 rounded ${
@@ -248,14 +280,14 @@ export default function ProductDetails() {
             </div>
 
             <div className="flex flex-col">
-              <h1 className="text-2xl font-normal sm:text-[26px] text-primary">
+              <h1 className="text-xl sm:text-[26px] font-semibold text-primary leading-snug">
                 {liveProduct.title}
               </h1>
 
               {/* Price + Discount Savings Display */}
               <div className="mt-2.5 flex flex-wrap items-center gap-3">
                 <span
-                  className={`text-xl sm:text-[26px] font-bold ${
+                  className={`text-xl sm:text-[26px] font-extrabold ${
                     discountState.isDiscountActive
                       ? "text-[#D6001C]"
                       : "text-primary"
@@ -265,38 +297,41 @@ export default function ProductDetails() {
                 </span>
                 {discountState.isDiscountActive && (
                   <>
-                    <span className="text-base sm:text-lg text-gray-400 line-through">
-                      ${discountState.originalPrice.toFixed(2)}
+                    <span className="text-base sm:text-lg text-gray-400 line-through font-medium">
+                      ${discountState.regularPrice.toFixed(2)}
                     </span>
                     <span className="text-xs font-bold uppercase tracking-wider bg-red-50 text-[#D6001C] border border-red-200 px-2.5 py-1 rounded-full">
-                      Save ${discountState.savingsAmount.toFixed(2)} (
-                      {discountState.discountPercent}% OFF)
+                      Save ${discountState.savingsAmount.toFixed(2)} (-
+                      {discountState.discountPercentage}% OFF)
                     </span>
                   </>
                 )}
               </div>
 
-              {/* Live Flash-Sale Countdown Timer Box */}
+              {/* Gate 7: Live Countdown Timer ONLY on Single Product Page */}
               {discountState.hasActiveTimer && (
-                <div className="mt-4 p-4 rounded-lg bg-gradient-to-r from-[#fff5f5] to-[#fffbeb] border border-red-200">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                <div
+                  className="mt-4 p-3.5 sm:p-4 rounded-xl bg-gradient-to-r from-[#fff5f5] to-[#fffbeb] border border-red-200"
+                  data-testid="single-product-countdown"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#D6001C]">
-                      <Zap size={15} className="fill-[#D6001C]" />
-                      <span>Limited-Time Flash Deal Ends In:</span>
+                      <Zap size={15} className="fill-[#D6001C] shrink-0" />
+                      <span>Limited-Time Offer</span>
                     </div>
-                    <div className="flex items-center gap-1.5 font-mono">
-                      <TimerBox value={pad2(discountState.days)} label="DAYS" />
+                    <div className="flex items-center gap-1.5 font-mono flex-wrap">
+                      <TimerBox value={pad2(discountState.days)} label="Days" />
                       <span className="font-bold text-[#D6001C]">:</span>
-                      <TimerBox value={pad2(discountState.hours)} label="HRS" />
+                      <TimerBox value={pad2(discountState.hours)} label="Hours" />
                       <span className="font-bold text-[#D6001C]">:</span>
                       <TimerBox
                         value={pad2(discountState.minutes)}
-                        label="MINS"
+                        label="Minutes"
                       />
                       <span className="font-bold text-[#D6001C]">:</span>
                       <TimerBox
                         value={pad2(discountState.seconds)}
-                        label="SEC"
+                        label="Seconds"
                       />
                     </div>
                   </div>

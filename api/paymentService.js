@@ -1013,6 +1013,7 @@ export function refundPaymentByAdmin({
   orderId,
   refundAmount,
   reason = "",
+  restockItems,
   caller,
   state,
 }) {
@@ -1048,7 +1049,7 @@ export function refundPaymentByAdmin({
     throw err;
   }
 
-  const orderTotal = Number(order.total || 0);
+  const orderTotal = Number(order.total ?? order.totalAmount ?? 0);
   const alreadyRefunded = Number(
     paymentRecord?.refundedAmount ?? order.refundedAmount ?? 0
   );
@@ -1102,12 +1103,18 @@ export function refundPaymentByAdmin({
     paymentRecord.updatedAt = nowIso;
   }
 
+  const shouldRestock =
+    nextStatus === "REFUNDED"
+      ? restockItems !== false
+      : restockItems === true;
+
   paymentRecord.auditLog.push({
     action: "ADMIN_REFUND",
     by: caller.uid || "admin",
     refundAmount: Number(requestedAmount.toFixed(2)),
     totalRefunded: newRefundedTotal,
     status: nextStatus,
+    restockedInventory: Boolean(shouldRestock),
     reason: asSafeId(reason, 240),
     at: nowIso,
   });
@@ -1116,11 +1123,14 @@ export function refundPaymentByAdmin({
   order.refundedAmount = newRefundedTotal;
   if (nextStatus === "REFUNDED") {
     order.status = "CANCELLED";
+  }
+  if (shouldRestock) {
     restockOrderInventory(state, order);
   }
 
   return {
     paymentStatus: paymentRecord.status,
+    restockedInventory: Boolean(order.inventoryRestocked),
     payment: paymentRecord,
     order,
   };

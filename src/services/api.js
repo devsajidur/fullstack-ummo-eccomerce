@@ -4,6 +4,10 @@ import {
   getCloudinaryProductImageUrl,
 } from "./cloudinary";
 import { INITIAL_CATALOG_SEED } from "./catalogSeed";
+import {
+  classifyProductTaxonomy,
+  saveCustomTaxonomyOverrides,
+} from "../utils/categoryTaxonomy";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
@@ -28,18 +32,20 @@ apiClient.interceptors.request.use((config) => {
     if (typeof localStorage !== "undefined") {
       const rawUser = localStorage.getItem("ummo_active_user");
       const activeUser = rawUser ? JSON.parse(rawUser) : null;
+      const adminToken = localStorage.getItem("ummo_admin_session_token") || "";
       if (activeUser?.uid) {
         config.headers["X-User-Uid"] = String(activeUser.uid);
       }
       if (activeUser?.email) {
         config.headers["X-User-Email"] = String(activeUser.email);
       }
-      const isAdminUnlocked =
-        localStorage.getItem("ummo_admin_unlocked") === "true" ||
-        String(activeUser?.role || "").toUpperCase() === "ADMIN" ||
-        String(activeUser?.email || "").toLowerCase() === "admin@ummo.com" ||
-        activeUser?.uid === "admin-ummo-master";
-      if (isAdminUnlocked) {
+      if (adminToken) {
+        config.headers["X-Admin-Token"] = adminToken;
+      }
+      const isVerifiedAdmin =
+        Boolean(adminToken) ||
+        String(activeUser?.role || "").toUpperCase() === "ADMIN";
+      if (isVerifiedAdmin) {
         config.headers["X-Admin-Key"] = "UMMO_ADMIN_SHIELD_2026";
       }
     }
@@ -48,6 +54,16 @@ apiClient.interceptors.request.use((config) => {
   }
   return config;
 });
+
+export async function loginAdminWithServer(email, password) {
+  const response = await apiClient.post("/admin/login", { email, password });
+  return response.data;
+}
+
+export async function verifyAdminSessionWithServer() {
+  const response = await apiClient.get("/admin/session");
+  return response.data;
+}
 
 // ============================================================================
 // 1. DEFAULT COUPONS & CLOUDINARY-HOSTED CMS BANNERS
@@ -161,16 +177,12 @@ export const DEFAULT_BANNERS = {
 };
 
 // ============================================================================
-// 2. IN-MEMORY CATALOG CACHE & IN-FLIGHT DEDUPLICATION
+// 2. IN-MEMORY CATALOG CACHE
 // ============================================================================
 let cachedBaseProducts = null;
-let lastFetchTimestamp = 0;
-let inFlightCatalogPromise = null;
-const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export function invalidateCatalogCache() {
   cachedBaseProducts = null;
-  lastFetchTimestamp = 0;
 }
 
 // ============================================================================
@@ -395,7 +407,90 @@ export function applyRemoteStoreConfig(val) {
       new CustomEvent("ummo:cart-rules-updated", { detail: val.cartRules })
     );
   }
+  if (Array.isArray(val.discountCampaigns)) {
+    localStorage.setItem(
+      "ummo_admin_discount_campaigns",
+      JSON.stringify(val.discountCampaigns)
+    );
+    window.dispatchEvent(
+      new CustomEvent("ummo:discount-campaigns-updated", {
+        detail: val.discountCampaigns,
+      })
+    );
+  }
+  if (val.customTaxonomy && typeof val.customTaxonomy === "object") {
+    saveCustomTaxonomyOverrides(val.customTaxonomy);
+  }
   notifyCatalogSubscribers();
+}
+
+export const DEFAULT_DISCOUNT_CAMPAIGNS = [
+  {
+    id: "CAMP-FASHION-FLASH",
+    name: "Seasonal Fashion Flash Sale",
+    type: "percentage",
+    value: 20,
+    scope: "department",
+    targetDepartment: "women",
+    startTime: "2026-01-01T00:00:00.000Z",
+    endTime: "2026-12-31T23:59:59.000Z",
+    active: true,
+  },
+  {
+    id: "CAMP-MENS-STYLE",
+    name: "Men's Footwear & Apparel Offer",
+    type: "percentage",
+    value: 15,
+    scope: "department",
+    targetDepartment: "men",
+    startTime: "2026-01-01T00:00:00.000Z",
+    endTime: "2026-12-31T23:59:59.000Z",
+    active: true,
+  },
+  {
+    id: "CAMP-KIDS-JOY",
+    name: "Kids' Summer Collection Special",
+    type: "percentage",
+    value: 18,
+    scope: "department",
+    targetDepartment: "kids",
+    startTime: "2026-01-01T00:00:00.000Z",
+    endTime: "2026-12-31T23:59:59.000Z",
+    active: true,
+  },
+];
+
+export function getStoredDiscountCampaigns() {
+  try {
+    if (typeof localStorage !== "undefined") {
+      const raw = localStorage.getItem("ummo_admin_discount_campaigns");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_DISCOUNT_CAMPAIGNS;
+}
+
+export function saveStoredDiscountCampaigns(campaigns) {
+  markLocalConfigWrite();
+  const safeList = Array.isArray(campaigns) ? campaigns : [];
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(
+      "ummo_admin_discount_campaigns",
+      JSON.stringify(safeList)
+    );
+  }
+  window.dispatchEvent(
+    new CustomEvent("ummo:discount-campaigns-updated", { detail: safeList })
+  );
+  notifyCatalogSubscribers();
+  return apiClient
+    .post("/store-config", { discountCampaigns: safeList })
+    .catch(() => {});
 }
 
 /**
@@ -466,7 +561,8 @@ function getDefaultProductTimer(item, index) {
   if (item?.discountEndTime && item.discountEndTime !== "none") {
     return item.discountEndTime;
   }
-  if (index >= 4) return "";
+  const hasGoodDiscount = Number(item?.discountPercentage || 0) >= 12;
+  if (index >= 8 && !hasGoodDiscount) return "";
   const dayBucket = Math.floor(Date.now() / (24 * 3600 * 1000));
   const baseMs = (dayBucket + 1) * 24 * 3600 * 1000;
   const offsetHours = ((Number(item?.id || index) * 7) % 36) + 6;
@@ -477,9 +573,79 @@ export function getInitialCatalogSnapshot() {
   return mergeWithAdminCatalog(cachedBaseProducts || INITIAL_CATALOG_SEED);
 }
 
+function applyCampaignsToProduct(product, campaigns, nowMs) {
+  if (!Array.isArray(campaigns) || !campaigns.length) return product;
+  const tax = classifyProductTaxonomy(product);
+  let bestPct = Number(product.discountPercentage || 0);
+  let bestFixed = Number(product.discountFixedAmount || 0);
+  let bestEndTime = product.discountEndTime || "";
+  let bestStartTime = product.discountStartTime || "";
+  let appliedCampaignName = product.discountCampaignName || "";
+
+  for (const camp of campaigns) {
+    if (!camp || camp.active === false) continue;
+    const startMs = camp.startTime ? Date.parse(camp.startTime) : NaN;
+    const endMs = camp.endTime ? Date.parse(camp.endTime) : NaN;
+    if (Number.isFinite(startMs) && startMs > nowMs) continue;
+    if (Number.isFinite(endMs) && endMs <= nowMs) continue;
+
+    let matches = false;
+    if (camp.scope === "all") {
+      matches = true;
+    } else if (camp.scope === "department" && camp.targetDepartment) {
+      matches =
+        tax.department === String(camp.targetDepartment).toLowerCase() ||
+        (Array.isArray(tax.secondaryDepartments) &&
+          tax.secondaryDepartments.includes(
+            String(camp.targetDepartment).toLowerCase()
+          ));
+    } else if (camp.scope === "category" && camp.targetCategory) {
+      matches =
+        String(product.category || "").toLowerCase() ===
+        String(camp.targetCategory).toLowerCase();
+    } else if (camp.scope === "products" && Array.isArray(camp.productIds)) {
+      matches = camp.productIds.map(String).includes(String(product.id));
+    }
+
+    if (!matches) continue;
+
+    const val = Number(camp.value || 0);
+    if (camp.type === "fixed" && val > 0) {
+      const effectivePct =
+        product.price > 0 ? Math.round((val / product.price) * 100) : 0;
+      if (effectivePct >= bestPct) {
+        bestFixed = val;
+        bestPct = effectivePct;
+        bestEndTime = camp.endTime || bestEndTime;
+        bestStartTime = camp.startTime || bestStartTime;
+        appliedCampaignName = camp.name || "";
+      }
+    } else if (val > bestPct) {
+      bestPct = val;
+      bestFixed = 0;
+      bestEndTime = camp.endTime || bestEndTime;
+      bestStartTime = camp.startTime || bestStartTime;
+      appliedCampaignName = camp.name || "";
+    }
+  }
+
+  return {
+    ...product,
+    department: product.department || tax.department,
+    subcategory: product.subcategory || tax.subcategory,
+    discountPercentage: bestPct,
+    ...(bestFixed > 0 ? { discountFixedAmount: bestFixed } : {}),
+    discountEndTime: bestEndTime,
+    ...(bestStartTime ? { discountStartTime: bestStartTime } : {}),
+    ...(appliedCampaignName ? { discountCampaignName: appliedCampaignName } : {}),
+  };
+}
+
 function mergeWithAdminCatalog(baseProducts) {
   const customProducts = getCustomAdminProducts();
   const deletedIds = new Set(getDeletedProductIds().map(String));
+  const campaigns = getStoredDiscountCampaigns();
+  const nowMs = Date.now();
   const baseIdSet = new Set(baseProducts.map((p) => String(p.id)));
 
   const customMap = new Map(customProducts.map((p) => [String(p.id), p]));
@@ -488,7 +654,18 @@ function mergeWithAdminCatalog(baseProducts) {
   for (const cp of customProducts) {
     const cpId = String(cp.id);
     if (!deletedIds.has(cpId) && (cp.isCustomNew || !baseIdSet.has(cpId))) {
-      merged.push(cp);
+      const tax = classifyProductTaxonomy(cp);
+      merged.push(
+        applyCampaignsToProduct(
+          {
+            ...cp,
+            department: cp.department || tax.department,
+            subcategory: cp.subcategory || tax.subcategory,
+          },
+          campaigns,
+          nowMs
+        )
+      );
     }
   }
 
@@ -506,9 +683,12 @@ function mergeWithAdminCatalog(baseProducts) {
       item.id,
       item.thumbnail
     );
+    const tax = classifyProductTaxonomy(item);
 
     const enrichedBase = {
       ...item,
+      department: item.department || tax.department,
+      subcategory: item.subcategory || tax.subcategory,
       thumbnail: cloudinaryThumb,
       images: [
         cloudinaryThumb,
@@ -520,16 +700,28 @@ function mergeWithAdminCatalog(baseProducts) {
 
     if (customMap.has(idStr)) {
       const adminOverride = customMap.get(idStr);
-      merged.push({
+      const combined = {
         ...enrichedBase,
         ...adminOverride,
         discountEndTime:
           adminOverride.discountEndTime !== undefined
             ? adminOverride.discountEndTime
             : enrichedBase.discountEndTime,
-      });
+      };
+      const overrideTax = classifyProductTaxonomy(combined);
+      merged.push(
+        applyCampaignsToProduct(
+          {
+            ...combined,
+            department: adminOverride.department || overrideTax.department,
+            subcategory: adminOverride.subcategory || overrideTax.subcategory,
+          },
+          campaigns,
+          nowMs
+        )
+      );
     } else {
-      merged.push(enrichedBase);
+      merged.push(applyCampaignsToProduct(enrichedBase, campaigns, nowMs));
     }
   });
 
@@ -538,43 +730,13 @@ function mergeWithAdminCatalog(baseProducts) {
 
 /**
  * Fetches the product catalog with Cloudinary-hosted product images and MongoDB Admin overrides.
+ * Uses the complete 194-product local seed synchronously to eliminate external third-party API latency.
  */
 export async function fetchCatalogProducts(limit = 200) {
-  const now = Date.now();
-  if (cachedBaseProducts && now - lastFetchTimestamp < CACHE_TTL_MS) {
-    return mergeWithAdminCatalog(cachedBaseProducts).slice(0, limit);
+  if (!cachedBaseProducts) {
+    cachedBaseProducts = INITIAL_CATALOG_SEED;
   }
-
-  if (inFlightCatalogPromise) {
-    const base = await inFlightCatalogPromise;
-    return mergeWithAdminCatalog(base).slice(0, limit);
-  }
-
-  inFlightCatalogPromise = (async () => {
-    try {
-      const fallback = await axios.get(
-        `https://dummyjson.com/products?limit=200&select=id,title,category,price,discountPercentage,rating,stock,brand,sku,description,thumbnail,images`,
-        { timeout: 6000 }
-      );
-      cachedBaseProducts =
-        fallback.data?.products?.length > 0
-          ? fallback.data.products
-          : INITIAL_CATALOG_SEED;
-      lastFetchTimestamp = Date.now();
-      return cachedBaseProducts;
-    } catch {
-      cachedBaseProducts = INITIAL_CATALOG_SEED;
-      lastFetchTimestamp = Date.now();
-      return cachedBaseProducts;
-    }
-  })();
-
-  try {
-    const baseList = await inFlightCatalogPromise;
-    return mergeWithAdminCatalog(baseList).slice(0, limit);
-  } finally {
-    inFlightCatalogPromise = null;
-  }
+  return mergeWithAdminCatalog(cachedBaseProducts).slice(0, limit);
 }
 
 // ============================================================================

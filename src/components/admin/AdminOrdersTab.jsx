@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   CreditCard,
@@ -48,15 +48,21 @@ export default function AdminOrdersTab({
   onUpdateOrderStatus,
   onReconcilePayment,
   onRefundPayment,
+  initialPaymentFilter = "ALL",
 }) {
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [paymentFilter, setPaymentFilter] = useState("ALL");
+  const [paymentFilter, setPaymentFilter] = useState(initialPaymentFilter);
   const [gatewayFilter, setGatewayFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [refundDraftOrderId, setRefundDraftOrderId] = useState(null);
+  const [refundMaxRemaining, setRefundMaxRemaining] = useState(0);
   const [refundAmountInput, setRefundAmountInput] = useState("");
   const [refundReasonInput, setRefundReasonInput] = useState("");
-  const [restockOnRefund, setRestockOnRefund] = useState(true);
+  const [restockOnRefund, setRestockOnRefund] = useState(false);
+
+  useEffect(() => {
+    setPaymentFilter(initialPaymentFilter || "ALL");
+  }, [initialPaymentFilter]);
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -98,28 +104,40 @@ export default function AdminOrdersTab({
     const total = Number(order.total ?? order.totalAmount ?? 0);
     const alreadyRefunded = Number(order.refundedAmount || 0);
     const remaining = Math.max(0, Number((total - alreadyRefunded).toFixed(2)));
+    const defaultAmt = remaining || total;
     setRefundDraftOrderId(orderId);
-    setRefundAmountInput(String(remaining || total));
-    setRefundReasonInput("Customer requested sandbox refund");
+    setRefundMaxRemaining(defaultAmt);
+    setRefundAmountInput(String(defaultAmt));
+    setRefundReasonInput("Customer requested refund");
+    // Default restockOnRefund to true ONLY when refunding the full remaining balance
     setRestockOnRefund(true);
   }
 
+  function handleRefundAmountChange(valStr) {
+    setRefundAmountInput(valStr);
+    const numVal = Number(valStr);
+    if (Number.isFinite(numVal) && numVal < refundMaxRemaining - 0.009) {
+      // Partial monetary refund: do NOT auto-restock inventory unless explicitly checked
+      setRestockOnRefund(false);
+    }
+  }
+
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-xs">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+    <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 shadow-xs">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
         <div>
           <h2 className="text-base font-bold text-gray-900">
             Order Fulfillment & Payment Reconciliation ({filteredOrders.length})
           </h2>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 mt-0.5">
             Inspect item thumbnails, customer product messages, SSLCommerz/Stripe
-            sandbox transactions, and issue reconciliations or refunds.
+            sandbox transactions, and issue reconciliations or partial/full refunds.
           </p>
         </div>
 
-        {/* Search Input */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative">
+        {/* Search & Gateway Filters */}
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5">
+          <div className="relative flex-1 sm:flex-initial">
             <Search
               size={14}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -128,47 +146,49 @@ export default function AdminOrdersTab({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search Order ID, customer, email, phone, txn..."
-              className="border border-gray-300 rounded-lg pl-8 pr-3 py-1.5 text-xs outline-none focus:border-gray-900 w-64"
+              placeholder="Search Order ID, customer, email, phone..."
+              className="border border-gray-300 rounded-lg pl-8 pr-3 py-2 text-xs outline-none focus:border-gray-900 w-full sm:w-64"
             />
           </div>
 
-          <select
-            aria-label="Filter by payment status"
-            value={paymentFilter}
-            onChange={(e) => setPaymentFilter(e.target.value)}
-            className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white cursor-pointer"
-          >
-            {PAYMENT_STATUS_FILTERS.map((pst) => (
-              <option key={pst} value={pst}>
-                Payment: {pst}
-              </option>
-            ))}
-          </select>
+          <div className="grid grid-cols-2 sm:flex items-center gap-2">
+            <select
+              aria-label="Filter by payment status"
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2.5 py-2 text-xs font-semibold bg-white cursor-pointer w-full sm:w-auto"
+            >
+              {PAYMENT_STATUS_FILTERS.map((pst) => (
+                <option key={pst} value={pst}>
+                  Payment: {pst}
+                </option>
+              ))}
+            </select>
 
-          <select
-            aria-label="Filter by payment gateway"
-            value={gatewayFilter}
-            onChange={(e) => setGatewayFilter(e.target.value)}
-            className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white cursor-pointer"
-          >
-            {GATEWAY_FILTERS.map((gw) => (
-              <option key={gw.id} value={gw.id}>
-                {gw.label}
-              </option>
-            ))}
-          </select>
+            <select
+              aria-label="Filter by payment gateway"
+              value={gatewayFilter}
+              onChange={(e) => setGatewayFilter(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2.5 py-2 text-xs font-semibold bg-white cursor-pointer w-full sm:w-auto"
+            >
+              {GATEWAY_FILTERS.map((gw) => (
+                <option key={gw.id} value={gw.id}>
+                  {gw.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Order Status Pills */}
-      <div className="flex flex-wrap gap-1.5 mb-6">
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-5">
         {["ALL", ...ORDER_STATUSES].map((st) => (
           <button
             key={st}
             type="button"
             onClick={() => setStatusFilter(st)}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer ${
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full border cursor-pointer shrink-0 ${
               statusFilter === st
                 ? "bg-gray-900 text-white border-gray-900"
                 : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
@@ -184,7 +204,7 @@ export default function AdminOrdersTab({
           No orders matched your current search or filter criteria.
         </p>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-4 sm:space-y-5">
           {filteredOrders.map((order, orderIdx) => {
             const resolvedOrderId =
               order.orderId || order.id || `ORD-${orderIdx}`;
@@ -199,15 +219,19 @@ export default function AdminOrdersTab({
                 : "PENDING");
             const totalVal = Number(order.total ?? order.totalAmount ?? 0);
             const billing = order.billing || {};
+            const isPartialRefundDraft =
+              refundDraftOrderId === resolvedOrderId &&
+              Number(refundAmountInput) > 0 &&
+              Number(refundAmountInput) < refundMaxRemaining - 0.009;
 
             return (
               <div
                 key={`${order.userUid || "guest"}-${resolvedOrderId}`}
-                className="border border-gray-200 rounded-xl p-5 hover:border-gray-300 transition-all"
+                className="border border-gray-200 rounded-xl p-4 sm:p-5 hover:border-gray-300 transition-all"
               >
                 {/* Order Header */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-3.5 mb-4">
-                  <div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3.5 mb-4">
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs font-bold text-gray-900">
                         Order #{resolvedOrderId}
@@ -232,12 +256,12 @@ export default function AdminOrdersTab({
                         {order.paymentMethod || "Standard"}
                       </span>
                       {order.gatewayTransactionId && (
-                        <span className="font-mono text-[10px] text-gray-500 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded">
+                        <span className="font-mono text-[10px] text-gray-500 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded truncate max-w-[200px]">
                           Txn: {order.gatewayTransactionId}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 mt-1 break-words">
                       <strong className="text-gray-800">
                         {order.username || "Customer"}
                       </strong>{" "}
@@ -255,26 +279,28 @@ export default function AdminOrdersTab({
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    {Number(order.tieredDiscount || 0) > 0 && (
-                      <span className="text-[11px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">
-                        VIP -{currency.format(Number(order.tieredDiscount))}
+                  <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {Number(order.tieredDiscount || 0) > 0 && (
+                        <span className="text-[11px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">
+                          VIP -{currency.format(Number(order.tieredDiscount))}
+                        </span>
+                      )}
+                      {Number(order.discount || 0) > 0 && (
+                        <span className="text-[11px] font-semibold bg-amber-50 text-amber-800 px-2 py-0.5 rounded">
+                          {order.couponCode || "Coupon"} -
+                          {currency.format(Number(order.discount))}
+                        </span>
+                      )}
+                      {Number(order.refundedAmount || 0) > 0 && (
+                        <span className="text-[11px] font-semibold bg-purple-50 text-purple-800 px-2 py-0.5 rounded">
+                          Refunded: {currency.format(Number(order.refundedAmount))}
+                        </span>
+                      )}
+                      <span className="text-sm font-bold text-gray-900">
+                        {currency.format(totalVal)}
                       </span>
-                    )}
-                    {Number(order.discount || 0) > 0 && (
-                      <span className="text-[11px] font-semibold bg-amber-50 text-amber-800 px-2 py-0.5 rounded">
-                        {order.couponCode || "Coupon"} -
-                        {currency.format(Number(order.discount))}
-                      </span>
-                    )}
-                    {Number(order.refundedAmount || 0) > 0 && (
-                      <span className="text-[11px] font-semibold bg-purple-50 text-purple-800 px-2 py-0.5 rounded">
-                        Refunded: {currency.format(Number(order.refundedAmount))}
-                      </span>
-                    )}
-                    <span className="text-sm font-bold text-gray-900">
-                      {currency.format(totalVal)}
-                    </span>
+                    </div>
 
                     <select
                       aria-label={`Fulfillment status for ${resolvedOrderId}`}
@@ -282,7 +308,7 @@ export default function AdminOrdersTab({
                       onChange={(e) =>
                         onUpdateOrderStatus(order, e.target.value)
                       }
-                      className="border border-gray-300 rounded px-2.5 py-1 text-xs font-semibold bg-white cursor-pointer"
+                      className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold bg-white cursor-pointer"
                     >
                       {ORDER_STATUSES.map((st) => (
                         <option key={st} value={st}>
@@ -342,7 +368,7 @@ export default function AdminOrdersTab({
                           </div>
                         </div>
 
-                        {/* Dedicated Item Customer Message Box (Section C4) */}
+                        {/* Dedicated Item Customer Message Box */}
                         <div
                           className={`sm:max-w-xs w-full rounded-md px-3 py-2 text-xs border ${
                             itemMessage
@@ -396,10 +422,10 @@ export default function AdminOrdersTab({
                           onReconcilePayment(
                             resolvedOrderId,
                             "PAID",
-                            "Admin verified sandbox payment"
+                            "Admin verified payment"
                           )
                         }
-                        className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold px-2.5 py-1 rounded cursor-pointer"
+                        className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-semibold px-2.5 py-1.5 rounded-lg cursor-pointer"
                       >
                         <CheckCircle2 size={12} /> Reconcile as PAID
                       </button>
@@ -415,7 +441,7 @@ export default function AdminOrdersTab({
                               "Flagged for manual payment review"
                             )
                           }
-                          className="inline-flex items-center gap-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold px-2.5 py-1 rounded cursor-pointer"
+                          className="inline-flex items-center gap-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-semibold px-2.5 py-1.5 rounded-lg cursor-pointer"
                         >
                           <ShieldAlert size={12} /> Flag Review
                         </button>
@@ -426,7 +452,7 @@ export default function AdminOrdersTab({
                         <button
                           type="button"
                           onClick={() => openRefundBox(order)}
-                          className="inline-flex items-center gap-1 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 font-semibold px-2.5 py-1 rounded cursor-pointer"
+                          className="inline-flex items-center gap-1 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 font-semibold px-2.5 py-1.5 rounded-lg cursor-pointer"
                         >
                           <RotateCcw size={12} /> Issue Refund
                         </button>
@@ -443,19 +469,19 @@ export default function AdminOrdersTab({
 
                 {/* Inline Refund Drawer */}
                 {refundDraftOrderId === resolvedOrderId && onRefundPayment && (
-                  <div className="mt-3 p-3.5 rounded-lg bg-purple-50/70 border border-purple-200 flex flex-wrap items-end gap-3 text-xs">
+                  <div className="mt-3 p-3.5 rounded-xl bg-purple-50/70 border border-purple-200 flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3 text-xs">
                     <div>
                       <label className="block text-[10px] font-bold uppercase text-purple-900 mb-1">
-                        Refund Amount (USD)
+                        Refund Amount (Max: {currency.format(refundMaxRemaining)})
                       </label>
                       <input
                         type="number"
                         step="0.01"
                         min="0.01"
-                        max={totalVal}
+                        max={refundMaxRemaining || totalVal}
                         value={refundAmountInput}
-                        onChange={(e) => setRefundAmountInput(e.target.value)}
-                        className="border border-purple-300 rounded px-2.5 py-1.5 bg-white w-28 font-semibold"
+                        onChange={(e) => handleRefundAmountChange(e.target.value)}
+                        className="border border-purple-300 rounded-lg px-2.5 py-1.5 bg-white w-full sm:w-32 font-semibold"
                       />
                     </div>
                     <div className="flex-1 min-w-44">
@@ -466,7 +492,7 @@ export default function AdminOrdersTab({
                         type="text"
                         value={refundReasonInput}
                         onChange={(e) => setRefundReasonInput(e.target.value)}
-                        className="border border-purple-300 rounded px-2.5 py-1.5 bg-white w-full"
+                        className="border border-purple-300 rounded-lg px-2.5 py-1.5 bg-white w-full"
                       />
                     </div>
                     <label className="flex items-center gap-1.5 text-purple-900 font-medium py-1.5 cursor-pointer">
@@ -475,7 +501,12 @@ export default function AdminOrdersTab({
                         checked={restockOnRefund}
                         onChange={(e) => setRestockOnRefund(e.target.checked)}
                       />
-                      Restock inventory on full refund
+                      <span>
+                        Restock order items into inventory{" "}
+                        {isPartialRefundDraft
+                          ? "(Partial refund — leave unchecked unless returned)"
+                          : "(Full refund)"}
+                      </span>
                     </label>
                     <div className="flex items-center gap-2">
                       <button
@@ -489,14 +520,14 @@ export default function AdminOrdersTab({
                           });
                           setRefundDraftOrderId(null);
                         }}
-                        className="bg-purple-700 hover:bg-purple-800 text-white font-semibold px-3 py-1.5 rounded cursor-pointer"
+                        className="bg-purple-700 hover:bg-purple-800 text-white font-semibold px-3.5 py-2 rounded-lg cursor-pointer"
                       >
-                        Confirm Refund
+                        Confirm {isPartialRefundDraft ? "Partial" : "Full"} Refund
                       </button>
                       <button
                         type="button"
                         onClick={() => setRefundDraftOrderId(null)}
-                        className="border border-gray-300 bg-white text-gray-700 px-2.5 py-1.5 rounded cursor-pointer"
+                        className="border border-gray-300 bg-white text-gray-700 px-3 py-2 rounded-lg cursor-pointer"
                       >
                         Cancel
                       </button>

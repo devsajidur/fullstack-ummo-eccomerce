@@ -201,9 +201,14 @@ export default function OrderComplete() {
     order.paymentMethod ||
     "Not available";
 
+  const isSandboxModeAllowed =
+    import.meta.env.DEV ||
+    import.meta.env.VITE_PAYMENT_MODE !== "production";
+
   const showSandboxGatewayPanel =
-    (isSandboxFlow ||
-      order.paymentMethod === "sslcommerz" ||
+    isSandboxModeAllowed &&
+    isSandboxFlow &&
+    (order.paymentMethod === "sslcommerz" ||
       order.paymentMethod === "stripe") &&
     paymentStatus !== "PAID" &&
     paymentStatus !== "REFUNDED";

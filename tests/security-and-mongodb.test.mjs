@@ -14,11 +14,14 @@ import {
   asSafeId,
   canAccessUser,
   containsNoSqlOperator,
+  createAdminSessionToken,
   MASTER_ADMIN_EMAIL,
   MASTER_ADMIN_UID,
   parseJsonBody,
   resolveCaller,
   sanitizeInput,
+  verifyAdminPasswordCredentials,
+  verifyAdminSessionToken,
 } from "../api/security.js";
 import {
   deductOrderInventory,
@@ -40,6 +43,14 @@ import {
   resolveProductImage,
 } from "../src/utils/productImage.js";
 import { getProductDiscountState } from "../src/utils/discountTimer.js";
+import {
+  classifyProductTaxonomy,
+  getAllDepartments,
+  matchesDepartmentFilter,
+  summarizeCatalogTaxonomy,
+} from "../src/utils/categoryTaxonomy.js";
+import { INITIAL_CATALOG_SEED } from "../src/services/catalogSeed.js";
+import { TRANSLATIONS } from "../src/i18n/translations.js";
 import handler from "../api/index.js";
 
 function createMockReqRes({
@@ -1434,6 +1445,180 @@ test("Phase 12: Stripe Test Mode Checkout, HMAC-SHA256 Webhook Signature Verific
   assert.equal(order.status, "CANCELLED");
   assert.equal(order.inventoryRestocked, true);
   assert.equal(state.storeConfig.customProducts[0].stock, 5); // Restocked back to 5!
+});
+
+// ============================================================================
+// 13. ENTERPRISE TRANSFORMATION GATES 2, 5, 6-8, 10, 11 & 13 CERTIFICATION
+// ============================================================================
+test("Gate 2: Server-Side Admin Authentication (/api/v1/admin/login & /api/v1/admin/session) & HMAC Session Token Verification", async () => {
+  // 1. Missing credentials rejected with 400
+  {
+    const { req, res } = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      body: { email: "", password: "" },
+    });
+    await handler(req, res);
+    assert.equal(res.statusCode, 400);
+  }
+
+  // 2. Non-admin authenticated customer session rejected with 403 on /admin/session
+  {
+    const { req, res } = createMockReqRes({
+      method: "GET",
+      url: "/api/v1/admin/session",
+      headers: {
+        "x-user-uid": "cust-non-admin-1",
+        "x-user-email": "customer@example.com",
+      },
+    });
+    await handler(req, res);
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json.isAdmin, false);
+  }
+
+  // 3. Invalid admin password rejected with 401
+  {
+    const { req, res } = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      body: { email: MASTER_ADMIN_EMAIL, password: "wrong-password-attempt" },
+    });
+    await handler(req, res);
+    assert.equal(res.statusCode, 401);
+  }
+
+  // 4. Valid administrator credentials return signed HMAC token (200 OK)
+  const expectedPass =
+    process.env.ADMIN_PASSWORD || "Admin@12345";
+  const credCheck = verifyAdminPasswordCredentials(
+    MASTER_ADMIN_EMAIL,
+    expectedPass
+  );
+  assert.equal(credCheck, true);
+
+  let issuedToken = "";
+  {
+    const { req, res } = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      body: { email: MASTER_ADMIN_EMAIL, password: expectedPass },
+    });
+    await handler(req, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json.status, "ok");
+    assert.equal(res.json.user.role, "ADMIN");
+    assert.ok(res.json.adminToken, "Expected signed adminToken in response");
+    issuedToken = res.json.adminToken;
+  }
+
+  // 5. Verify issued token via /api/v1/admin/session
+  {
+    const { req, res } = createMockReqRes({
+      method: "GET",
+      url: "/api/v1/admin/session",
+      headers: { "x-admin-token": issuedToken },
+    });
+    await handler(req, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json.isAdmin, true);
+    assert.equal(res.json.user.role, "ADMIN");
+  }
+
+  // 6. Forged or tampered token rejected
+  assert.equal(verifyAdminSessionToken(`${issuedToken}tampered`), null);
+  const directSigned = createAdminSessionToken({
+    uid: MASTER_ADMIN_UID,
+    email: MASTER_ADMIN_EMAIL,
+    role: "ADMIN",
+  });
+  const verifiedPayload = verifyAdminSessionToken(directSigned);
+  assert.equal(verifiedPayload.role, "ADMIN");
+});
+
+test("Gate 5 & Gate 11: Canonical Category Taxonomy & 194-Product Cloudinary Catalog Seed Verification", () => {
+  assert.equal(
+    INITIAL_CATALOG_SEED.length,
+    194,
+    "Expected complete 194-product catalog seed"
+  );
+
+  for (const prod of INITIAL_CATALOG_SEED) {
+    assert.ok(prod.id, "Every seeded product must have an id");
+    assert.ok(prod.title, "Every seeded product must have a title");
+    assert.ok(Number(prod.price) > 0, "Every seeded product must have a positive price");
+    const resolvedUrl = resolveProductImage(prod);
+    assert.match(
+      resolvedUrl,
+      /^https:\/\/res\.cloudinary\.com\/wxjt7d8q\/image\/upload\//,
+      `Product ${prod.id} image must resolve to Cloudinary wxjt7d8q CDN`
+    );
+  }
+
+  const depts = getAllDepartments(false);
+  assert.ok(depts.some((d) => d.slug === "men"));
+  assert.ok(depts.some((d) => d.slug === "women"));
+  assert.ok(depts.some((d) => d.slug === "kids"));
+
+  const summary = summarizeCatalogTaxonomy(INITIAL_CATALOG_SEED);
+  const bySlug = Object.fromEntries(
+    summary.departments.map((d) => [d.slug, d])
+  );
+  assert.ok(bySlug.men.totalCount > 0, "Men's department must contain products");
+  assert.ok(bySlug.women.totalCount > 0, "Women's department must contain products");
+  assert.ok(bySlug.kids.totalCount > 0, "Kids' department must contain products");
+
+  const menProduct = INITIAL_CATALOG_SEED.find((p) => p.category === "mens-shirts");
+  const menTax = classifyProductTaxonomy(menProduct);
+  assert.equal(menTax.department, "men");
+  assert.equal(matchesDepartmentFilter(menProduct, "men"), true);
+  assert.equal(matchesDepartmentFilter(menProduct, "women"), false);
+});
+
+test("Gates 6, 7, 8 & 10: Discount Engine Scheduled Start/End Windows & Bilingual (en / bn-BD) Dictionary Parity", () => {
+  const now = Date.now();
+
+  // Future scheduled discount -> not active yet
+  const futureDiscountState = getProductDiscountState(
+    {
+      id: 901,
+      price: 100,
+      discountPercentage: 25,
+      discountStartTime: new Date(now + 3600 * 1000).toISOString(),
+      discountEndTime: new Date(now + 7200 * 1000).toISOString(),
+    },
+    now
+  );
+  assert.equal(futureDiscountState.isDiscountActive, false);
+  assert.equal(futureDiscountState.isScheduledFuture, true);
+  assert.equal(futureDiscountState.effectivePrice, 100);
+
+  // Active scheduled discount -> active with timer
+  const activeDiscountState = getProductDiscountState(
+    {
+      id: 902,
+      price: 200,
+      discountPercentage: 20,
+      discountStartTime: new Date(now - 1800 * 1000).toISOString(),
+      discountEndTime: new Date(now + 3600 * 1000).toISOString(),
+    },
+    now
+  );
+  assert.equal(activeDiscountState.isDiscountActive, true);
+  assert.equal(activeDiscountState.hasActiveTimer, true);
+  assert.equal(activeDiscountState.regularPrice, 200);
+  assert.equal(activeDiscountState.effectivePrice, 160);
+  assert.equal(activeDiscountState.savingsAmount, 40);
+
+  // Bilingual dictionary verification
+  assert.ok(TRANSLATIONS.en && TRANSLATIONS.bn, "Expected both en and bn dictionaries");
+  const enKeys = Object.keys(TRANSLATIONS.en);
+  const bnKeys = Object.keys(TRANSLATIONS.bn);
+  assert.deepEqual(
+    enKeys.sort(),
+    bnKeys.sort(),
+    "English and Bangla translation dictionaries must have 100% key parity"
+  );
 });
 
 test.after(async () => {

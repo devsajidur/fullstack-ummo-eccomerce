@@ -1,327 +1,243 @@
-import { useState } from "react";
+import React, { useState } from "react";
+import Container from "../components/layout/common/Container";
+import { FcGoogle } from "react-icons/fc";
+import { Eye, EyeOff } from "lucide-react";
+import { Link, useNavigate } from "react-router";
 import {
-  signInWithEmailAndPassword,
   GoogleAuthProvider,
+  signInWithEmailAndPassword,
   signInWithPopup,
-  setPersistence,
-  browserLocalPersistence,
-  browserSessionPersistence,
 } from "firebase/auth";
 import { auth } from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
-import { Link, useNavigate } from "react-router";
-import Google from "../assets/images/Google.png";
-import Image from "../components/layout/common/Image";
-import {
-  DEFAULT_ADMIN_EMAIL,
-  DEFAULT_ADMIN_PASSWORD,
-  setSessionUser,
-  signInAsDemoAdmin,
-} from "../services/authSession";
+import { setSessionUser } from "../services/authSession";
 
-const provider = new GoogleAuthProvider();
-provider.setCustomParameters({ prompt: "select_account" });
-
-function EyeIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M3 3l18 18M10.6 10.7a3 3 0 0 0 4.2 4.2M6.5 6.6C3.9 8.2 2 12 2 12s4 7 10 7c1.9 0 3.6-.6 5-1.6M17.4 17.4C19.6 15.8 22 12 22 12s-4-7-10-7c-.7 0-1.4.1-2.1.2"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function Spinner() {
-  return (
-    <svg className="mr-3 size-5 animate-spin" viewBox="0 0 24 24" fill="none">
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-      />
-    </svg>
-  );
-}
-
-export default function LoginPage() {
-  const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+const LoginPage = () => {
+  const provider = new GoogleAuthProvider();
   const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loader, setLoader] = useState(false);
 
-  const handleInstantAdminLogin = async () => {
-    setLoading(true);
-    await signInAsDemoAdmin();
-    setLoading(false);
-    toast.success("Logged in to Demo Admin Control Panel!");
-    setTimeout(() => navigate("/admin"), 500);
+  const handleEmailChange = (e) => {
+    setEmail(e.target.value);
+    setEmailError("");
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    const trimmedEmail = email.trim().toLowerCase();
+  const handlePasswordChange = (e) => {
+    setPassword(e.target.value);
+    setPasswordError("");
+  };
 
-    // 1. Check Demo Admin credentials
-    if (
-      trimmedEmail === DEFAULT_ADMIN_EMAIL.toLowerCase() &&
-      password === DEFAULT_ADMIN_PASSWORD
-    ) {
-      await signInAsDemoAdmin();
-      setLoading(false);
-      toast.success("Admin Login Successful!");
-      setTimeout(() => navigate("/admin"), 600);
-      return;
+  const handleLoginSubmit = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    let hasError = false;
+    if (!email.trim()) {
+      setEmailError("Email is required");
+      hasError = true;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setEmailError("Enter a valid email address");
+      hasError = true;
+    }
+    if (!password) {
+      setPasswordError("Password is required");
+      hasError = true;
     }
 
-    // 2. Real Firebase Auth for Customers
-    try {
-      await setPersistence(
-        auth,
-        rememberMe ? browserLocalPersistence : browserSessionPersistence
-      );
+    if (hasError) return;
 
-      const cred = await signInWithEmailAndPassword(
+    setLoader(true);
+    try {
+      const userCredential = await signInWithEmailAndPassword(
         auth,
         email.trim(),
         password
       );
-      setSessionUser({
-        uid: cred.user.uid,
-        email: cred.user.email,
-        displayName:
-          cred.user.displayName || cred.user.email?.split("@")[0] || "Customer",
-        photoURL: cred.user.photoURL || "",
-        role:
-          cred.user.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL
-            ? "ADMIN"
-            : "CUSTOMER",
-        emailVerified: cred.user.emailVerified,
-      });
-
-      setEmail("");
-      setPassword("");
-      setRememberMe(false);
-      toast.success("Login Successfully");
-      setTimeout(() => navigate("/"), 1000);
-    } catch (error) {
-      toast.error(`${error.code || "auth/error"} (Invalid email or password)`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    if (googleLoading) return;
-    setGoogleLoading(true);
-
-    try {
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
+      const user = userCredential.user;
       setSessionUser({
         uid: user.uid,
         email: user.email,
-        displayName: user.displayName || "Google User",
-        photoURL: user.photoURL || "",
+        displayName: user.displayName || user.email?.split("@")[0] || "Customer",
+        username: user.displayName || user.email?.split("@")[0] || "Customer",
+        photoURL: user.photoURL,
         role: "CUSTOMER",
-        emailVerified: true,
       });
-
-      toast.success("Google Login Successful!");
-      setTimeout(() => navigate("/"), 800);
+      toast.success("Sign in successful!");
+      setLoader(false);
+      setTimeout(() => {
+        navigate("/profile");
+      }, 400);
     } catch (error) {
-      if (error.code === "auth/unauthorized-domain") {
-        toast.error(
-          `Add "${window.location.hostname}" to Firebase Console > Authentication > Settings > Authorized domains.`
-        );
-      } else if (
-        error.code !== "auth/popup-closed-by-user" &&
-        error.code !== "auth/cancelled-popup-request"
+      setLoader(false);
+      const errorMessage = error?.message || "";
+      if (
+        errorMessage.includes("auth/invalid-credential") ||
+        errorMessage.includes("auth/wrong-password") ||
+        errorMessage.includes("auth/user-not-found")
       ) {
-        toast.error(error.code || "Google login failed");
+        setPasswordError("Invalid email or password.");
+      } else {
+        toast.error("Unable to sign in. Please verify your credentials.");
       }
-    } finally {
-      setGoogleLoading(false);
     }
   };
 
+  const handleGoogleLogin = () => {
+    signInWithPopup(auth, provider)
+      .then((result) => {
+        const user = result.user;
+        setSessionUser({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          username: user.displayName,
+          photoURL: user.photoURL,
+          role: "CUSTOMER",
+        });
+        toast.success("Signed in with Google!");
+        navigate("/profile");
+      })
+      .catch(() => {
+        toast.error("Google sign-in could not be completed.");
+      });
+  };
+
   return (
-    <div className="min-h-screen w-full flex justify-center bg-white px-4 py-12 font-jost">
-      <Toaster position="top-center" reverseOrder={false} />
-      <div className="w-full max-w-md">
-        {/* Tabs */}
-        <div className="flex items-center justify-center gap-8 sm:gap-10 mb-6 sm:mb-8">
-          <button
-            type="button"
-            className="relative font-medium text-primary text-sm sm:text-base"
-          >
-            LOGIN
-            <span className="absolute left-0 right-0 bottom-0 h-0.5 bg-primary" />
-          </button>
-        </div>
-
-        {/* Demo Admin Access Only (No Fake Customer Login) */}
-        <div className="mb-6 p-4 rounded-lg border border-gray-200 bg-gray-50">
-          <p className="text-xs font-bold uppercase tracking-wider text-gray-800 mb-1.5">
-            Demo Admin Panel Access
-          </p>
-          <p className="text-[11px] text-gray-500 mb-3">
-            Email:{" "}
-            <span className="font-mono font-semibold text-gray-800">
-              {DEFAULT_ADMIN_EMAIL}
-            </span>{" "}
-            | Password:{" "}
-            <span className="font-mono font-semibold text-gray-800">
-              {DEFAULT_ADMIN_PASSWORD}
-            </span>
-          </p>
-          <button
-            type="button"
-            onClick={handleInstantAdminLogin}
-            className="w-full bg-gray-900 hover:bg-black text-white text-xs font-semibold uppercase tracking-wider py-2.5 px-3 rounded cursor-pointer transition-colors"
-          >
-            1-Click Demo Admin Login
-          </button>
-        </div>
-
-        {/* Google button */}
-        <button
-          type="button"
-          onClick={handleGoogleLogin}
-          disabled={googleLoading}
-          className="w-full flex bg-[#bebebe38] cursor-pointer justify-center items-center h-13.75 inset-shadow-2xs shadow-md border-primary mb-5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {googleLoading ? (
-            <span className="flex items-center text-sm text-primary">
-              <Spinner />
-              Connecting…
-            </span>
-          ) : (
-            <Image className="h-full" src={Google} alt="Google Logo" />
-          )}
-        </button>
-
-        <form onSubmit={handleLogin} className="flex flex-col gap-6">
-          {/* Email */}
-          <div className="border-2 border-[#e4e4e4]">
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              placeholder="Enter your email address *"
-              required
-              className="w-full border-none px-4.25 h-13.75 text-sm text-primary placeholder:text-gray focus:outline-none focus:border-primary transition-colors"
-            />
+    <div className="py-10 md:py-16 px-4">
+      <Toaster />
+      <Container>
+        <div className="max-w-125 w-full mx-auto bg-white border border-gray-200 rounded-2xl p-6 sm:p-8 shadow-sm">
+          <div className="text-center mb-7">
+            <h1 className="text-xl sm:text-2xl text-primary font-bold uppercase tracking-wider">
+              Customer Sign In
+            </h1>
+            <p className="text-xs sm:text-sm text-gray-500 mt-1.5">
+              Sign in to view your orders, track deliveries, and manage your saved addresses.
+            </p>
           </div>
 
-          {/* Password with notched label */}
-          <div className="relative pt-2.5">
-            <span className="absolute top-0 left-3 bg-white z-10 px-1.5 text-xs text-primary">
-              Password *
-            </span>
-            <div className="relative border-2 border-primary">
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type={showPassword ? "text" : "password"}
-                required
-                className={`w-full px-4.25 h-13.75 ${
-                  !showPassword ? "text-[20px]" : "text-sm"
-                } pr-12 text-primary focus:outline-none border-2`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray hover:text-primary transition-colors"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+          <form onSubmit={handleLoginSubmit} className="flex flex-col gap-5">
+            <div className="relative">
+              <label
+                htmlFor="customer-login-email"
+                className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5"
               >
-                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-              </button>
-            </div>
-          </div>
-
-          {/* Remember me / Lost password */}
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
+                Email Address *
+              </label>
               <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="w-4 h-4 border border-gray/50 accent-primary cursor-pointer"
+                id="customer-login-email"
+                onChange={handleEmailChange}
+                value={email}
+                autoComplete="email"
+                className={`w-full py-3 px-4 border ${
+                  emailError ? "border-red-500" : "border-gray-300"
+                } rounded-lg text-sm text-primary focus:border-primary outline-none transition-colors`}
+                type="email"
+                placeholder="name@example.com"
               />
-              <span className="text-sm text-primary">Remember me</span>
-            </label>
-            <Link
-              to="/forgot"
-              className="text-sm text-primary underline underline-offset-2 hover:text-gray transition-colors"
-            >
-              Lost password?
-            </Link>
-          </div>
+              {emailError && (
+                <p className="text-red-600 text-xs mt-1 font-medium">
+                  {emailError}
+                </p>
+              )}
+            </div>
 
-          {/* Submit */}
-          {loading ? (
+            <div className="relative">
+              <label
+                htmlFor="customer-login-password"
+                className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5"
+              >
+                Password *
+              </label>
+              <div className="relative">
+                <input
+                  id="customer-login-password"
+                  onChange={handlePasswordChange}
+                  value={password}
+                  autoComplete="current-password"
+                  className={`w-full py-3 pl-4 pr-11 border ${
+                    passwordError ? "border-red-500" : "border-gray-300"
+                  } rounded-lg text-sm text-primary focus:border-primary outline-none transition-colors`}
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-900 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              {passwordError && (
+                <p className="text-red-600 text-xs mt-1 font-medium">
+                  {passwordError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-3 justify-between items-center text-xs">
+              <label className="flex gap-2 items-center text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="accent-primary w-4 h-4 rounded"
+                />
+                <span>Remember me</span>
+              </label>
+              <Link
+                to="/forgot"
+                className="text-primary font-semibold underline hover:text-gray-700"
+              >
+                Forgot password?
+              </Link>
+            </div>
+
+            {loader ? (
+              <div
+                aria-label="Signing in"
+                className="w-full min-h-[48px] rounded-lg bg-primary text-white flex justify-center items-center gap-2 text-xs font-bold uppercase tracking-wider"
+              >
+                <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                <span>Signing In...</span>
+              </div>
+            ) : (
+              <button
+                type="submit"
+                className="w-full min-h-[48px] rounded-lg bg-primary hover:bg-gray-800 text-white cursor-pointer text-xs font-bold uppercase tracking-wider transition-colors"
+              >
+                Sign In
+              </button>
+            )}
+
             <button
               type="button"
-              disabled
-              className="w-full bg-primary/70 text-white text-sm justify-center items-center flex py-4 cursor-not-allowed"
+              onClick={handleGoogleLogin}
+              className="w-full min-h-[48px] rounded-lg bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 font-semibold text-xs uppercase tracking-wider flex items-center gap-2.5 justify-center cursor-pointer transition-colors"
             >
-              <Spinner />
-              Processing…
+              <FcGoogle className="text-xl" />
+              Continue With Google
             </button>
-          ) : (
-            <button
-              type="submit"
-              className="w-full cursor-pointer uppercase bg-primary text-white text-sm tracking-wide py-4 hover:opacity-90 transition-opacity"
-            >
-              Log In
-            </button>
-          )}
 
-          {/* Footer link */}
-          <p className="text-center text-sm text-gray">
-            No account yet?{" "}
-            <Link
-              to="/register"
-              className="text-primary underline underline-offset-2 hover:text-gray transition-colors"
-            >
-              Create Account
-            </Link>
-          </p>
-        </form>
-      </div>
+            <div className="text-center pt-2 border-t border-gray-100">
+              <p className="text-xs sm:text-sm text-gray-600">
+                No account yet?{" "}
+                <Link
+                  to="/register"
+                  className="text-primary font-bold underline ml-1"
+                >
+                  Create Account
+                </Link>
+              </p>
+            </div>
+          </form>
+        </div>
+      </Container>
     </div>
   );
-}
+};
+
+export default LoginPage;

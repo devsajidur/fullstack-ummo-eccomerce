@@ -13,6 +13,8 @@ const Register = lazy(() => import("./pages/Register"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const ShopDynamicPage = lazy(() => import("./pages/ShopDynamicPage"));
+const CategoryPage = lazy(() => import("./pages/CategoryPage"));
+const DiscountsPage = lazy(() => import("./pages/DiscountsPage"));
 const FAQPage = lazy(() => import("./pages/FAQPage"));
 const AboutPage = lazy(() => import("./pages/AboutPage"));
 const TermsConditionPage = lazy(() => import("./pages/TermsConditionPage"));
@@ -47,6 +49,8 @@ const router = createBrowserRouter([
     children: [
       { index: true, Component: HomePage },
       { path: "shop", Component: ShopPage },
+      { path: "category/:slug", element: withSuspense(CategoryPage) },
+      { path: "discounts", element: withSuspense(DiscountsPage) },
       { path: "shopsingle", element: withSuspense(ShopSingle) },
       { path: "cart", element: withSuspense(CartPage) },
       { path: "wish", element: withSuspense(WishListPage) },
