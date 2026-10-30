@@ -3,7 +3,6 @@ import { useDispatch, useSelector } from "react-redux";
 import { Link } from "react-router";
 import { Flame } from "lucide-react";
 import Image from "../layout/common/Image";
-import shopBg from "../../assets/images/shopBanner.png";
 import { setShopOptions } from "../../slices/productSlice";
 import { getStoredBanners } from "../../services/api";
 import { getAllDepartments } from "../../utils/categoryTaxonomy";
@@ -57,11 +56,15 @@ const ShopBanner = () => {
       <div className="2xl:px-5 relative overflow-hidden">
         <Image
           className="w-full h-[180px] sm:h-[240px] lg:h-[280px] object-cover"
-          src={shopHeader.image || shopBg}
+          src={
+            shopHeader.image ||
+            "https://res.cloudinary.com/wxjt7d8q/image/upload/f_auto,q_auto,w_960,c_limit/ummo_banners/shopBanner"
+          }
           alt={shopHeader.title || "Shop Banner"}
-          width={1200}
+          width={960}
           height={280}
           loading="eager"
+          fetchPriority="high"
         />
 
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-3 sm:px-6">

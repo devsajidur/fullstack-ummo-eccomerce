@@ -12,7 +12,6 @@ import { Toaster } from "react-hot-toast";
 import Container from "../components/layout/common/Container";
 import Product from "../components/layout/common/Product";
 import {
-  fetchCatalogProducts,
   getInitialCatalogSnapshot,
   initStoreConfigSync,
 } from "../services/api";
@@ -39,6 +38,7 @@ const CategoryPage = () => {
   const [inStockOnly, setInStockOnly] = useState(false);
   const [sortBy, setSortBy] = useState("featured");
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(16);
 
   useEffect(() => {
     setSelectedSub(searchParams.get("sub") || "all");
@@ -46,9 +46,6 @@ const CategoryPage = () => {
 
   useEffect(() => {
     let active = true;
-    fetchCatalogProducts(200).then((items) => {
-      if (active) setProducts(items);
-    });
     const unsub = initStoreConfigSync((updated) => {
       if (active && Array.isArray(updated)) {
         setProducts(updated);
@@ -183,7 +180,7 @@ const CategoryPage = () => {
         {/* Breadcrumb */}
         <nav
           aria-label="Breadcrumb"
-          className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4 flex flex-wrap items-center gap-1.5"
+          className="text-xs font-semibold uppercase tracking-wider text-gray-600 mb-4 flex flex-wrap items-center gap-1.5"
         >
           <Link to="/" className="hover:text-gray-900">
             {t("nav.home", "Home")}
@@ -416,6 +413,7 @@ const CategoryPage = () => {
                   Brand
                 </h3>
                 <select
+                  aria-label="Filter by brand"
                   value={selectedBrand}
                   onChange={(e) => setSelectedBrand(e.target.value)}
                   className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-semibold text-gray-800 outline-none"
@@ -441,6 +439,7 @@ const CategoryPage = () => {
               </div>
               <input
                 type="range"
+                aria-label="Maximum price filter"
                 min="15"
                 max="3000"
                 step="15"
@@ -475,20 +474,34 @@ const CategoryPage = () => {
           {/* Product Grid */}
           <div className="flex-1 w-full">
             {filteredProducts.length > 0 ? (
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-5">
-                {filteredProducts.map((product) => (
-                  <Product
-                    key={product.id}
-                    item={product}
-                    id={product.id}
-                    productImage={product.thumbnail}
-                    productCatagory={product.category}
-                    productTitle={product.title}
-                    productPrice={product.price}
-                    discountBadge={product.discountPercentage}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-5">
+                  {filteredProducts.slice(0, visibleCount).map((product, idx) => (
+                    <Product
+                      key={product.id}
+                      item={product}
+                      id={product.id}
+                      productImage={product.thumbnail}
+                      productCatagory={product.category}
+                      productTitle={product.title}
+                      productPrice={product.price}
+                      discountBadge={product.discountPercentage}
+                      priority={idx < 2}
+                    />
+                  ))}
+                </div>
+                {filteredProducts.length > visibleCount && (
+                  <div className="mt-8 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleCount((prev) => prev + 24)}
+                      className="inline-flex items-center justify-center px-6 min-h-[44px] rounded-xl bg-gray-900 hover:bg-[#C32929] text-white text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                    >
+                      Load More Products ({filteredProducts.length - visibleCount} remaining)
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="bg-white border border-gray-200 rounded-2xl p-10 text-center">
                 <p className="text-base font-bold text-gray-900">

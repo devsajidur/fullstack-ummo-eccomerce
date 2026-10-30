@@ -41,6 +41,7 @@ import {
   saveStoredCoupons,
   updateOrderStatusInMongo,
   updateUserRoleInMongo,
+  verifyAdminSessionWithServer,
 } from "../services/api";
 import {
   authenticateAdminLogin,
@@ -48,6 +49,7 @@ import {
   getLocalOrders,
   isUserAdmin,
   onUserChanged,
+  saveAdminSessionToken,
   updateLocalOrderStatus,
 } from "../services/authSession";
 import { Allitem } from "../slices/AllProductSlice";
@@ -110,7 +112,7 @@ export default function AdminDashboardPage() {
 
   const isAdminVerified = useMemo(() => isUserAdmin(authUser), [authUser]);
 
-  // 1. Verify Authentication & Admin Role
+  // 1. Verify Authentication & Admin Role (Client + Authoritative Server Session Check)
   useEffect(() => {
     const unsub = onUserChanged((user) => {
       setAuthUser(user || null);
@@ -118,6 +120,30 @@ export default function AdminDashboardPage() {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (!authUser || !isAdminVerified) return undefined;
+    let active = true;
+    verifyAdminSessionWithServer()
+      .then((res) => {
+        if (!active) return;
+        if (!res?.isAdmin) {
+          saveAdminSessionToken("");
+          setAuthUser((prev) => (prev ? { ...prev, role: "CUSTOMER" } : null));
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          saveAdminSessionToken("");
+          setAuthUser((prev) => (prev ? { ...prev, role: "CUSTOMER" } : null));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [authUser, isAdminVerified]);
 
   // Lock body scroll when mobile admin drawer is open & close on Escape
   useEffect(() => {
@@ -281,8 +307,14 @@ export default function AdminDashboardPage() {
     dispatch(addProduct(nextProducts));
   }
 
-  function handleSaveProduct(editingProduct, productForm) {
+  function handleSaveProduct(arg1, arg2) {
     const customList = getCustomAdminProducts();
+    const isDirectPayload =
+      arg1 && typeof arg1 === "object" && typeof arg2 === "boolean";
+    const isEditing = isDirectPayload ? arg2 : Boolean(arg1);
+    const productForm = isDirectPayload ? arg1 : arg2 || {};
+    const editingProduct = isDirectPayload ? (arg2 ? arg1 : null) : arg1;
+
     const cleanThumb = String(productForm.thumbnail || "").trim();
     const galleryImages = Array.isArray(productForm.images)
       ? productForm.images.filter(Boolean)
@@ -291,18 +323,24 @@ export default function AdminDashboardPage() {
       ? [cleanThumb, ...galleryImages.filter((u) => u !== cleanThumb)]
       : galleryImages;
 
-    const sizesList = String(productForm.sizesInput || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const colorsList = String(productForm.colorsInput || "")
-      .split(",")
-      .map((c) => c.trim())
-      .filter(Boolean);
+    const sizesList = Array.isArray(productForm.sizes)
+      ? productForm.sizes
+      : String(productForm.sizesInput || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+    const colorsList = Array.isArray(productForm.colors)
+      ? productForm.colors
+      : String(productForm.colorsInput || "")
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean);
 
     const freeGift =
-      productForm.freeGiftEnabled &&
-      String(productForm.freeGiftName || "").trim()
+      productForm.freeGift && typeof productForm.freeGift === "object"
+        ? productForm.freeGift
+        : productForm.freeGiftEnabled &&
+          String(productForm.freeGiftName || "").trim()
         ? {
             enabled: true,
             minBuyQty: Math.max(1, Number(productForm.freeGiftMinBuyQty) || 1),
@@ -315,7 +353,7 @@ export default function AdminDashboardPage() {
 
     const isVisible = productForm.isVisible !== false;
     const payload = {
-      id: editingProduct ? editingProduct.id : Date.now(),
+      id: productForm.id || (editingProduct ? editingProduct.id : Date.now()),
       title: String(productForm.title || "").trim(),
       department: String(productForm.department || "women").trim(),
       subcategory: String(productForm.subcategory || "Clothing").trim(),
@@ -325,7 +363,7 @@ export default function AdminDashboardPage() {
       discountPercentage: Number(productForm.discountPercentage) || 0,
       discountEndTime: productForm.discountEndTime || "none",
       freeGift,
-      stock: Math.max(0, Number(productForm.stock) || 0),
+      stock: Math.max(0, Number(productForm.stock ?? 0)),
       sku: String(productForm.sku || "").trim() || `UMMO-${Date.now()}`,
       thumbnail: mergedGallery[0] || cleanThumb,
       images: mergedGallery.length ? mergedGallery : [cleanThumb].filter(Boolean),
@@ -335,8 +373,8 @@ export default function AdminDashboardPage() {
       isFeatured: Boolean(productForm.isFeatured),
       status: isVisible ? "active" : "draft",
       description: String(productForm.description || "").trim(),
-      rating: editingProduct?.rating || 4.8,
-      isCustomNew: !editingProduct || Boolean(editingProduct.isCustomNew),
+      rating: productForm.rating || editingProduct?.rating || 4.8,
+      isCustomNew: !isEditing || Boolean(productForm.isCustomNew || editingProduct?.isCustomNew),
     };
 
     const nextCustom = [
@@ -346,17 +384,17 @@ export default function AdminDashboardPage() {
     saveCustomAdminProducts(nextCustom);
     invalidateCatalogCache();
 
-    const nextProducts = editingProduct
+    const nextProducts = isEditing
       ? products.map((p) =>
           String(p.id) === String(payload.id) ? { ...p, ...payload } : p
         )
-      : [payload, ...products];
+      : [payload, ...products.filter((p) => String(p.id) !== String(payload.id))];
 
     setProducts(nextProducts);
     dispatch(Allitem(nextProducts));
     dispatch(addProduct(nextProducts));
     toast.success(
-      editingProduct
+      isEditing
         ? "Product updated in catalog!"
         : "New product published to catalog!"
     );
@@ -365,7 +403,10 @@ export default function AdminDashboardPage() {
   function handleDeleteProduct(product) {
     const idStr = String(product.id);
     const deletedIds = getDeletedProductIds();
-    const nextDeleted = [...new Set([...deletedIds.map(String), idStr])];
+    const isSeedId = Number(product.id) >= 1 && Number(product.id) <= 194;
+    const nextDeleted = isSeedId
+      ? [...new Set([...deletedIds.map(String), idStr])]
+      : deletedIds.map(String).filter((id) => id !== idStr);
     const nextCustom = getCustomAdminProducts().filter(
       (p) => String(p.id) !== idStr
     );

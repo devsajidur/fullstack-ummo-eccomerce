@@ -15,10 +15,13 @@ import {
   canAccessUser,
   containsNoSqlOperator,
   createAdminSessionToken,
+  isSandboxPaymentSimulationEnabled,
   MASTER_ADMIN_EMAIL,
   MASTER_ADMIN_UID,
   parseJsonBody,
+  resetAdminRateLimitsForTest,
   resolveCaller,
+  revokeAdminSessionToken,
   sanitizeInput,
   verifyAdminPasswordCredentials,
   verifyAdminSessionToken,
@@ -1525,15 +1528,125 @@ test("Gate 2: Server-Side Admin Authentication (/api/v1/admin/login & /api/v1/ad
     assert.equal(res.json.user.role, "ADMIN");
   }
 
-  // 6. Forged or tampered token rejected
+  // 6. Forged, expired, or revoked token rejected
   assert.equal(verifyAdminSessionToken(`${issuedToken}tampered`), null);
-  const directSigned = createAdminSessionToken({
+  const expiredToken = createAdminSessionToken({
     uid: MASTER_ADMIN_UID,
     email: MASTER_ADMIN_EMAIL,
     role: "ADMIN",
+    ttlMs: -5000,
   });
-  const verifiedPayload = verifyAdminSessionToken(directSigned);
-  assert.equal(verifiedPayload.role, "ADMIN");
+  assert.equal(verifyAdminSessionToken(expiredToken), null);
+
+  // 7. Server-side token revocation via /api/v1/admin/logout
+  {
+    const { req, res } = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/logout",
+      headers: { "x-admin-token": issuedToken },
+    });
+    await handler(req, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json.revoked, true);
+  }
+  assert.equal(
+    verifyAdminSessionToken(issuedToken),
+    null,
+    "Revoked token must immediately fail verification"
+  );
+  {
+    const { req, res } = createMockReqRes({
+      method: "GET",
+      url: "/api/v1/admin/session",
+      headers: { "x-admin-token": issuedToken },
+    });
+    await handler(req, res);
+    assert.equal(res.statusCode, 401);
+  }
+
+  // 8. Brute-force rate limiting locks out after 5 consecutive failed attempts (HTTP 429)
+  resetAdminRateLimitsForTest();
+  for (let i = 1; i <= 5; i++) {
+    const { req, res } = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      headers: { "x-forwarded-for": "203.0.113.77" },
+      body: { email: MASTER_ADMIN_EMAIL, password: `wrong-pass-${i}` },
+    });
+    await handler(req, res);
+    assert.equal(res.statusCode, 401);
+  }
+  {
+    const { req, res } = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      headers: { "x-forwarded-for": "203.0.113.77" },
+      body: { email: MASTER_ADMIN_EMAIL, password: "wrong-pass-6" },
+    });
+    await handler(req, res);
+    assert.equal(res.statusCode, 429);
+    assert.ok(Number(res.headers["retry-after"]) > 0);
+  }
+  resetAdminRateLimitsForTest();
+
+  // 9. Sandbox payment simulation is disabled by default (fail-closed)
+  assert.equal(isSandboxPaymentSimulationEnabled({}), false);
+  assert.equal(
+    isSandboxPaymentSimulationEnabled({ PAYMENT_MODE: "sandbox" }),
+    false
+  );
+  assert.equal(
+    isSandboxPaymentSimulationEnabled({ ALLOW_SANDBOX_CONFIRM: "true" }),
+    false
+  );
+  assert.equal(
+    isSandboxPaymentSimulationEnabled({
+      PAYMENT_MODE: "sandbox",
+      ALLOW_SANDBOX_CONFIRM: "true",
+      NODE_ENV: "production",
+    }),
+    false
+  );
+  assert.equal(
+    isSandboxPaymentSimulationEnabled({
+      PAYMENT_MODE: "sandbox",
+      ALLOW_SANDBOX_CONFIRM: "true",
+      VERCEL_ENV: "production",
+    }),
+    false
+  );
+  assert.equal(
+    isSandboxPaymentSimulationEnabled({
+      PAYMENT_MODE: "sandbox",
+      ALLOW_SANDBOX_CONFIRM: "true",
+      NODE_ENV: "development",
+    }),
+    true
+  );
+
+  // Verify /api/v1/payments/sandbox-confirm returns 403 when env vars are missing/default
+  const prevMode = process.env.PAYMENT_MODE;
+  const prevAllow = process.env.ALLOW_SANDBOX_CONFIRM;
+  delete process.env.PAYMENT_MODE;
+  delete process.env.ALLOW_SANDBOX_CONFIRM;
+  try {
+    const { req, res } = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/payments/sandbox-confirm",
+      headers: { "x-user-uid": "cust-1" },
+      body: { orderId: "ORD-1", gateway: "stripe", outcome: "PAID" },
+    });
+    await handler(req, res);
+    assert.equal(
+      res.statusCode,
+      403,
+      "Expected sandbox-confirm to be blocked (403) by default when env vars are missing"
+    );
+  } finally {
+    if (prevMode !== undefined) process.env.PAYMENT_MODE = prevMode;
+    if (prevAllow !== undefined)
+      process.env.ALLOW_SANDBOX_CONFIRM = prevAllow;
+  }
 });
 
 test("Gate 5 & Gate 11: Canonical Category Taxonomy & 194-Product Cloudinary Catalog Seed Verification", () => {

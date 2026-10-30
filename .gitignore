@@ -33,3 +33,6 @@ backend/.env.*
 *.njsproj
 *.sln
 *.sw?
+
+# Large Playwright binary trace archives (preserved locally on disk)
+verification-evidence/traces/*.zip

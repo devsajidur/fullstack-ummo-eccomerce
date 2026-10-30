@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { useSelector } from "react-redux";
 import Title from "../common/Title";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Navigation, Pagination } from "swiper/modules";
-import "swiper/css";
-import "swiper/css/navigation";
-import "swiper/css/pagination";
 import Product from "../common/Product";
-import { fetchCatalogProducts } from "../../../services/api";
+import {
+  fetchCatalogProducts,
+  getInitialCatalogSnapshot,
+} from "../../../services/api";
 
 const LimitedEdition = () => {
   const reduxProducts = useSelector((state) => state.AllProduct.Products);
-  const [localProducts, setLocalProducts] = useState([]);
+  const [localProducts, setLocalProducts] = useState(() =>
+    getInitialCatalogSnapshot().slice(0, 10)
+  );
+  const [startIndex, setStartIndex] = useState(0);
+
   useEffect(() => {
     if (reduxProducts?.length >= 8) return;
     fetchCatalogProducts(10)
@@ -27,48 +29,49 @@ const LimitedEdition = () => {
     ? reduxProducts.slice(0, 10)
     : localProducts;
 
+  const visibleProducts = [];
+  if (products.length > 0) {
+    for (let i = 0; i < Math.min(4, products.length); i += 1) {
+      visibleProducts.push(products[(startIndex + i) % products.length]);
+    }
+  }
+
+  const handlePrev = () => {
+    if (!products.length) return;
+    setStartIndex((prev) => (prev - 1 + products.length) % products.length);
+  };
+
+  const handleNext = () => {
+    if (!products.length) return;
+    setStartIndex((prev) => (prev + 1) % products.length);
+  };
+
   return (
     <section className="md:mt-22.75 mt-9.25 px-3 sm:px-4 xl:px-0">
       <div className="container mx-auto">
         <Title name="LIMITED" namebold="EDITION" />
         <div className="relative mt-4 sm:mt-6">
-          <Swiper
-            id="my-class"
-            modules={[Pagination, Navigation]}
-            navigation={{
-              nextEl: ".custom-next",
-              prevEl: ".custom-prev",
-            }}
-            pagination={{ clickable: true }}
-            breakpoints={{
-              0: {
-                slidesPerView: 2,
-                spaceBetween: 12,
-                allowTouchMove: true,
-              },
-              600: {
-                slidesPerView: 3,
-                spaceBetween: 20,
-                allowTouchMove: true,
-              },
-              1024: {
-                slidesPerView: 4,
-                spaceBetween: 30,
-                allowTouchMove: true,
-              },
-            }}
-            className="mySwiper"
-          >
-            {products.map((item) => (
-              <SwiperSlide key={item.id}>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5">
+            {visibleProducts.map((item, idx) => (
+              <div
+                key={`${item.id}-${idx}`}
+                className={
+                  idx === 2
+                    ? "hidden sm:block"
+                    : idx === 3
+                      ? "hidden lg:block"
+                      : ""
+                }
+              >
                 <Product item={item} />
-              </SwiperSlide>
+              </div>
             ))}
-          </Swiper>
+          </div>
           <div>
             <button
               type="button"
               aria-label="Previous slide"
+              onClick={handlePrev}
               className="z-30 bg-white/90 md:bg-transparent shadow md:shadow-none rounded-full p-2.5 md:p-0 custom-prev absolute top-2/4 -translate-y-1/2 left-0 2xl:-left-6 cursor-pointer"
             >
               <svg
@@ -86,6 +89,7 @@ const LimitedEdition = () => {
             <button
               type="button"
               aria-label="Next slide"
+              onClick={handleNext}
               className="z-30 p-2.5 bg-white/90 md:bg-transparent shadow md:shadow-none md:p-0 rounded-full custom-next absolute top-2/4 -translate-y-1/2 right-0 2xl:-right-6 cursor-pointer"
             >
               <svg

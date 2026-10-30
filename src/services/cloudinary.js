@@ -61,13 +61,11 @@ export async function uploadImageToCloudinary(
     activeUser = null;
   }
   const adminToken =
-    typeof localStorage !== "undefined"
-      ? localStorage.getItem("ummo_admin_session_token") || ""
-      : "";
-  const isAdminSession =
-    typeof localStorage !== "undefined" &&
-    (Boolean(adminToken) ||
-      String(activeUser?.role || "").toUpperCase() === "ADMIN");
+    (typeof sessionStorage !== "undefined" &&
+      sessionStorage.getItem("ummo_admin_session_token")) ||
+    (typeof localStorage !== "undefined" &&
+      localStorage.getItem("ummo_admin_session_token")) ||
+    "";
 
   const signRes = await fetch("/api/v1/cloudinary-sign", {
     method: "POST",
@@ -76,7 +74,6 @@ export async function uploadImageToCloudinary(
       ...(activeUser?.uid ? { "X-User-Uid": activeUser.uid } : {}),
       ...(activeUser?.email ? { "X-User-Email": activeUser.email } : {}),
       ...(adminToken ? { "X-Admin-Token": adminToken } : {}),
-      ...(isAdminSession ? { "X-Admin-Key": "UMMO_ADMIN_SHIELD_2026" } : {}),
     },
     body: JSON.stringify({
       folder,

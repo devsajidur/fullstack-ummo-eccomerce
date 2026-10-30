@@ -32,7 +32,11 @@ apiClient.interceptors.request.use((config) => {
     if (typeof localStorage !== "undefined") {
       const rawUser = localStorage.getItem("ummo_active_user");
       const activeUser = rawUser ? JSON.parse(rawUser) : null;
-      const adminToken = localStorage.getItem("ummo_admin_session_token") || "";
+      const adminToken =
+        (typeof sessionStorage !== "undefined" &&
+          sessionStorage.getItem("ummo_admin_session_token")) ||
+        localStorage.getItem("ummo_admin_session_token") ||
+        "";
       if (activeUser?.uid) {
         config.headers["X-User-Uid"] = String(activeUser.uid);
       }
@@ -41,12 +45,6 @@ apiClient.interceptors.request.use((config) => {
       }
       if (adminToken) {
         config.headers["X-Admin-Token"] = adminToken;
-      }
-      const isVerifiedAdmin =
-        Boolean(adminToken) ||
-        String(activeUser?.role || "").toUpperCase() === "ADMIN";
-      if (isVerifiedAdmin) {
-        config.headers["X-Admin-Key"] = "UMMO_ADMIN_SHIELD_2026";
       }
     }
   } catch {
@@ -57,6 +55,11 @@ apiClient.interceptors.request.use((config) => {
 
 export async function loginAdminWithServer(email, password) {
   const response = await apiClient.post("/admin/login", { email, password });
+  return response.data;
+}
+
+export async function logoutAdminWithServer() {
+  const response = await apiClient.post("/admin/logout");
   return response.data;
 }
 
@@ -180,9 +183,26 @@ export const DEFAULT_BANNERS = {
 // 2. IN-MEMORY CATALOG CACHE
 // ============================================================================
 let cachedBaseProducts = null;
+let cachedMergedCatalog = null;
+let cachedMergedCatalogKey = null;
+
+function getCatalogCacheKey() {
+  try {
+    if (typeof localStorage === "undefined") return "ssr";
+    const cp = localStorage.getItem("ummo_admin_custom_products") || "";
+    const del = localStorage.getItem("ummo_admin_deleted_ids") || "";
+    const camp = localStorage.getItem("ummo_admin_discount_campaigns") || "";
+    const tax = localStorage.getItem("ummo_custom_taxonomy_v1") || "";
+    return `${cp.length}:${del.length}:${camp.length}:${tax.length}:${cp.slice(0, 64)}:${camp.slice(0, 64)}`;
+  } catch {
+    return "default";
+  }
+}
 
 export function invalidateCatalogCache() {
   cachedBaseProducts = null;
+  cachedMergedCatalog = null;
+  cachedMergedCatalogKey = null;
 }
 
 // ============================================================================
@@ -295,8 +315,9 @@ export function getCustomAdminProducts() {
 const catalogSubscribers = new Set();
 
 function notifyCatalogSubscribers() {
-  if (!cachedBaseProducts) return;
-  const merged = mergeWithAdminCatalog(cachedBaseProducts);
+  cachedMergedCatalog = null;
+  cachedMergedCatalogKey = null;
+  const merged = getInitialCatalogSnapshot();
   catalogSubscribers.forEach((cb) => {
     try {
       cb(merged);
@@ -369,59 +390,92 @@ export function applyRemoteStoreConfig(val) {
     return;
   }
 
+  let catalogChanged = false;
+
   if (Array.isArray(val.coupons) && val.coupons.length) {
     const mergedCoupons = mergeCouponsWithDefaults(val.coupons);
-    localStorage.setItem("ummo_admin_coupons", JSON.stringify(mergedCoupons));
-    window.dispatchEvent(
-      new CustomEvent("ummo:coupons-updated", { detail: mergedCoupons })
-    );
+    const nextJson = JSON.stringify(mergedCoupons);
+    if (localStorage.getItem("ummo_admin_coupons") !== nextJson) {
+      localStorage.setItem("ummo_admin_coupons", nextJson);
+      window.dispatchEvent(
+        new CustomEvent("ummo:coupons-updated", { detail: mergedCoupons })
+      );
+    }
   }
   if (val.banners && typeof val.banners === "object") {
     const cleanBanners = sanitizeBanners(val.banners);
-    localStorage.setItem(
-      "ummo_admin_banners_v3",
-      JSON.stringify(cleanBanners)
-    );
-    window.dispatchEvent(
-      new CustomEvent("ummo:banners-updated", { detail: cleanBanners })
-    );
+    const nextJson = JSON.stringify(cleanBanners);
+    const prevJson = localStorage.getItem("ummo_admin_banners_v3");
+    if (prevJson !== nextJson) {
+      localStorage.setItem("ummo_admin_banners_v3", nextJson);
+      // Only dispatch banner update if heroSlides or custom image URLs actually changed
+      if (prevJson !== null) {
+        window.dispatchEvent(
+          new CustomEvent("ummo:banners-updated", { detail: cleanBanners })
+        );
+      }
+    }
   }
   if (Array.isArray(val.customProducts)) {
-    localStorage.setItem(
-      "ummo_admin_custom_products",
-      JSON.stringify(val.customProducts)
-    );
+    const nextJson = JSON.stringify(val.customProducts);
+    const prevRaw = localStorage.getItem("ummo_admin_custom_products");
+    if (prevRaw !== nextJson) {
+      localStorage.setItem("ummo_admin_custom_products", nextJson);
+      if (
+        prevRaw !== null ||
+        (typeof window !== "undefined" &&
+          window.location?.pathname?.startsWith("/admin"))
+      ) {
+        catalogChanged = true;
+      }
+    }
   }
   if (Array.isArray(val.deletedIds)) {
-    localStorage.setItem(
-      "ummo_admin_deleted_ids",
-      JSON.stringify(val.deletedIds)
-    );
+    const nextJson = JSON.stringify(val.deletedIds);
+    const prevRaw = localStorage.getItem("ummo_admin_deleted_ids");
+    if (prevRaw !== nextJson) {
+      localStorage.setItem("ummo_admin_deleted_ids", nextJson);
+      if (
+        prevRaw !== null ||
+        (typeof window !== "undefined" &&
+          window.location?.pathname?.startsWith("/admin"))
+      ) {
+        catalogChanged = true;
+      }
+    }
   }
   if (val.cartRules && typeof val.cartRules === "object") {
-    localStorage.setItem(
-      "ummo_admin_cart_rules_v2",
-      JSON.stringify(val.cartRules)
-    );
-    window.dispatchEvent(
-      new CustomEvent("ummo:cart-rules-updated", { detail: val.cartRules })
-    );
+    const nextJson = JSON.stringify(val.cartRules);
+    if (localStorage.getItem("ummo_admin_cart_rules_v2") !== nextJson) {
+      localStorage.setItem("ummo_admin_cart_rules_v2", nextJson);
+      window.dispatchEvent(
+        new CustomEvent("ummo:cart-rules-updated", { detail: val.cartRules })
+      );
+    }
   }
   if (Array.isArray(val.discountCampaigns)) {
-    localStorage.setItem(
-      "ummo_admin_discount_campaigns",
-      JSON.stringify(val.discountCampaigns)
-    );
-    window.dispatchEvent(
-      new CustomEvent("ummo:discount-campaigns-updated", {
-        detail: val.discountCampaigns,
-      })
-    );
+    const nextJson = JSON.stringify(val.discountCampaigns);
+    const prevJson = localStorage.getItem("ummo_admin_discount_campaigns");
+    if (prevJson !== nextJson) {
+      localStorage.setItem("ummo_admin_discount_campaigns", nextJson);
+      window.dispatchEvent(
+        new CustomEvent("ummo:discount-campaigns-updated", {
+          detail: val.discountCampaigns,
+        })
+      );
+      catalogChanged = true;
+    }
   }
   if (val.customTaxonomy && typeof val.customTaxonomy === "object") {
-    saveCustomTaxonomyOverrides(val.customTaxonomy);
+    const nextJson = JSON.stringify(val.customTaxonomy);
+    if (localStorage.getItem("ummo_custom_taxonomy_v1") !== nextJson) {
+      saveCustomTaxonomyOverrides(val.customTaxonomy);
+      catalogChanged = true;
+    }
   }
-  notifyCatalogSubscribers();
+  if (catalogChanged) {
+    notifyCatalogSubscribers();
+  }
 }
 
 export const DEFAULT_DISCOUNT_CAMPAIGNS = [
@@ -570,7 +624,16 @@ function getDefaultProductTimer(item, index) {
 }
 
 export function getInitialCatalogSnapshot() {
-  return mergeWithAdminCatalog(cachedBaseProducts || INITIAL_CATALOG_SEED);
+  if (!cachedBaseProducts) {
+    cachedBaseProducts = INITIAL_CATALOG_SEED;
+  }
+  const key = getCatalogCacheKey();
+  if (cachedMergedCatalog && cachedMergedCatalogKey === key) {
+    return cachedMergedCatalog;
+  }
+  cachedMergedCatalog = mergeWithAdminCatalog(cachedBaseProducts);
+  cachedMergedCatalogKey = key;
+  return cachedMergedCatalog;
 }
 
 function applyCampaignsToProduct(product, campaigns, nowMs) {
@@ -733,10 +796,8 @@ function mergeWithAdminCatalog(baseProducts) {
  * Uses the complete 194-product local seed synchronously to eliminate external third-party API latency.
  */
 export async function fetchCatalogProducts(limit = 200) {
-  if (!cachedBaseProducts) {
-    cachedBaseProducts = INITIAL_CATALOG_SEED;
-  }
-  return mergeWithAdminCatalog(cachedBaseProducts).slice(0, limit);
+  const full = getInitialCatalogSnapshot();
+  return limit >= full.length ? full : full.slice(0, limit);
 }
 
 // ============================================================================

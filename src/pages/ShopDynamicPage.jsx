@@ -1,23 +1,27 @@
 import React, { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 import { getDepartmentBySlug } from "../utils/categoryTaxonomy";
+import ShopSingle from "./ShopSingle";
 
 export default function ShopDynamicPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const dept = id ? getDepartmentBySlug(id) : null;
+  const isDepartmentRoute = Boolean(dept && Number.isNaN(Number(id)));
 
   useEffect(() => {
     if (!id) {
       navigate("/shop", { replace: true });
       return;
     }
-    const dept = getDepartmentBySlug(id);
-    if (dept && Number.isNaN(Number(id))) {
+    if (isDepartmentRoute) {
       navigate(`/category/${dept.slug}`, { replace: true });
-      return;
     }
-    navigate(`/shopsingle?id=${encodeURIComponent(id)}`, { replace: true });
-  }, [id, navigate]);
+  }, [id, isDepartmentRoute, dept, navigate]);
 
-  return null;
+  if (!id || isDepartmentRoute) {
+    return <div className="min-h-screen" />;
+  }
+
+  return <ShopSingle />;
 }

@@ -145,7 +145,7 @@ export default function ShopFilter({ setCurrentPage = () => {} }) {
               onClick={() => updateOptions({ category: "" })}
             >
               <span>All Categories</span>
-              <span className="text-[11px] text-gray-400">
+              <span className="text-[11px] text-gray-600">
                 ({Products.length})
               </span>
             </li>
@@ -164,7 +164,7 @@ export default function ShopFilter({ setCurrentPage = () => {} }) {
                   >
                     {cat.replace(/-/g, " ")}
                   </button>
-                  <span className="text-[11px] text-gray-400">({count})</span>
+                  <span className="text-[11px] text-gray-600">({count})</span>
                 </li>
               );
             })}
@@ -275,49 +275,46 @@ export default function ShopFilter({ setCurrentPage = () => {} }) {
           onToggle={() => toggleSection("price")}
         />
         {openSections.price && (
-          <div className="mt-5">
-            <div className="relative h-1">
-              <div className="absolute inset-0 rounded-full bg-gray-200" />
-              <div
-                className="absolute h-1 rounded-full bg-primary"
-                style={{
-                  left: `${
-                    ((minPrice - PRICE_FLOOR) /
-                      Math.max(1, PRICE_CEIL - PRICE_FLOOR)) *
-                    100
-                  }%`,
-                  right: `${
-                    100 -
-                    ((maxPrice - PRICE_FLOOR) /
-                      Math.max(1, PRICE_CEIL - PRICE_FLOOR)) *
-                      100
-                  }%`,
-                }}
-              />
+          <div className="mt-5 space-y-4">
+            <div>
+              <div className="flex items-center justify-between text-xs xl:text-sm mb-1">
+                <label htmlFor="shop-min-price-range" className="text-primary font-medium">
+                  Min Price
+                </label>
+                <span className="text-primary font-semibold">
+                  ${minPrice ?? PRICE_FLOOR}
+                </span>
+              </div>
               <input
+                id="shop-min-price-range"
                 type="range"
+                aria-label="Minimum price"
                 min={PRICE_FLOOR}
                 max={PRICE_CEIL}
                 value={minPrice}
                 onChange={handleMinChange}
-                className="range-thumb pointer-events-none absolute inset-0 w-full appearance-none bg-transparent"
+                className="w-full h-7 accent-primary cursor-pointer"
               />
+            </div>
+            <div>
+              <div className="flex items-center justify-between text-xs xl:text-sm mb-1">
+                <label htmlFor="shop-max-price-range" className="text-primary font-medium">
+                  Max Price
+                </label>
+                <span className="text-primary font-semibold">
+                  ${maxPrice ?? PRICE_CEIL}
+                </span>
+              </div>
               <input
+                id="shop-max-price-range"
                 type="range"
+                aria-label="Maximum price"
                 min={PRICE_FLOOR}
                 max={PRICE_CEIL}
                 value={maxPrice}
                 onChange={handleMaxChange}
-                className="range-thumb pointer-events-none absolute inset-0 w-full appearance-none bg-transparent"
+                className="w-full h-7 accent-primary cursor-pointer"
               />
-            </div>
-            <div className="mt-4 flex items-center justify-between text-xs xl:text-sm">
-              <span className="text-primary">
-                Min: ${minPrice ?? PRICE_FLOOR}
-              </span>
-              <span className="text-primary">
-                Max: ${maxPrice ?? PRICE_CEIL}
-              </span>
             </div>
           </div>
         )}

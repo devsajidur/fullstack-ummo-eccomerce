@@ -1,21 +1,21 @@
 [{
     "id":1,
-    "image":"./images/category1.png",
+    "image":"https://res.cloudinary.com/wxjt7d8q/image/upload/f_auto,q_auto,w_480,c_limit/ummo_banners/category1",
     "name":"WOMEN"
 },
 {
     "id":2,
-    "image":"./images/category2.png",
+    "image":"https://res.cloudinary.com/wxjt7d8q/image/upload/f_auto,q_auto,w_480,c_limit/ummo_banners/category2",
     "name":"MEN"
 }
 ,
 {
     "id":3,
-    "image":"./images/category3.png",
+    "image":"https://res.cloudinary.com/wxjt7d8q/image/upload/f_auto,q_auto,w_480,c_limit/ummo_banners/category3",
     "name":"KIDS"
 },
 {
     "id":4,
-    "image":"./images/category4.png",
+    "image":"https://res.cloudinary.com/wxjt7d8q/image/upload/f_auto,q_auto,w_480,c_limit/ummo_banners/category4",
     "name":"E-GIFT CARDS"
 }]

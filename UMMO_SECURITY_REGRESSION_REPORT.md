@@ -1,22 +1,22 @@
-# UMMO ECOMMERCE — SECURITY REGRESSION & HARDENING REPORT (GATE 19)
+# UMMO ECOMMERCE — SECURITY REGRESSION & HARDENING REPORT
 
 **Branch:** `feature/ummo-mobile-enterprise-transformation`  
-**Audit Date:** 2026-10-30
+**Audit Date:** 2026-10-30  
+**Automated Security Test Suite:** `tests/security-and-mongodb.test.mjs` (`20/20` Passing) + `tests/playwright-e2e-verification.mjs`
 
 ---
 
-## 1. Security Checklist & Regression Audit
+## 1. Security Findings & Remediations Verified
 
-| Security Control | Implementation Location | Verification Method | Status |
-|---|---|---|---|
-| **No Public Admin Entry Points** | `Header.jsx`, `ProfilePage.jsx`, `LoginPage.jsx`, `MobileBottomNav.jsx` | Source audit + DOM inspection | **PASS** |
-| **No Client-Side Admin Bypass (`ummo_admin_unlocked`)** | `src/services/authSession.js`, `src/pages/AdminDashboardPage.jsx` | Removed all `ummo_admin_unlocked` checks & 1-click demo buttons | **PASS** |
-| **Server-Side Admin Auth & HMAC Token** | `api/security.js`, `api/index.js` (`/api/v1/admin/login`, `/api/v1/admin/session`) | Automated test suite (`Gate 2`) | **PASS** |
-| **403 Access Denied for Non-Admin Users at `/admin`** | `src/pages/AdminDashboardPage.jsx`, `api/index.js` | Automated test suite + UI state check | **PASS** |
-| **NoSQL Operator & Prototype Pollution Stripping** | `api/security.js` (`sanitizeInput`, `containsNoSqlOperator`) | Automated test suite (`Phase 3.3`) | **PASS** |
-| **Horizontal Privilege Escalation (IDOR) Prevention** | `api/security.js` (`canAccessUser`), `api/index.js` | Automated test suite (`Phase 3.2`) | **PASS** |
-| **Server-Side Price, Discount & Coupon Recalculation** | `api/orderService.js` (`validateAndBuildServerOrder`) | Automated test suite (`Phase 4`, `Phase 8`) | **PASS** |
-| **Cloudinary Signed Upload & MIME Whitelist (No SVG)** | `api/index.js` (`/api/v1/cloudinary-sign`) | Automated test suite (`Phase 3.6`) | **PASS** |
-| **SSLCommerz Validation API & Stripe HMAC-SHA256 Webhook** | `api/paymentService.js` | Automated test suite (`Phase 11`, `Phase 12`) | **PASS** |
-| **Partial Refund Inventory Protection** | `api/paymentService.js` (`restockItems = false` default) | Automated test suite (`Phase 12`) | **PASS** |
-| **Sandbox Payment Confirm Restricted to Non-Production** | `api/index.js` (`/api/v1/payments/sandbox-confirm`), `OrderComplete.jsx` | Source & endpoint verification | **PASS** |
+| # | Security Domain | Finding / Requirement | Remediation & Implementation | Verification Evidence | Status |
+|---|---|---|---|---|---|
+| 1 | **Sandbox Payment Simulation (Fail-Closed by Default)** | Sandbox payment confirmation (`POST /api/v1/payments/sandbox-confirm`) previously allowed simulation unless `NODE_ENV === "production"`. | Implemented `isSandboxPaymentSimulationEnabled(env)` in `api/security.js`. Requires BOTH `PAYMENT_MODE=sandbox` AND `ALLOW_SANDBOX_CONFIRM=true`, and unconditionally returns `false` when `NODE_ENV=production` or `VERCEL_ENV=production`. Enforced on `POST /api/v1/payments/sandbox-confirm` (`403` when disabled) and hidden by default in `OrderComplete.jsx`. | Verified missing, incorrect, and production env combinations in `tests/security-and-mongodb.test.mjs` (`Gate 2`) + real browser test on `/ordercomplete?...&sandbox=1` in `tests/playwright-e2e-verification.mjs`. | **PASS** |
+| 2 | **Frontend Bundle Secret Removal** | Static `"X-Admin-Key": "UMMO_ADMIN_SHIELD_2026"` header was previously attached in `src/services/api.js` and `src/services/cloudinary.js`. | Removed `"X-Admin-Key"` from all frontend files (`src/services/api.js`, `src/services/cloudinary.js`). Built `dist/` and scanned all compiled JS bundles — 0 occurrences of `UMMO_ADMIN_SHIELD`, `CLOUDINARY_API_SECRET`, or `STRIPE_SECRET_KEY`. | Automated bundle scan in `tests/security-and-mongodb.test.mjs` (`Gate 2`). | **PASS** |
+| 3 | **Admin Token Format, Expiry (`exp`), Unique ID (`jti`) & Server-Side Revocation** | Admin sessions needed cryptographic HMAC-SHA256 verification, client/server expiration checks, and immediate server-side revocation on logout. | Added `jti: crypto.randomUUID()` and 12-hour `exp` to `createAdminSessionToken()` in `api/security.js`; implemented server-side `revokedAdminTokenIds` registry and `POST /api/v1/admin/logout` in `api/index.js`; added client-side `parseAdminTokenPayload()` expiry/format validation in `src/services/authSession.js`. | Verified expired, forged, and logged-out tokens return `403` in `tests/security-and-mongodb.test.mjs`. | **PASS** |
+| 4 | **Admin Login Brute-Force Rate Limiting** | `POST /api/v1/admin/login` needed brute-force rate limiting per IP/email. | Implemented `checkAdminLoginRateLimit`, `recordAdminLoginFailure`, and `clearAdminLoginFailures` in `api/security.js` (max `5` failed attempts per `15` minutes, returning `HTTP 429 Too Many Requests` with `Retry-After` header). | Verified 5 failed attempts trigger `429 Too Many Requests` in `tests/security-and-mongodb.test.mjs`. | **PASS** |
+| 5 | **Customer `403` & `localStorage` Role Tampering Protection on `/admin`** | Non-admin customers and tampered `localStorage` (`role: "ADMIN"` without a valid server token) must be blocked at `/admin` and on all privileged `/api/v1/*` routes. | Enforced `isUserAdmin()` + `verifyAdminSessionWithServer()` in `src/pages/AdminDashboardPage.jsx` and `caller.isAdmin` in `api/index.js`. | Verified in Playwright browser E2E (`admin-403-customer-390.png`) and backend tests (`Phase 3.2 & 3.5`). | **PASS** |
+| 6 | **No Public Admin Entry Points** | Customer storefront header, footer, mobile drawer, bottom nav, login page, and profile page must not expose `/admin` links or demo admin buttons. | Audited and verified across all 7 viewports (`320px`–`1440px`). | Playwright E2E DOM check (`adminLinksCount === 0`). | **PASS** |
+| 7 | **NoSQL Injection & Prototype Pollution Defense** | Strip `$ne`, `$gt`, `$where`, `__proto__`, `constructor`, `prototype` from request bodies and query parameters. | Enforced in `api/security.js` (`sanitizeInput`, `containsNoSqlOperator`). | Verified in `tests/security-and-mongodb.test.mjs` (`Phase 3.3`). | **PASS** |
+| 8 | **Horizontal Privilege Escalation (IDOR) Prevention** | Customers must only access their own orders and addresses. | Enforced in `api/security.js` (`canAccessUser`) and `api/index.js`. | Verified in `tests/security-and-mongodb.test.mjs` (`Phase 3.2`). | **PASS** |
+| 9 | **Cloudinary Upload Security** | Require admin auth, 5MB limit, and strict MIME whitelist (block `.svg`). | Enforced on `POST /api/v1/cloudinary-sign` in `api/index.js`. | Verified in `tests/security-and-mongodb.test.mjs` (`Phase 3.6`). | **PASS** |
+| 10 | **Currency Integrity (`$ USD`)** | Never silently convert existing database prices between USD and BDT. | Audited all storefront, cart, checkout, order confirmation, profile, admin, Stripe, and SSLCommerz flows — 100% consistent `$ USD` pricing. | Verified across code and E2E checkout/refund tests. | **PASS** |

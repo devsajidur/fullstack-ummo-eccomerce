@@ -346,9 +346,8 @@ const Header = () => {
             <button
               type="button"
               onClick={toggleLang}
-              aria-label="Switch language between English and Bangla"
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-gray-200 hover:border-gray-900 text-xs font-bold text-gray-800 transition-colors cursor-pointer"
-              title="Toggle English / বাংলা"
+              title="Switch language between English and Bangla"
             >
               <Globe size={14} className="text-gray-600" />
               <span>{lang === "bn" ? "বাংলা" : "EN"}</span>
@@ -456,12 +455,15 @@ const Header = () => {
             {/* Wishlist */}
             <button
               type="button"
-              aria-label="View Wishlist"
+              aria-label={`View Wishlist (${wishProduct.length})`}
               onClick={() => navigate("/wishlist")}
               className="relative p-2 rounded-full hover:bg-gray-100 transition-colors cursor-pointer text-gray-900"
             >
               <Heart size={20} />
-              <span className="absolute -top-0.5 -right-0.5 bg-[#B9A16B] h-4 min-w-[16px] px-1 leading-4 rounded-full text-[10px] font-bold text-white flex items-center justify-center">
+              <span
+                aria-hidden="true"
+                className="absolute -top-0.5 -right-0.5 bg-[#B9A16B] h-4 min-w-[16px] px-1 leading-4 rounded-full text-[10px] font-bold text-white flex items-center justify-center"
+              >
                 {wishProduct.length}
               </span>
             </button>
@@ -469,12 +471,15 @@ const Header = () => {
             {/* Cart Drawer Trigger */}
             <button
               type="button"
-              aria-label="Open Shopping Bag"
+              aria-label={`Open Shopping Bag (${totalCartItems})`}
               onClick={() => setAddCart(true)}
               className="relative p-2 rounded-full hover:bg-gray-100 transition-colors cursor-pointer text-gray-900"
             >
               <ShoppingBag size={20} />
-              <span className="absolute -top-0.5 -right-0.5 bg-gray-900 h-4 min-w-[16px] px-1 leading-4 rounded-full text-[10px] font-bold text-white flex items-center justify-center">
+              <span
+                aria-hidden="true"
+                className="absolute -top-0.5 -right-0.5 bg-gray-900 h-4 min-w-[16px] px-1 leading-4 rounded-full text-[10px] font-bold text-white flex items-center justify-center"
+              >
                 {totalCartItems}
               </span>
             </button>
@@ -496,7 +501,7 @@ const Header = () => {
             <button
               type="button"
               onClick={toggleLang}
-              aria-label="Switch language between English and Bangla"
+              title="Switch language between English and Bangla"
               className="px-2 py-1 rounded-md border border-gray-200 text-[11px] font-bold text-gray-800 bg-gray-50 active:bg-gray-100 cursor-pointer"
             >
               {lang === "bn" ? "EN" : "বাংলা"}
@@ -523,12 +528,15 @@ const Header = () => {
             </Link>
             <button
               type="button"
-              aria-label="Open Shopping Bag"
+              aria-label={`Open Shopping Bag (${totalCartItems})`}
               onClick={() => setAddCart(true)}
               className="relative min-w-[44px] min-h-[44px] -mr-1 flex items-center justify-center rounded-lg text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
             >
               <ShoppingBag size={21} />
-              <span className="absolute top-1.5 right-1.5 bg-[#C32929] h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center leading-none">
+              <span
+                aria-hidden="true"
+                className="absolute top-1.5 right-1.5 bg-[#C32929] h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center leading-none"
+              >
                 {totalCartItems}
               </span>
             </button>
@@ -967,9 +975,9 @@ const Header = () => {
                           {item.selectedSize ? ` • Size: ${item.selectedSize}` : ""}
                           {item.selectedColor ? ` • Color: ${item.selectedColor}` : ""}
                         </p>
-                        {item.specialNote && (
+                        {(item.optionalMessage || item.specialNote) && (
                           <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-0.5 mt-1 line-clamp-1">
-                            Note: {item.specialNote}
+                            Note: {item.optionalMessage || item.specialNote}
                           </p>
                         )}
                         <div className="flex items-center justify-between mt-1.5">

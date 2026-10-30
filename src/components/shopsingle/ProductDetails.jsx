@@ -3,7 +3,7 @@ import { FaRegHeart } from "react-icons/fa6";
 import { LuShare2 } from "react-icons/lu";
 import { Gift, ShieldCheck, RotateCcw, Ruler, Truck, X, Zap } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
-import { useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import toast, { Toaster } from "react-hot-toast";
 import Reviews from "./Reviews";
 import AdditionalInformation from "./AdditionalInformation";
@@ -14,7 +14,10 @@ import {
 } from "../../slices/cartSlice";
 import { addWishList } from "../../slices/wishListSlice";
 import { productDetail } from "../../slices/ProductDetailsSlice";
-import { fetchCatalogProducts } from "../../services/api";
+import {
+  fetchCatalogProducts,
+  getInitialCatalogSnapshot,
+} from "../../services/api";
 import {
   getProductDiscountState,
   pad2,
@@ -39,8 +42,9 @@ export default function ProductDetails() {
     (state) => state.clickProductDetails.Details
   );
   const catalogProducts = useSelector((state) => state.AllProduct.Products);
+  const { id: routeParamId } = useParams();
   const [searchParams] = useSearchParams();
-  const productIdParam = searchParams.get("id");
+  const productIdParam = searchParams.get("id") || routeParamId;
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
@@ -52,11 +56,16 @@ export default function ProductDetails() {
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [showSizeGuide, setShowSizeGuide] = useState(false);
 
-  // Always prefer the freshest product from catalogProducts so Admin timer/price/freeGift edits reflect live
-  const targetId = productIdParam || detailsProduct?.id;
+  // Always prefer the freshest product from catalogProducts or synchronous seed snapshot
+  const targetId = productIdParam || detailsProduct?.id || 1;
+  const fallbackCatalog =
+    catalogProducts && catalogProducts.length > 0
+      ? catalogProducts
+      : getInitialCatalogSnapshot();
   const liveProduct =
-    (catalogProducts || []).find((p) => String(p.id) === String(targetId)) ||
-    detailsProduct;
+    fallbackCatalog.find((p) => String(p.id) === String(targetId)) ||
+    detailsProduct ||
+    fallbackCatalog[0];
 
   const freeGiftConfig = getProductFreeGiftConfig(liveProduct, catalogProducts);
 
@@ -73,23 +82,24 @@ export default function ProductDetails() {
   }, [targetId]);
 
   useEffect(() => {
-    if (
-      !detailsProduct?.id ||
-      (productIdParam && String(detailsProduct.id) !== String(productIdParam))
-    ) {
-      fetchCatalogProducts(200)
-        .then((products) => {
-          if (!products?.length) return;
-          const matched = productIdParam
-            ? products.find((p) => String(p.id) === String(productIdParam))
-            : products[0];
-          if (matched) {
-            dispatch(productDetail(matched));
-          }
-        })
-        .catch(() => {});
-    }
-  }, [detailsProduct?.id, productIdParam, dispatch]);
+    const unsub = fetchCatalogProducts(200).then((products) => {
+      if (!products?.length) return;
+      const matched = productIdParam
+        ? products.find((p) => String(p.id) === String(productIdParam))
+        : products[0];
+      if (
+        matched &&
+        (!detailsProduct?.id ||
+          String(detailsProduct.id) !== String(matched.id)) &&
+        String(liveProduct?.id) !== String(matched.id)
+      ) {
+        dispatch(productDetail(matched));
+      }
+    });
+    return () => {
+      void unsub;
+    };
+  }, [detailsProduct?.id, liveProduct?.id, productIdParam, dispatch]);
 
   const hasTimer = Boolean(
     liveProduct?.discountEndTime && liveProduct.discountEndTime !== "none"
@@ -211,6 +221,10 @@ export default function ProductDetails() {
                 className="aspect-square w-full object-contain"
                 src={activeImage}
                 alt={liveProduct.title}
+                loading="eager"
+                fetchPriority="high"
+                width={420}
+                height={420}
               />
               {discountState.isDiscountActive && (
                 <span className="absolute top-3 left-3 bg-[#D6001C] text-white text-xs font-bold px-3 py-1 rounded-sm shadow">
@@ -297,7 +311,7 @@ export default function ProductDetails() {
                 </span>
                 {discountState.isDiscountActive && (
                   <>
-                    <span className="text-base sm:text-lg text-gray-400 line-through font-medium">
+                    <span className="text-base sm:text-lg text-gray-600 line-through font-medium">
                       ${discountState.regularPrice.toFixed(2)}
                     </span>
                     <span className="text-xs font-bold uppercase tracking-wider bg-red-50 text-[#D6001C] border border-red-200 px-2.5 py-1 rounded-full">
@@ -430,7 +444,7 @@ export default function ProductDetails() {
                     className={`text-[11px] font-mono ${
                       optionalMessage.length >= 480
                         ? "text-[#D6001C] font-bold"
-                        : "text-gray-400"
+                        : "text-gray-600"
                     }`}
                   >
                     {optionalMessage.length}/500

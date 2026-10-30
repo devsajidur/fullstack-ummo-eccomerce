@@ -46,6 +46,10 @@ const ShopAllProducts = ({ currentPage, setCurrentPage }) => {
   }, [searchParams, dispatch]);
 
   useEffect(() => {
+    if (FilterProduct?.length) {
+      setloading(false);
+      return;
+    }
     fetchCatalogProducts(200)
       .then((products) => {
         dispatch(addProduct(products));
@@ -55,7 +59,7 @@ const ShopAllProducts = ({ currentPage, setCurrentPage }) => {
         setloading(false);
         console.error(err);
       });
-  }, [dispatch]);
+  }, [dispatch, FilterProduct?.length]);
 
   const displayProducts = FilterProduct || [];
   const totalPages = Math.max(1, Math.ceil(displayProducts.length / 12));
@@ -206,8 +210,8 @@ const ShopAllProducts = ({ currentPage, setCurrentPage }) => {
                   }
             }
           >
-            {displayProducts.slice(fasttidx, lastidx).map((item) => (
-              <Product item={item} key={item.id} />
+            {displayProducts.slice(fasttidx, lastidx).map((item, idx) => (
+              <Product item={item} key={item.id} priority={idx < 3} />
             ))}
           </div>
 

@@ -9,14 +9,20 @@ import {
   saveCloudMirrorState,
 } from "./db.js";
 import {
+  ADMIN_TOKEN_TTL_MS,
   asSafeEmail,
   asSafeId,
   canAccessUser,
+  checkAdminLoginRateLimit,
+  clearAdminLoginFailures,
   createAdminSessionToken,
+  isSandboxPaymentSimulationEnabled,
   MASTER_ADMIN_EMAIL,
   MASTER_ADMIN_UID,
   parseJsonBody,
+  recordAdminLoginFailure,
   resolveCaller,
+  revokeAdminSessionToken,
   sendJson,
   verifyAdminPasswordCredentials,
 } from "./security.js";
@@ -89,7 +95,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 1b. Dedicated Administrator Authentication & Session Verification (POST /admin/login, GET /admin/session)
+    // 1b. Dedicated Administrator Authentication, Rate Limiting, Session Verification & Revocation
     if (path === "/admin/login") {
       if (method !== "POST") {
         return sendJson(req, res, 405, { error: "Method not allowed" });
@@ -106,6 +112,24 @@ export default async function handler(req, res) {
         });
       }
 
+      const clientIp =
+        String(
+          req.headers?.["x-forwarded-for"] ||
+            req.headers?.["x-real-ip"] ||
+            "local"
+        )
+          .split(",")[0]
+          .trim() || "local";
+      const rateLimitKey = `${clientIp}::${email}`;
+      const rateStatus = checkAdminLoginRateLimit(rateLimitKey);
+      if (!rateStatus.allowed) {
+        res.setHeader("Retry-After", String(rateStatus.retryAfterSeconds));
+        return sendJson(req, res, 429, {
+          error: `Too many failed administrator login attempts. Please try again in ${rateStatus.retryAfterSeconds} seconds.`,
+          retryAfterSeconds: rateStatus.retryAfterSeconds,
+        });
+      }
+
       const { state } = await getFullState();
       const isMasterValid = verifyAdminPasswordCredentials(email, password);
       const matchingDbUser = (state.users || []).find(
@@ -113,6 +137,7 @@ export default async function handler(req, res) {
       );
 
       if (!isMasterValid) {
+        recordAdminLoginFailure(rateLimitKey);
         if (matchingDbUser && matchingDbUser.role !== "ADMIN") {
           return sendJson(req, res, 403, {
             error:
@@ -123,6 +148,8 @@ export default async function handler(req, res) {
           error: "Invalid administrator email or password.",
         });
       }
+
+      clearAdminLoginFailures(rateLimitKey);
 
       const adminUser = {
         uid: matchingDbUser?.uid || MASTER_ADMIN_UID,
@@ -138,7 +165,25 @@ export default async function handler(req, res) {
       return sendJson(req, res, 200, {
         status: "ok",
         adminToken,
+        expiresAt: new Date(Date.now() + ADMIN_TOKEN_TTL_MS).toISOString(),
         user: adminUser,
+      });
+    }
+
+    if (path === "/admin/logout") {
+      if (method !== "POST") {
+        return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      const tokenHeader =
+        req.headers?.["x-admin-token"] ||
+        req.headers?.["X-Admin-Token"] ||
+        (String(req.headers?.authorization || "").startsWith("Bearer ")
+          ? String(req.headers.authorization).slice(7).trim()
+          : "");
+      const revoked = revokeAdminSessionToken(String(tokenHeader || ""));
+      return sendJson(req, res, 200, {
+        status: "ok",
+        revoked,
       });
     }
 
@@ -528,12 +573,24 @@ export default async function handler(req, res) {
         return sendJson(req, res, 400, { error: "Invalid request parameters" });
       }
       const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
       const orderId = asSafeId(body.orderId, 64);
       const targetOrder = state.orders.find(
         (o) => String(o.orderId || o.id) === orderId
       );
       if (!targetOrder) {
         return sendJson(req, res, 404, { error: "Order not found." });
+      }
+      if (
+        !caller.isAdmin &&
+        targetOrder.userUid &&
+        targetOrder.userUid !== "guest" &&
+        caller.uid &&
+        String(targetOrder.userUid) !== caller.uid
+      ) {
+        return sendJson(req, res, 403, {
+          error: "Forbidden: Cannot initiate payment for another user's order.",
+        });
       }
 
       const session = await initiateSslCommerzSandboxPayment({
@@ -645,12 +702,24 @@ export default async function handler(req, res) {
         return sendJson(req, res, 400, { error: "Invalid request parameters" });
       }
       const { state } = await getFullState();
+      const caller = resolveCaller(req, state);
       const orderId = asSafeId(body.orderId, 64);
       const targetOrder = state.orders.find(
         (o) => String(o.orderId || o.id) === orderId
       );
       if (!targetOrder) {
         return sendJson(req, res, 404, { error: "Order not found." });
+      }
+      if (
+        !caller.isAdmin &&
+        targetOrder.userUid &&
+        targetOrder.userUid !== "guest" &&
+        caller.uid &&
+        String(targetOrder.userUid) !== caller.uid
+      ) {
+        return sendJson(req, res, 403, {
+          error: "Forbidden: Cannot initiate payment for another user's order.",
+        });
       }
 
       const session = await createStripeTestCheckoutSession({
@@ -758,10 +827,16 @@ export default async function handler(req, res) {
     }
 
     // 5g. Interactive Sandbox Payment Confirmation (POST /payments/sandbox-confirm)
-    // Executes full server-side SSLCommerz Validation or signed Stripe Webhook in sandbox/test mode
+    // Disabled by default (fail-closed). Requires explicit PAYMENT_MODE=sandbox and ALLOW_SANDBOX_CONFIRM=true.
     if (path === "/payments/sandbox-confirm") {
       if (method !== "POST") {
         return sendJson(req, res, 405, { error: "Method not allowed" });
+      }
+      if (!isSandboxPaymentSimulationEnabled(process.env)) {
+        return sendJson(req, res, 403, {
+          error:
+            "Sandbox payment simulation is disabled by default. Explicit non-production sandbox configuration (PAYMENT_MODE=sandbox and ALLOW_SANDBOX_CONFIRM=true) is required.",
+        });
       }
       const { sanitized: body, hadOperator } = await parseJsonBody(req);
       if (hadOperator) {
@@ -769,9 +844,9 @@ export default async function handler(req, res) {
       }
       const { state } = await getFullState();
       const caller = resolveCaller(req, state);
-      if (process.env.ALLOW_SANDBOX_CONFIRM === "false") {
-        return sendJson(req, res, 403, {
-          error: "Sandbox payment simulation is disabled in live production.",
+      if (!caller.isAuthenticated) {
+        return sendJson(req, res, 401, {
+          error: "Authentication required to confirm sandbox payment.",
         });
       }
       const orderId = asSafeId(body.orderId, 64);
@@ -786,7 +861,6 @@ export default async function handler(req, res) {
       }
       if (
         !caller.isAdmin &&
-        caller.uid &&
         targetOrder.userUid &&
         targetOrder.userUid !== "guest" &&
         String(targetOrder.userUid) !== caller.uid

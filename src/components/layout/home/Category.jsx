@@ -39,6 +39,10 @@ const Category = () => {
                 className="h-full w-full object-cover object-[80%] transition-transform duration-500 group-hover:scale-105"
                 src={item.image}
                 alt={`${item.name} collection`}
+                width={480}
+                height={320}
+                loading={item.id == 1 ? "eager" : "lazy"}
+                fetchPriority={item.id == 1 ? "high" : "auto"}
               />
               <div className="absolute bottom-6 left-6 sm:bottom-10 sm:left-10 md:bottom-3 pr-2 md:left-3 lg:left-5 lg:bottom-5 xl:bottom-10 xl:left-10">
                 <h3 className="uppercase text-xs md:text-[12px] lg:text-sm leading-6 font-semibold tracking-wider text-primary">

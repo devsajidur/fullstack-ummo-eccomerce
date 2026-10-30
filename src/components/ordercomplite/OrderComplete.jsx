@@ -201,9 +201,15 @@ export default function OrderComplete() {
     order.paymentMethod ||
     "Not available";
 
+  // Disabled by default (fail-closed). Requires explicit non-production sandbox env flags.
   const isSandboxModeAllowed =
-    import.meta.env.DEV ||
-    import.meta.env.VITE_PAYMENT_MODE !== "production";
+    !import.meta.env.PROD &&
+    String(import.meta.env.VITE_PAYMENT_MODE || "")
+      .trim()
+      .toLowerCase() === "sandbox" &&
+    String(import.meta.env.VITE_ALLOW_SANDBOX_CONFIRM || "")
+      .trim()
+      .toLowerCase() === "true";
 
   const showSandboxGatewayPanel =
     isSandboxModeAllowed &&

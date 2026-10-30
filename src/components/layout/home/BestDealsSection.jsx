@@ -4,7 +4,6 @@ import { ArrowRight, Flame } from "lucide-react";
 import Container from "../common/Container";
 import Product from "../common/Product";
 import {
-  fetchCatalogProducts,
   getInitialCatalogSnapshot,
   initStoreConfigSync,
 } from "../../../services/api";
@@ -19,9 +18,6 @@ const BestDealsSection = () => {
 
   useEffect(() => {
     let active = true;
-    fetchCatalogProducts(200).then((items) => {
-      if (active) setProducts(items);
-    });
     const unsub = initStoreConfigSync((updated) => {
       if (active && Array.isArray(updated)) {
         setProducts(updated);

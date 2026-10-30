@@ -5,10 +5,13 @@ const LANG_STORAGE_KEY = "ummo_lang";
 
 const LocalizationContext = createContext({
   lang: "en",
+  language: "en",
   locale: "en-US",
   isBangla: false,
   setLang: () => {},
+  setLanguage: () => {},
   toggleLang: () => {},
+  toggleLanguage: () => {},
   t: (key, fallback) => fallback || key,
   formatPrice: (amount) => `$${Number(amount || 0).toFixed(2)}`,
   formatNumber: (num) => String(num ?? 0),
@@ -101,10 +104,13 @@ export function LocalizationProvider({ children }) {
   const value = useMemo(
     () => ({
       lang,
+      language: lang,
       locale: lang === "bn" ? "bn-BD" : "en-US",
       isBangla: lang === "bn",
       setLang,
+      setLanguage: setLang,
       toggleLang,
+      toggleLanguage: toggleLang,
       t,
       formatPrice,
       formatNumber,

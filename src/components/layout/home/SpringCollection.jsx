@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from "react";
 import Image from "../common/Image";
 import { Link } from "react-router";
-import Countdown from "react-countdown";
 import { getStoredBanners } from "../../../services/api";
 import { getCloudinaryBannerUrl } from "../../../services/cloudinary";
+import { useNowTick } from "../../../utils/discountTimer";
 
 const SpringImage = getCloudinaryBannerUrl("springImage", 700);
 
 const SpringCollection = () => {
   const [deal, setDeal] = useState(() => getStoredBanners().dealBanner || {});
+  const now = useNowTick(true);
 
   useEffect(() => {
     const handleUpdate = (e) => {
@@ -23,56 +24,17 @@ const SpringCollection = () => {
       window.removeEventListener("ummo:banners-updated", handleUpdate);
   }, []);
 
-  const renderer = ({ days, hours, minutes, seconds }) => {
-    return (
-      <div className="flex gap-1.5 xs:gap-2 sm:gap-4 md:gap-6.25 xl:mt-16 mt-5">
-        <div>
-          <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
-            {days}
-          </h2>
-          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
-            DAYS
-          </h3>
-        </div>
-
-        <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] leading-6 sm:leading-7.5 font-normal text-primary">
-          :
-        </h2>
-        <div>
-          <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
-            {hours}
-          </h2>
-          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
-            HOURS
-          </h3>
-        </div>
-
-        <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] leading-6 sm:leading-7.5 font-normal text-primary">
-          :
-        </h2>
-        <div>
-          <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
-            {minutes}
-          </h2>
-          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
-            MINS
-          </h3>
-        </div>
-
-        <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] leading-6 sm:leading-7.5 font-normal text-primary">
-          :
-        </h2>
-        <div>
-          <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
-            {seconds}
-          </h2>
-          <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
-            SEC
-          </h3>
-        </div>
-      </div>
-    );
-  };
+  const targetTime = Date.parse(
+    deal.countdownDate || "2026-12-31T23:59:59.000Z"
+  );
+  const diffSec = Math.max(
+    0,
+    Math.floor(((Number.isFinite(targetTime) ? targetTime : now) - now) / 1000)
+  );
+  const days = Math.floor(diffSec / 86400);
+  const hours = Math.floor((diffSec % 86400) / 3600);
+  const minutes = Math.floor((diffSec % 3600) / 60);
+  const seconds = diffSec % 60;
 
   return (
     <section
@@ -97,10 +59,52 @@ const SpringCollection = () => {
               {deal.ctaText || "SHOP NOW"}
             </Link>
 
-            <Countdown
-              date={deal.countdownDate || "2026-12-31T23:59:59.000Z"}
-              renderer={renderer}
-            />
+            <div className="flex gap-1.5 xs:gap-2 sm:gap-4 md:gap-6.25 xl:mt-16 mt-5">
+              <div>
+                <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
+                  {days}
+                </h2>
+                <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
+                  DAYS
+                </h3>
+              </div>
+
+              <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] leading-6 sm:leading-7.5 font-normal text-primary">
+                :
+              </h2>
+              <div>
+                <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
+                  {hours}
+                </h2>
+                <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
+                  HOURS
+                </h3>
+              </div>
+
+              <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] leading-6 sm:leading-7.5 font-normal text-primary">
+                :
+              </h2>
+              <div>
+                <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
+                  {minutes}
+                </h2>
+                <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
+                  MINS
+                </h3>
+              </div>
+
+              <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] leading-6 sm:leading-7.5 font-normal text-primary">
+                :
+              </h2>
+              <div>
+                <h2 className="md:text-[30px] text-sm xs:text-base sm:text-[20px] font-semibold sm:font-normal text-primary">
+                  {seconds}
+                </h2>
+                <h3 className="md:text-[14px] text-[10px] sm:text-xs font-bold text-gray-700 uppercase">
+                  SEC
+                </h3>
+              </div>
+            </div>
           </div>
           <div>
             <Image

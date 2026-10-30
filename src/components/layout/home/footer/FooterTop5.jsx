@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import Image from "../../common/Image";
-import footerImage from "../../../../assets/images/footerimage.png";
 import { submitSubscriberToMongo } from "../../../../services/api";
 import toast from "react-hot-toast";
 
@@ -49,7 +48,7 @@ const FooterTop5 = () => {
         Secure payments
       </h3>
       <Image
-        src={footerImage}
+        src="https://res.cloudinary.com/wxjt7d8q/image/upload/f_auto,q_auto,w_260,c_limit/ummo_banners/footerimage"
         alt="Accepted payment methods"
         width={260}
         height={26}

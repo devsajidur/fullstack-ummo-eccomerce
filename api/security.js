@@ -13,7 +13,85 @@ export const ADMIN_ACCESS_KEY =
 const ADMIN_TOKEN_SECRET =
   process.env.ADMIN_TOKEN_SECRET ||
   `${ADMIN_ACCESS_KEY}::ummo_enterprise_hmac_2026`;
-const ADMIN_TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+export const ADMIN_TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+// Revoked token registry (JTI -> expiration timestamp)
+const revokedAdminTokenJtis = new Map();
+
+// Brute-force login rate limiter (key -> { count, firstAttemptAt, lockedUntil })
+const adminLoginAttempts = new Map();
+export const ADMIN_LOGIN_MAX_ATTEMPTS = 5;
+export const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+/**
+ * Determines whether interactive sandbox payment confirmation is permitted.
+ * Disabled by default (fail-closed). Requires explicit non-production configuration:
+ * - Neither NODE_ENV, VERCEL_ENV, nor PAYMENT_ENV may be "production"
+ * - PAYMENT_MODE must be explicitly set to "sandbox"
+ * - ALLOW_SANDBOX_CONFIRM must be explicitly set to "true"
+ */
+export function isSandboxPaymentSimulationEnabled(env = process.env) {
+  if (!env || typeof env !== "object") return false;
+  const nodeEnv = String(env.NODE_ENV || "").trim().toLowerCase();
+  const vercelEnv = String(env.VERCEL_ENV || "").trim().toLowerCase();
+  const paymentEnv = String(env.PAYMENT_ENV || "").trim().toLowerCase();
+  const paymentMode = String(env.PAYMENT_MODE || "").trim().toLowerCase();
+  const allowSandbox = String(env.ALLOW_SANDBOX_CONFIRM || "").trim().toLowerCase();
+
+  if (
+    nodeEnv === "production" ||
+    vercelEnv === "production" ||
+    paymentEnv === "production" ||
+    paymentMode === "production"
+  ) {
+    return false;
+  }
+
+  return paymentMode === "sandbox" && allowSandbox === "true";
+}
+
+export function checkAdminLoginRateLimit(key, nowMs = Date.now()) {
+  const safeKey = String(key || "anonymous").trim().toLowerCase().slice(0, 160);
+  const record = adminLoginAttempts.get(safeKey);
+  if (!record) {
+    return { allowed: true, remainingAttempts: ADMIN_LOGIN_MAX_ATTEMPTS, retryAfterSeconds: 0 };
+  }
+  if (record.lockedUntil && record.lockedUntil > nowMs) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((record.lockedUntil - nowMs) / 1000));
+    return { allowed: false, remainingAttempts: 0, retryAfterSeconds };
+  }
+  if (nowMs - record.firstAttemptAt > ADMIN_LOGIN_WINDOW_MS) {
+    adminLoginAttempts.delete(safeKey);
+    return { allowed: true, remainingAttempts: ADMIN_LOGIN_MAX_ATTEMPTS, retryAfterSeconds: 0 };
+  }
+  const remaining = Math.max(0, ADMIN_LOGIN_MAX_ATTEMPTS - record.count);
+  return { allowed: remaining > 0, remainingAttempts: remaining, retryAfterSeconds: 0 };
+}
+
+export function recordAdminLoginFailure(key, nowMs = Date.now()) {
+  const safeKey = String(key || "anonymous").trim().toLowerCase().slice(0, 160);
+  const existing = adminLoginAttempts.get(safeKey);
+  if (!existing || nowMs - existing.firstAttemptAt > ADMIN_LOGIN_WINDOW_MS) {
+    const next = { count: 1, firstAttemptAt: nowMs, lockedUntil: 0 };
+    adminLoginAttempts.set(safeKey, next);
+    return next;
+  }
+  existing.count += 1;
+  if (existing.count >= ADMIN_LOGIN_MAX_ATTEMPTS) {
+    existing.lockedUntil = nowMs + ADMIN_LOGIN_WINDOW_MS;
+  }
+  adminLoginAttempts.set(safeKey, existing);
+  return existing;
+}
+
+export function clearAdminLoginFailures(key) {
+  const safeKey = String(key || "anonymous").trim().toLowerCase().slice(0, 160);
+  adminLoginAttempts.delete(safeKey);
+}
+
+export function resetAdminRateLimitsForTest() {
+  adminLoginAttempts.clear();
+}
 
 export function verifyAdminPasswordCredentials(email, password) {
   const safeEmail = String(email || "").trim().toLowerCase();
@@ -39,14 +117,17 @@ export function createAdminSessionToken({
   uid = MASTER_ADMIN_UID,
   email = MASTER_ADMIN_EMAIL,
   role = "ADMIN",
+  ttlMs = ADMIN_TOKEN_TTL_MS,
+  jti = crypto.randomUUID(),
 } = {}) {
   const now = Date.now();
   const payload = {
+    jti: String(jti),
     uid: String(uid || MASTER_ADMIN_UID),
     email: String(email || MASTER_ADMIN_EMAIL).toLowerCase(),
     role: String(role || "ADMIN").toUpperCase(),
     iat: now,
-    exp: now + ADMIN_TOKEN_TTL_MS,
+    exp: now + Number(ttlMs),
   };
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString(
     "base64url"
@@ -56,6 +137,17 @@ export function createAdminSessionToken({
     .update(encoded)
     .digest("base64url");
   return `${encoded}.${sig}`;
+}
+
+export function isAdminTokenRevoked(jti) {
+  if (!jti) return false;
+  const exp = revokedAdminTokenJtis.get(String(jti));
+  if (!exp) return false;
+  if (exp <= Date.now()) {
+    revokedAdminTokenJtis.delete(String(jti));
+    return false;
+  }
+  return true;
 }
 
 export function verifyAdminSessionToken(token) {
@@ -80,10 +172,21 @@ export function verifyAdminSessionToken(token) {
     if (!decoded || typeof decoded !== "object") return null;
     if (decoded.role !== "ADMIN") return null;
     if (!decoded.exp || Number(decoded.exp) <= Date.now()) return null;
+    if (decoded.jti && isAdminTokenRevoked(decoded.jti)) return null;
     return decoded;
   } catch {
     return null;
   }
+}
+
+export function revokeAdminSessionToken(token) {
+  const verified = verifyAdminSessionToken(token);
+  if (!verified || !verified.jti) return false;
+  revokedAdminTokenJtis.set(
+    String(verified.jti),
+    Number(verified.exp) || Date.now() + ADMIN_TOKEN_TTL_MS
+  );
+  return true;
 }
 
 /**

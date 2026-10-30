@@ -4,17 +4,17 @@ import { RouterProvider } from "react-router/dom";
 import Rootlayout from "./components/layout/Rootlayout";
 import HomePage from "./pages/HomePage";
 import ShopPage from "./pages/ShopPage";
+import CategoryPage from "./pages/CategoryPage";
+import DiscountsPage from "./pages/DiscountsPage";
+import ShopSingle from "./pages/ShopSingle";
+import ShopDynamicPage from "./pages/ShopDynamicPage";
 
-// Route-level code splitting for high-concurrency fast initial page load
-const ShopSingle = lazy(() => import("./pages/ShopSingle"));
+// Route-level code splitting for secondary routes
 const CartPage = lazy(() => import("./pages/CartPage"));
 const WishListPage = lazy(() => import("./pages/WishListPage"));
 const Register = lazy(() => import("./pages/Register"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
-const ShopDynamicPage = lazy(() => import("./pages/ShopDynamicPage"));
-const CategoryPage = lazy(() => import("./pages/CategoryPage"));
-const DiscountsPage = lazy(() => import("./pages/DiscountsPage"));
 const FAQPage = lazy(() => import("./pages/FAQPage"));
 const AboutPage = lazy(() => import("./pages/AboutPage"));
 const TermsConditionPage = lazy(() => import("./pages/TermsConditionPage"));
@@ -30,7 +30,7 @@ const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
 
 function PageLoader() {
   return (
-    <div className="min-h-[50vh] flex items-center justify-center text-xs font-semibold uppercase tracking-widest text-gray-400">
+    <div className="min-h-screen flex items-center justify-center text-xs font-semibold uppercase tracking-widest text-gray-600">
       Loading...
     </div>
   );
@@ -49,9 +49,10 @@ const router = createBrowserRouter([
     children: [
       { index: true, Component: HomePage },
       { path: "shop", Component: ShopPage },
-      { path: "category/:slug", element: withSuspense(CategoryPage) },
-      { path: "discounts", element: withSuspense(DiscountsPage) },
-      { path: "shopsingle", element: withSuspense(ShopSingle) },
+      { path: "shop/:id", Component: ShopDynamicPage },
+      { path: "category/:slug", Component: CategoryPage },
+      { path: "discounts", Component: DiscountsPage },
+      { path: "shopsingle", Component: ShopSingle },
       { path: "cart", element: withSuspense(CartPage) },
       { path: "wish", element: withSuspense(WishListPage) },
       { path: "register", element: withSuspense(Register) },
@@ -76,7 +77,6 @@ const router = createBrowserRouter([
   },
   { path: "/forgot", element: withSuspense(ForgotPassword) },
   { path: "*", element: withSuspense(NotFoundPage) },
-  { path: "/shop/:id", element: withSuspense(ShopDynamicPage) },
 ]);
 
 const App = () => {

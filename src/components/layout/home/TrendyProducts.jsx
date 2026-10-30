@@ -4,12 +4,17 @@ import treadydata from "../../../api/treadydata.json";
 import Product from "../common/Product";
 import { useDispatch, useSelector } from "react-redux";
 import { Allitem } from "../../../slices/AllProductSlice";
-import { fetchCatalogProducts } from "../../../services/api";
+import {
+  fetchCatalogProducts,
+  getInitialCatalogSnapshot,
+} from "../../../services/api";
 
 const TrendyProducts = () => {
   const [activeCategory, setActiveCategory] = useState("all");
   const reduxProducts = useSelector((state) => state.AllProduct.Products);
-  const [localProducts, setLocalProducts] = useState([]);
+  const [localProducts, setLocalProducts] = useState(() =>
+    getInitialCatalogSnapshot()
+  );
   const [showAllProducts, setShowAllProducts] = useState(false);
   const dispatch = useDispatch();
 

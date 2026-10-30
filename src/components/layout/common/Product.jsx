@@ -23,7 +23,10 @@ const Product = ({
   productTitle,
   productPrice,
   id,
+  priority = false,
+  prioritizeFirstRow = false,
 }) => {
+  const isPriority = Boolean(priority || prioritizeFirstRow);
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { t } = useLocalization();
@@ -120,6 +123,8 @@ const Product = ({
           alt={productTitle}
           width={280}
           height={340}
+          loading={isPriority ? "eager" : "lazy"}
+          fetchPriority={isPriority ? "high" : "auto"}
           className="w-full h-full object-contain p-3 bg-[#F7F7F7] transition-transform duration-300 group-hover:scale-105"
         />
 
@@ -197,6 +202,7 @@ const Product = ({
               {taxonomy?.departmentName || productCatagory}
             </span>
             <div
+              role="img"
               className="flex items-center gap-0.5 text-[#E5A800] text-[10px] shrink-0"
               aria-label={`Rated ${ratingValue} out of 5 stars`}
             >
@@ -206,9 +212,9 @@ const Product = ({
             </div>
           </Flex>
 
-          <h3 className="text-xs sm:text-sm font-semibold text-gray-900 line-clamp-1 mt-1 group-hover:text-[#C32929] transition-colors">
+          <h2 className="text-xs sm:text-sm font-semibold text-gray-900 line-clamp-1 mt-1 group-hover:text-[#C32929] transition-colors">
             {productTitle}
-          </h3>
+          </h2>
         </div>
 
         {/* Gate 6: Clear Discount & Regular Price Hierarchy */}
@@ -222,7 +228,7 @@ const Product = ({
                 ${effectivePrice.toFixed(2)}
               </span>
               <span
-                className="text-xs font-medium text-gray-400 line-through"
+                className="text-xs font-medium text-gray-600 line-through"
                 data-testid="product-regular-price"
               >
                 ${regularPrice.toFixed(2)}

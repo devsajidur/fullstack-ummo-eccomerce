@@ -1,10 +1,39 @@
 import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut,
-} from "firebase/auth";
-import { auth } from "../../firebase.config";
-import { loginAdminWithServer, syncUserToMongo } from "./api";
+  loginAdminWithServer,
+  logoutAdminWithServer,
+  syncUserToMongo,
+} from "./api";
+
+let cachedFirebaseModule = null;
+async function loadFirebaseAuth() {
+  if (cachedFirebaseModule) return cachedFirebaseModule;
+  const [fbAuth, fbConfig] = await Promise.all([
+    import("firebase/auth"),
+    import("../../firebase.config"),
+  ]);
+  cachedFirebaseModule = {
+    auth: fbConfig.auth,
+    onAuthStateChanged: fbAuth.onAuthStateChanged,
+    signInWithEmailAndPassword: fbAuth.signInWithEmailAndPassword,
+    signOut: fbAuth.signOut,
+  };
+  return cachedFirebaseModule;
+}
+
+function hasStoredFirebaseUser() {
+  try {
+    if (typeof localStorage === "undefined") return false;
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("firebase:authUser:")) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
 
 const ACTIVE_USER_KEY = "ummo_active_user";
 const LOCAL_ORDERS_KEY = "ummo_local_orders";
@@ -26,11 +55,46 @@ export const DEFAULT_ADMIN_ACCOUNT = {
   role: "ADMIN",
 };
 
+export function parseAdminTokenPayload(token) {
+  if (!token || typeof token !== "string" || !token.includes(".")) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [encoded, sig] = parts;
+  if (!encoded || !sig || sig.length < 32) return null;
+  try {
+    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const jsonStr = globalThis.atob(padded);
+    const decoded = JSON.parse(jsonStr);
+    if (!decoded || typeof decoded !== "object") return null;
+    if (decoded.role !== "ADMIN") return null;
+    if (!decoded.exp || Number(decoded.exp) <= Date.now()) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
 export function getAdminSessionToken() {
   try {
-    if (typeof localStorage !== "undefined") {
-      return localStorage.getItem(ADMIN_SESSION_TOKEN_KEY) || "";
+    const rawToken =
+      (typeof sessionStorage !== "undefined" &&
+        sessionStorage.getItem(ADMIN_SESSION_TOKEN_KEY)) ||
+      (typeof localStorage !== "undefined" &&
+        localStorage.getItem(ADMIN_SESSION_TOKEN_KEY)) ||
+      "";
+    if (!rawToken) return "";
+    const payload = parseAdminTokenPayload(rawToken);
+    if (!payload) {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.removeItem(ADMIN_SESSION_TOKEN_KEY);
+      }
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem(ADMIN_SESSION_TOKEN_KEY);
+      }
+      return "";
     }
+    return rawToken;
   } catch {
     // ignore
   }
@@ -39,10 +103,18 @@ export function getAdminSessionToken() {
 
 export function saveAdminSessionToken(token) {
   try {
-    if (typeof localStorage !== "undefined") {
-      if (token) {
+    if (token && parseAdminTokenPayload(token)) {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem(ADMIN_SESSION_TOKEN_KEY, String(token));
+      }
+      if (typeof localStorage !== "undefined") {
         localStorage.setItem(ADMIN_SESSION_TOKEN_KEY, String(token));
-      } else {
+      }
+    } else {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.removeItem(ADMIN_SESSION_TOKEN_KEY);
+      }
+      if (typeof localStorage !== "undefined") {
         localStorage.removeItem(ADMIN_SESSION_TOKEN_KEY);
       }
     }
@@ -58,12 +130,13 @@ export function getSessionUser() {
   } catch {
     // ignore
   }
-  return auth.currentUser || null;
+  return cachedFirebaseModule?.auth?.currentUser || null;
 }
 
 export function isUserAdmin(user = getSessionUser()) {
   if (!user || typeof user !== "object") return false;
-  return String(user.role || "").toUpperCase() === "ADMIN";
+  if (String(user.role || "").toUpperCase() !== "ADMIN") return false;
+  return Boolean(getAdminSessionToken());
 }
 
 export function setSessionUser(user, { adminToken = "" } = {}) {
@@ -122,12 +195,14 @@ export async function authenticateAdminLogin(email, password) {
   } catch (err) {
     const status = err?.response?.status;
     const message = err?.response?.data?.error;
-    if (status === 401 || status === 403 || status === 400) {
+    if (status === 401 || status === 403 || status === 400 || status === 429) {
       const authErr = new Error(
         message ||
-          (status === 403
-            ? "Access Denied: This account does not have Administrator privileges."
-            : "Invalid administrator email or password."),
+          (status === 429
+            ? "Too many failed login attempts. Please wait before trying again."
+            : status === 403
+              ? "Access Denied: This account does not have Administrator privileges."
+              : "Invalid administrator email or password."),
         { cause: err }
       );
       authErr.statusCode = status;
@@ -137,16 +212,20 @@ export async function authenticateAdminLogin(email, password) {
   }
 
   let firebaseUser = null;
-  try {
-    const cred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-    firebaseUser = cred?.user || null;
-  } catch (fbErr) {
-    // If backend already verified admin credentials, continue with backend session
-    if (!serverResult?.adminToken) {
+  if (!serverResult?.adminToken) {
+    try {
+      const fb = await loadFirebaseAuth();
+      const cred = await fb.signInWithEmailAndPassword(
+        fb.auth,
+        cleanEmail,
+        cleanPassword
+      );
+      firebaseUser = cred?.user || null;
+    } catch (fbErr) {
       throw new Error(
         fbErr?.code === "auth/invalid-credential" ||
-        fbErr?.code === "auth/wrong-password" ||
-        fbErr?.code === "auth/user-not-found"
+          fbErr?.code === "auth/wrong-password" ||
+          fbErr?.code === "auth/user-not-found"
           ? "Invalid administrator email or password."
           : fbErr?.message || "Failed to authenticate administrator session.",
         { cause: fbErr }
@@ -190,6 +269,14 @@ export async function authenticateAdminLogin(email, password) {
 }
 
 export async function clearSessionUser() {
+  const existingAdminToken = getAdminSessionToken();
+  if (existingAdminToken) {
+    try {
+      await logoutAdminWithServer();
+    } catch {
+      // ignore network error during logout
+    }
+  }
   try {
     localStorage.removeItem(ACTIVE_USER_KEY);
     localStorage.removeItem("ummo_admin_unlocked");
@@ -198,15 +285,20 @@ export async function clearSessionUser() {
   } catch {
     // ignore
   }
-  try {
-    await signOut(auth);
-  } catch {
-    // ignore
+  if (cachedFirebaseModule?.auth || hasStoredFirebaseUser()) {
+    try {
+      const fb = await loadFirebaseAuth();
+      await fb.signOut(fb.auth);
+    } catch {
+      // ignore
+    }
   }
 }
 
 export function onUserChanged(callback) {
   let firebaseUser = null;
+  let unsubFirebase = null;
+  let disposed = false;
 
   const emitEffectiveUser = () => {
     try {
@@ -221,37 +313,44 @@ export function onUserChanged(callback) {
     callback(firebaseUser || null);
   };
 
-  const unsubFirebase = onAuthStateChanged(auth, (u) => {
-    firebaseUser = u;
-    if (u) {
-      const isMasterEmail =
-        u.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
-      const normalized = {
-        uid: u.uid,
-        email: u.email || "",
-        username: u.displayName || u.email?.split("@")[0] || "Customer",
-        displayName: u.displayName || u.email?.split("@")[0] || "Customer",
-        photoURL: u.photoURL || DEFAULT_AVATAR,
-        role: isMasterEmail ? "ADMIN" : "CUSTOMER",
-      };
-      try {
-        if (!localStorage.getItem(ACTIVE_USER_KEY)) {
-          localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(normalized));
-        }
-      } catch {
-        // ignore
-      }
-      syncUserToMongo({
-        uid: normalized.uid,
-        email: normalized.email,
-        username: normalized.username,
-        displayName: normalized.displayName,
-        profile_picture: normalized.photoURL,
-        lastLoginAt: new Date().toISOString(),
-      }).catch(() => {});
-    }
-    emitEffectiveUser();
-  });
+  if (hasStoredFirebaseUser()) {
+    loadFirebaseAuth()
+      .then((fb) => {
+        if (disposed) return;
+        unsubFirebase = fb.onAuthStateChanged(fb.auth, (u) => {
+          firebaseUser = u;
+          if (u) {
+            const isMasterEmail =
+              u.email?.toLowerCase() === DEFAULT_ADMIN_EMAIL.toLowerCase();
+            const normalized = {
+              uid: u.uid,
+              email: u.email || "",
+              username: u.displayName || u.email?.split("@")[0] || "Customer",
+              displayName: u.displayName || u.email?.split("@")[0] || "Customer",
+              photoURL: u.photoURL || DEFAULT_AVATAR,
+              role: isMasterEmail ? "ADMIN" : "CUSTOMER",
+            };
+            try {
+              if (!localStorage.getItem(ACTIVE_USER_KEY)) {
+                localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(normalized));
+              }
+            } catch {
+              // ignore
+            }
+            syncUserToMongo({
+              uid: normalized.uid,
+              email: normalized.email,
+              username: normalized.username,
+              displayName: normalized.displayName,
+              profile_picture: normalized.photoURL,
+              lastLoginAt: new Date().toISOString(),
+            }).catch(() => {});
+          }
+          emitEffectiveUser();
+        });
+      })
+      .catch(() => {});
+  }
 
   const handleCustomEvent = () => {
     emitEffectiveUser();
@@ -261,7 +360,10 @@ export function onUserChanged(callback) {
   emitEffectiveUser();
 
   return () => {
-    unsubFirebase();
+    disposed = true;
+    if (typeof unsubFirebase === "function") {
+      unsubFirebase();
+    }
     window.removeEventListener("ummo:auth-changed", handleCustomEvent);
   };
 }

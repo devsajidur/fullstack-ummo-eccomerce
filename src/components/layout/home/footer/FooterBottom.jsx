@@ -1,6 +1,9 @@
 import React from "react";
+import { useLocalization } from "../../../../i18n/LocalizationContext";
 
 const FooterBottom = () => {
+  const { language, toggleLanguage } = useLocalization();
+
   function scrollToTop() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -13,15 +16,19 @@ const FooterBottom = () => {
         </p>
         <div className="flex items-center gap-5.75">
           <p className="text-gray-700 text-[14px] font-normal leading-6">
-            Language
+            {language === "bn" ? "ভাষা" : "Language"}
           </p>
-          <p className="text-primary text-[14px] font-normal leading-6">
-            United Kingdom | English
-          </p>
+          <button
+            type="button"
+            onClick={toggleLanguage}
+            className="text-primary text-[14px] font-medium leading-6 hover:underline cursor-pointer"
+          >
+            {language === "bn" ? "বাংলাদেশ | বাংলা (Switch to EN)" : "International | English (বাংলা)"}
+          </button>
           <p className="text-gray-700 text-[14px] font-normal leading-6">
-            Currency
+            {language === "bn" ? "কারেন্সি" : "Currency"}
           </p>
-          <p className="text-primary text-[14px] font-normal leading-6">
+          <p className="text-primary text-[14px] font-medium leading-6">
             $ USD
           </p>
         </div>
@@ -35,18 +42,22 @@ const FooterBottom = () => {
 
         <div className="flex items-center gap-x-5 mt-2">
           <p className="text-gray-700 text-[14px] font-normal leading-6">
-            Language
+            {language === "bn" ? "ভাষা" : "Language"}
           </p>
-          <p className="text-primary flex items-center gap-x-4 text-[14px] font-normal leading-6">
-            United Kingdom | English
-          </p>
+          <button
+            type="button"
+            onClick={toggleLanguage}
+            className="text-primary flex items-center gap-x-2 text-[14px] font-medium leading-6 underline cursor-pointer"
+          >
+            {language === "bn" ? "বাংলা (Switch to English)" : "English (বাংলা)"}
+          </button>
         </div>
 
         <div className="flex items-center gap-x-6 mt-2">
           <p className="text-gray-700 text-[14px] font-normal leading-6">
-            Currency
+            {language === "bn" ? "কারেন্সি" : "Currency"}
           </p>
-          <p className="text-primary text-[14px] font-normal leading-6 flex items-center gap-x-2.5">
+          <p className="text-primary text-[14px] font-medium leading-6 flex items-center gap-x-2.5">
             $ USD
           </p>
         </div>

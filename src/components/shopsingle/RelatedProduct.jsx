@@ -1,28 +1,32 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useSelector } from "react-redux";
+import { useParams, useSearchParams } from "react-router";
 import Product from "../layout/common/Product";
-import { fetchCatalogProducts } from "../../services/api";
+import { getInitialCatalogSnapshot } from "../../services/api";
 
 export default function RelatedProduct() {
   const detailsProduct = useSelector(
     (state) => state.clickProductDetails.Details
   );
-  const [Products, setProducts] = useState([]);
+  const catalogProducts = useSelector((state) => state.AllProduct.Products);
+  const { id: routeParamId } = useParams();
+  const [searchParams] = useSearchParams();
+  const targetId =
+    searchParams.get("id") || routeParamId || detailsProduct?.id || 1;
 
-  useEffect(() => {
-    fetchCatalogProducts(200)
-      .then((list) => {
-        setProducts(list);
-      })
-      .catch((error) => {
-        console.error(error);
-      });
-  }, []);
+  const Products =
+    catalogProducts && catalogProducts.length > 0
+      ? catalogProducts
+      : getInitialCatalogSnapshot();
+  const activeProduct =
+    Products.find((p) => String(p.id) === String(targetId)) ||
+    detailsProduct ||
+    Products[0];
 
   const FilterPro = Products.filter(
     (item) =>
-      item.category === detailsProduct?.category &&
-      item.id !== detailsProduct?.id
+      item.category === activeProduct?.category &&
+      String(item.id) !== String(activeProduct?.id)
   );
 
   return (

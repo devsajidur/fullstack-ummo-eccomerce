@@ -28,16 +28,47 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=optional"
       media="print"
       onload="this.media='all'"
     />
     <noscript>
       <link
         rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&display=optional"
       />
     </noscript>
+    <script>
+      (function () {
+        try {
+          var p = window.location.pathname || "/";
+          var base = "https://res.cloudinary.com/wxjt7d8q/image/upload/f_auto,q_auto,";
+          var urls = [];
+          if (p === "/" || p === "/index.html") {
+            urls.push(base + "w_720,c_limit/ummo_banners/SLIDER");
+            urls.push(base + "w_480,c_limit/ummo_banners/category1");
+          } else if (p === "/shop") {
+            urls.push(base + "w_960,c_limit/ummo_banners/shopBanner");
+          } else if (p === "/discounts") {
+            urls.push(base + "w_280,c_limit/ummo_products/product_6");
+            urls.push(base + "w_280,c_limit/ummo_products/product_190");
+          } else if (p.indexOf("/shop/") === 0) {
+            var id = p.split("/")[2];
+            if (id && /^\d+$/.test(id)) {
+              urls.push(base + "w_420,c_limit/ummo_products/product_" + id);
+            }
+          }
+          for (var i = 0; i < urls.length; i++) {
+            var link = document.createElement("link");
+            link.rel = "preload";
+            link.as = "image";
+            link.href = urls[i];
+            link.setAttribute("fetchpriority", "high");
+            document.head.appendChild(link);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
