@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import Container from "../components/layout/common/Container";
 import Image from "../components/layout/common/Image";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { getAuth, updateProfile } from "firebase/auth";
+import { updateProfile } from "firebase/auth";
 import { useSelector } from "react-redux";
 import {
   clearSessionUser,
@@ -173,8 +173,8 @@ const ProfilePage = () => {
     if (!user) return;
     setSavingProfile(true);
     try {
-      const auth = getAuth();
-      if (auth.currentUser) {
+      const { auth } = await import("../../firebase.config");
+      if (auth?.currentUser) {
         await updateProfile(auth.currentUser, {
           displayName: displayName.trim() || "Uomo Customer",
           photoURL: photoURL.trim() || user.photoURL,

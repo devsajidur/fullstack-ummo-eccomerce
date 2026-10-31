@@ -1,66 +1,93 @@
-import { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   createUserWithEmailAndPassword,
-  updateProfile,
+  getRedirectResult,
   sendEmailVerification,
+  signInWithPopup,
+  signInWithRedirect,
+  updateProfile,
 } from "firebase/auth";
-import { auth } from "../../firebase.config";
+import {
+  auth,
+  browserPopupRedirectResolver,
+  googleProvider,
+} from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
 import { Link, useNavigate } from "react-router";
+import { FcGoogle } from "react-icons/fc";
+import { Eye, EyeOff } from "lucide-react";
+import Container from "../components/layout/common/Container";
 import { setSessionUser } from "../services/authSession";
 
 const DEFAULT_AVATAR =
   "https://static.vecteezy.com/system/resources/thumbnails/009/292/244/small/default-avatar-icon-of-social-media-user-vector.jpg";
 
-function EyeIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M3 3l18 18M10.6 10.7a3 3 0 0 0 4.2 4.2M6.5 6.6C3.9 8.2 2 12 2 12s4 7 10 7c1.9 0 3.6-.6 5-1.6M17.4 17.4C19.6 15.8 22 12 22 12s-4-7-10-7c-.7 0-1.4.1-2.1.2"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export default function Register() {
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [nameError, setNameError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const navigate = useNavigate();
+
+  // Handle Google OAuth redirect return on mobile / popup-restricted browsers
+  useEffect(() => {
+    let active = true;
+    getRedirectResult(auth, browserPopupRedirectResolver)
+      .then((result) => {
+        if (!active || !result?.user) return;
+        const u = result.user;
+        const display = u.displayName || u.email?.split("@")[0] || "Customer";
+        setSessionUser({
+          uid: u.uid,
+          email: u.email || "",
+          displayName: display,
+          username: display,
+          photoURL: u.photoURL || DEFAULT_AVATAR,
+          role: "CUSTOMER",
+        });
+        toast.success("Signed up with Google!");
+        navigate("/profile");
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [navigate]);
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (password.length < 8) {
-      toast.error("Password must be at least 8 characters long.");
-      return;
+    setNameError("");
+    setEmailError("");
+    setPasswordError("");
+
+    const trimmedName = name.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    let hasError = false;
+
+    if (trimmedName.length < 2) {
+      setNameError("Please enter your full name (at least 2 characters).");
+      hasError = true;
     }
+    if (
+      !normalizedEmail ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
+    ) {
+      setEmailError("Please enter a valid email address.");
+      hasError = true;
+    }
+    if (password.length < 8) {
+      setPasswordError("Password must be at least 8 characters long.");
+      hasError = true;
+    }
+    if (hasError) return;
 
     setLoading(true);
     try {
-      const normalizedEmail = email.trim().toLowerCase();
-      const trimmedName = name.trim();
-
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         normalizedEmail,
@@ -71,14 +98,16 @@ export default function Register() {
       await updateProfile(user, {
         displayName: trimmedName,
         photoURL: DEFAULT_AVATAR,
-      });
+      }).catch(() => {});
 
-      await sendEmailVerification(user).catch(() => {});
+      // Send verification email asynchronously so sign-up completion is instant
+      sendEmailVerification(user).catch(() => {});
 
       setSessionUser({
         uid: user.uid,
         email: normalizedEmail,
         displayName: trimmedName,
+        username: trimmedName,
         photoURL: DEFAULT_AVATAR,
         role: "CUSTOMER",
         emailVerified: user.emailVerified,
@@ -88,116 +117,260 @@ export default function Register() {
       setEmail("");
       setPassword("");
       toast.success("Account created! Welcome to UOMO.");
-      setTimeout(() => navigate("/"), 1200);
+      setTimeout(() => navigate("/profile"), 350);
     } catch (error) {
-      toast.error(error?.message || "Failed to register account.");
+      const code = error?.code || "";
+      if (code === "auth/email-already-in-use") {
+        setEmailError(
+          "An account with this email already exists. Please sign in instead."
+        );
+        toast.error("This email is already registered.");
+      } else if (code === "auth/invalid-email") {
+        setEmailError("Please enter a valid email address.");
+      } else if (code === "auth/weak-password") {
+        setPasswordError(
+          "Password is too weak. Please use at least 8 characters."
+        );
+      } else if (code === "auth/too-many-requests") {
+        toast.error("Too many attempts. Please wait a moment and try again.");
+      } else if (code === "auth/network-request-failed") {
+        toast.error("Network error. Please check your internet connection.");
+      } else {
+        toast.error("Could not create account. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleGoogleSignUp = async () => {
+    if (googleLoading || loading) return;
+    setGoogleLoading(true);
+    try {
+      const result = await signInWithPopup(
+        auth,
+        googleProvider,
+        browserPopupRedirectResolver
+      );
+      const u = result.user;
+      const display = u.displayName || u.email?.split("@")[0] || "Customer";
+      setSessionUser({
+        uid: u.uid,
+        email: u.email || "",
+        displayName: display,
+        username: display,
+        photoURL: u.photoURL || DEFAULT_AVATAR,
+        role: "CUSTOMER",
+      });
+      toast.success("Signed in with Google!");
+      navigate("/profile");
+    } catch (error) {
+      const code = error?.code || "";
+      if (code === "auth/popup-blocked") {
+        try {
+          await signInWithRedirect(
+            auth,
+            googleProvider,
+            browserPopupRedirectResolver
+          );
+          return;
+        } catch {
+          toast.error(
+            "Popup blocked by browser. Please allow popups for this site and try again."
+          );
+        }
+      } else if (
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request"
+      ) {
+        toast("Google sign-in window was closed.");
+      } else if (code === "auth/unauthorized-domain") {
+        toast.error(
+          "This preview domain is not authorized for Google Sign-In. Please open fullstack-ummo-eccomerce.vercel.app."
+        );
+      } else {
+        toast.error("Google sign-in could not be completed. Please try again.");
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen w-full flex justify-center bg-white px-4 py-12 font-jost">
+    <div className="py-10 md:py-16 px-4">
       <Toaster position="top-center" reverseOrder={false} />
-      <div className="w-full max-w-md">
-        {/* Tabs */}
-        <div className="flex items-center justify-center gap-8 sm:gap-10 mb-8 sm:mb-10">
-          <button
-            type="button"
-            className="relative font-medium text-primary text-sm sm:text-base"
-          >
-            REGISTER
-            <span className="absolute left-0 right-0 bottom-0 h-0.5 bg-primary" />
-          </button>
-        </div>
-
-        <form onSubmit={handleRegister} className="flex flex-col gap-6">
-          {/* Name */}
-          <div className="border-2 border-[#e4e4e4]">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              type="text"
-              placeholder="Enter your name *"
-              required
-              className="w-full border-none px-4.25 h-13.75 text-sm text-primary placeholder:text-gray focus:outline-none focus:border-primary transition-colors"
-            />
+      <Container>
+        <div className="max-w-125 w-full mx-auto bg-white border border-gray-200 rounded-2xl p-6 sm:p-8 shadow-sm">
+          <div className="text-center mb-7">
+            <h1 className="text-xl sm:text-2xl text-primary font-bold uppercase tracking-wider">
+              Create Customer Account
+            </h1>
+            <p className="text-xs sm:text-sm text-gray-500 mt-1.5">
+              Register to track your orders, save delivery addresses, and checkout faster.
+            </p>
           </div>
 
-          {/* Email */}
-          <div className="border-2 border-[#e4e4e4]">
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              placeholder="Enter your email address *"
-              required
-              className="w-full border-none px-4.25 h-13.75 text-sm text-primary placeholder:text-gray focus:outline-none focus:border-primary transition-colors"
-            />
-          </div>
-
-          {/* Password with notched label */}
-          <div className="relative pt-2.5">
-            <span className="absolute top-0 left-3 bg-white z-10 px-1.5 text-xs text-primary">
-              Password * (Min 8 chars)
-            </span>
-            <div className="relative border-2 border-primary">
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type={showPassword ? "text" : "password"}
-                minLength={8}
-                required
-                className={`w-full px-4.25 h-13.75 ${
-                  !showPassword ? "text-[20px]" : "text-sm"
-                } pr-12 text-primary focus:outline-none border-2`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray hover:text-primary transition-colors"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+          <form onSubmit={handleRegister} className="flex flex-col gap-5">
+            {/* Name */}
+            <div className="relative">
+              <label
+                htmlFor="customer-register-name"
+                className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5"
               >
-                {showPassword ? <EyeIcon /> : <EyeOffIcon />}
-              </button>
+                Full Name *
+              </label>
+              <input
+                id="customer-register-name"
+                name="name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setNameError("");
+                }}
+                type="text"
+                autoComplete="name"
+                placeholder="Enter your name *"
+                required
+                className={`w-full py-3 px-4 border ${
+                  nameError ? "border-red-500" : "border-gray-300"
+                } rounded-lg text-sm text-primary focus:border-primary outline-none transition-colors`}
+              />
+              {nameError && (
+                <p className="text-red-600 text-xs mt-1 font-medium">
+                  {nameError}
+                </p>
+              )}
             </div>
-          </div>
 
-          {/* Submit */}
-          <p className="text-sm font-normal leading-6 text-gray">
-            Your personal data will be used to support your experience
-            throughout this website, to manage access to your account, and for
-            other purposes described in our privacy policy.
-          </p>
-          {loading ? (
+            {/* Email */}
+            <div className="relative">
+              <label
+                htmlFor="customer-register-email"
+                className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5"
+              >
+                Email Address *
+              </label>
+              <input
+                id="customer-register-email"
+                name="email"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setEmailError("");
+                }}
+                type="email"
+                autoComplete="email"
+                placeholder="Enter your email address *"
+                required
+                className={`w-full py-3 px-4 border ${
+                  emailError ? "border-red-500" : "border-gray-300"
+                } rounded-lg text-sm text-primary focus:border-primary outline-none transition-colors`}
+              />
+              {emailError && (
+                <p className="text-red-600 text-xs mt-1 font-medium">
+                  {emailError}
+                </p>
+              )}
+            </div>
+
+            {/* Password */}
+            <div className="relative">
+              <label
+                htmlFor="customer-register-password"
+                className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5"
+              >
+                Password * (Min 8 characters)
+              </label>
+              <div className="relative">
+                <input
+                  id="customer-register-password"
+                  name="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setPasswordError("");
+                  }}
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  minLength={8}
+                  placeholder="••••••••"
+                  required
+                  className={`w-full py-3 pl-4 pr-11 border ${
+                    passwordError ? "border-red-500" : "border-gray-300"
+                  } rounded-lg text-sm text-primary focus:border-primary outline-none transition-colors`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-gray-900 cursor-pointer"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              {passwordError && (
+                <p className="text-red-600 text-xs mt-1 font-medium">
+                  {passwordError}
+                </p>
+              )}
+            </div>
+
+            <p className="text-xs leading-5 text-gray-500">
+              Your personal data will be used to support your shopping experience,
+              manage access to your account, and fulfill orders securely.
+            </p>
+
+            {loading ? (
+              <div
+                aria-label="Creating account"
+                className="w-full min-h-[48px] rounded-lg bg-primary text-white flex justify-center items-center gap-2 text-xs font-bold uppercase tracking-wider"
+              >
+                <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                <span>Creating Account...</span>
+              </div>
+            ) : (
+              <button
+                type="submit"
+                disabled={googleLoading}
+                className="w-full min-h-[48px] rounded-lg bg-primary hover:bg-gray-800 text-white cursor-pointer text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-60"
+              >
+                Create Account
+              </button>
+            )}
+
             <button
               type="button"
-              className="w-full bg-primary/70 text-white text-sm justify-center flex py-4 cursor-not-allowed"
-              disabled
+              disabled={googleLoading || loading}
+              onClick={handleGoogleSignUp}
+              className="w-full min-h-[48px] rounded-lg bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 font-semibold text-xs uppercase tracking-wider flex items-center gap-2.5 justify-center cursor-pointer transition-colors disabled:opacity-60"
             >
-              Processing…
+              {googleLoading ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-gray-800 border-t-transparent animate-spin" />
+                  <span>Connecting to Google...</span>
+                </>
+              ) : (
+                <>
+                  <FcGoogle className="text-xl" />
+                  <span>Continue With Google</span>
+                </>
+              )}
             </button>
-          ) : (
-            <button
-              type="submit"
-              className="w-full bg-primary text-white text-sm tracking-wide py-4 hover:opacity-90 transition-opacity cursor-pointer"
-            >
-              REGISTER
-            </button>
-          )}
 
-          {/* Footer link */}
-          <p className="text-center text-sm text-gray">
-            Already have an account?{" "}
-            <Link
-              to="/login"
-              className="text-primary underline underline-offset-2 hover:text-gray transition-colors"
-            >
-              Login
-            </Link>
-          </p>
-        </form>
-      </div>
+            <div className="text-center pt-2 border-t border-gray-100">
+              <p className="text-xs sm:text-sm text-gray-600">
+                Already have an account?{" "}
+                <Link
+                  to="/login"
+                  className="text-primary font-bold underline ml-1"
+                >
+                  Sign In
+                </Link>
+              </p>
+            </div>
+          </form>
+        </div>
+      </Container>
     </div>
   );
 }

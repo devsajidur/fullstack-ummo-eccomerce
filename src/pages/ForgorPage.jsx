@@ -21,12 +21,21 @@ export default function ForgotPassword() {
 
     setSubmitting(true);
     try {
-      await sendPasswordResetEmail(auth, trimmedEmail);
+      await sendPasswordResetEmail(auth, trimmedEmail.toLowerCase());
       setEmail("");
-      toast.success("Password reset email sent!");
-      setTimeout(() => navigate("/login"), 1500);
+      toast.success("Password reset link sent! Please check your inbox.");
+      setTimeout(() => navigate("/login"), 1200);
     } catch (error) {
-      toast.error(error?.message || "Could not send password reset email.");
+      const code = error?.code || "";
+      if (code === "auth/invalid-email") {
+        toast.error("Please enter a valid email address.");
+      } else if (code === "auth/too-many-requests") {
+        toast.error("Too many reset requests. Please try again shortly.");
+      } else if (code === "auth/network-request-failed") {
+        toast.error("Network error. Please check your internet connection.");
+      } else {
+        toast.error("Could not send password reset email. Please verify the address.");
+      }
     } finally {
       setSubmitting(false);
     }

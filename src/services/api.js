@@ -43,7 +43,10 @@ apiClient.interceptors.request.use((config) => {
       if (activeUser?.email) {
         config.headers["X-User-Email"] = String(activeUser.email);
       }
-      if (adminToken) {
+      const isCustomerSession =
+        activeUser &&
+        String(activeUser.role || "").toUpperCase() !== "ADMIN";
+      if (adminToken && !isCustomerSession) {
         config.headers["X-Admin-Token"] = adminToken;
       }
     }

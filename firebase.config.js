@@ -1,13 +1,16 @@
 import { initializeApp } from "firebase/app";
 import {
+  GoogleAuthProvider,
   browserLocalPersistence,
+  browserPopupRedirectResolver,
   getAuth,
   initializeAuth,
 } from "firebase/auth";
 
 // Firebase is used strictly for Authentication (Email/Password & Google Sign-In).
 // Uses browserLocalPersistence instead of IndexedDB so initial page load never opens
-// IndexedDB databases or triggers Lighthouse IndexedDB storage warnings.
+// IndexedDB databases, while attaching browserPopupRedirectResolver so Google
+// signInWithPopup / signInWithRedirect work across desktop and mobile browsers.
 const firebaseConfig = {
   apiKey:
     import.meta.env.VITE_FIREBASE_API_KEY ||
@@ -35,11 +38,15 @@ let auth;
 try {
   auth = initializeAuth(app, {
     persistence: browserLocalPersistence,
+    popupRedirectResolver: browserPopupRedirectResolver,
   });
 } catch {
   auth = getAuth(app);
 }
 
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: "select_account" });
+
 const analytics = null;
 
-export { app, auth, analytics };
+export { app, auth, googleProvider, browserPopupRedirectResolver, analytics };

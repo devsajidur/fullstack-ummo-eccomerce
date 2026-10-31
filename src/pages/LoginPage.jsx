@@ -1,19 +1,36 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Container from "../components/layout/common/Container";
 import { FcGoogle } from "react-icons/fc";
 import { Eye, EyeOff } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import {
-  GoogleAuthProvider,
+  getRedirectResult,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
 } from "firebase/auth";
-import { auth } from "../../firebase.config";
+import {
+  auth,
+  browserPopupRedirectResolver,
+  googleProvider,
+} from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
 import { setSessionUser } from "../services/authSession";
 
+function buildCustomerSessionPayload(user) {
+  const fallbackName =
+    user?.displayName || user?.email?.split("@")[0] || "Customer";
+  return {
+    uid: user.uid,
+    email: user.email || "",
+    displayName: fallbackName,
+    username: fallbackName,
+    photoURL: user.photoURL || "",
+    role: "CUSTOMER",
+  };
+}
+
 const LoginPage = () => {
-  const provider = new GoogleAuthProvider();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
@@ -21,6 +38,29 @@ const LoginPage = () => {
   const [passwordError, setPasswordError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loader, setLoader] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  // Handle Google OAuth redirect return on mobile / popup-restricted browsers
+  useEffect(() => {
+    let active = true;
+    getRedirectResult(auth, browserPopupRedirectResolver)
+      .then((result) => {
+        if (!active || !result?.user) return;
+        setSessionUser(buildCustomerSessionPayload(result.user));
+        toast.success("Signed in with Google!");
+        navigate("/profile");
+      })
+      .catch((err) => {
+        if (!active) return;
+        const code = err?.code || "";
+        if (code && code !== "auth/popup-closed-by-user") {
+          toast.error("Google sign-in could not be completed. Please try again.");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [navigate]);
 
   const handleEmailChange = (e) => {
     setEmail(e.target.value);
@@ -35,10 +75,11 @@ const LoginPage = () => {
   const handleLoginSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     let hasError = false;
-    if (!email.trim()) {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) {
       setEmailError("Email is required");
       hasError = true;
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       setEmailError("Enter a valid email address");
       hasError = true;
     }
@@ -53,56 +94,86 @@ const LoginPage = () => {
     try {
       const userCredential = await signInWithEmailAndPassword(
         auth,
-        email.trim(),
+        normalizedEmail,
         password
       );
-      const user = userCredential.user;
-      setSessionUser({
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || user.email?.split("@")[0] || "Customer",
-        username: user.displayName || user.email?.split("@")[0] || "Customer",
-        photoURL: user.photoURL,
-        role: "CUSTOMER",
-      });
+      setSessionUser(buildCustomerSessionPayload(userCredential.user));
       toast.success("Sign in successful!");
       setLoader(false);
       setTimeout(() => {
         navigate("/profile");
-      }, 400);
+      }, 350);
     } catch (error) {
       setLoader(false);
+      const code = error?.code || "";
       const errorMessage = error?.message || "";
       if (
+        code === "auth/invalid-credential" ||
+        code === "auth/wrong-password" ||
+        code === "auth/user-not-found" ||
         errorMessage.includes("auth/invalid-credential") ||
         errorMessage.includes("auth/wrong-password") ||
         errorMessage.includes("auth/user-not-found")
       ) {
         setPasswordError("Invalid email or password.");
+      } else if (code === "auth/too-many-requests") {
+        setPasswordError(
+          "Too many failed attempts. Please wait a moment or reset your password."
+        );
+      } else if (code === "auth/user-disabled") {
+        setEmailError("This customer account has been disabled.");
+      } else if (code === "auth/network-request-failed") {
+        toast.error("Network error. Please check your internet connection.");
       } else {
         toast.error("Unable to sign in. Please verify your credentials.");
       }
     }
   };
 
-  const handleGoogleLogin = () => {
-    signInWithPopup(auth, provider)
-      .then((result) => {
-        const user = result.user;
-        setSessionUser({
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          username: user.displayName,
-          photoURL: user.photoURL,
-          role: "CUSTOMER",
-        });
-        toast.success("Signed in with Google!");
-        navigate("/profile");
-      })
-      .catch(() => {
-        toast.error("Google sign-in could not be completed.");
-      });
+  const handleGoogleLogin = async () => {
+    if (googleLoading || loader) return;
+    setGoogleLoading(true);
+    try {
+      const result = await signInWithPopup(
+        auth,
+        googleProvider,
+        browserPopupRedirectResolver
+      );
+      setSessionUser(buildCustomerSessionPayload(result.user));
+      toast.success("Signed in with Google!");
+      navigate("/profile");
+    } catch (error) {
+      const code = error?.code || "";
+      if (code === "auth/popup-blocked") {
+        try {
+          await signInWithRedirect(
+            auth,
+            googleProvider,
+            browserPopupRedirectResolver
+          );
+          return;
+        } catch {
+          toast.error(
+            "Popup blocked by browser. Please allow popups for this site and try again."
+          );
+        }
+      } else if (
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request"
+      ) {
+        toast("Google sign-in window was closed.");
+      } else if (code === "auth/unauthorized-domain") {
+        toast.error(
+          "This preview domain is not authorized for Google Sign-In. Please open fullstack-ummo-eccomerce.vercel.app."
+        );
+      } else if (code === "auth/network-request-failed") {
+        toast.error("Network error while connecting to Google Sign-In.");
+      } else {
+        toast.error("Google sign-in could not be completed. Please try again.");
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   return (
@@ -129,6 +200,7 @@ const LoginPage = () => {
               </label>
               <input
                 id="customer-login-email"
+                name="email"
                 onChange={handleEmailChange}
                 value={email}
                 autoComplete="email"
@@ -155,6 +227,7 @@ const LoginPage = () => {
               <div className="relative">
                 <input
                   id="customer-login-password"
+                  name="password"
                   onChange={handlePasswordChange}
                   value={password}
                   autoComplete="current-password"
@@ -207,7 +280,8 @@ const LoginPage = () => {
             ) : (
               <button
                 type="submit"
-                className="w-full min-h-[48px] rounded-lg bg-primary hover:bg-gray-800 text-white cursor-pointer text-xs font-bold uppercase tracking-wider transition-colors"
+                disabled={googleLoading}
+                className="w-full min-h-[48px] rounded-lg bg-primary hover:bg-gray-800 text-white cursor-pointer text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-60"
               >
                 Sign In
               </button>
@@ -215,11 +289,21 @@ const LoginPage = () => {
 
             <button
               type="button"
+              disabled={googleLoading || loader}
               onClick={handleGoogleLogin}
-              className="w-full min-h-[48px] rounded-lg bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 font-semibold text-xs uppercase tracking-wider flex items-center gap-2.5 justify-center cursor-pointer transition-colors"
+              className="w-full min-h-[48px] rounded-lg bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 font-semibold text-xs uppercase tracking-wider flex items-center gap-2.5 justify-center cursor-pointer transition-colors disabled:opacity-60"
             >
-              <FcGoogle className="text-xl" />
-              Continue With Google
+              {googleLoading ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-gray-800 border-t-transparent animate-spin" />
+                  <span>Connecting to Google...</span>
+                </>
+              ) : (
+                <>
+                  <FcGoogle className="text-xl" />
+                  <span>Continue With Google</span>
+                </>
+              )}
             </button>
 
             <div className="text-center pt-2 border-t border-gray-100">
