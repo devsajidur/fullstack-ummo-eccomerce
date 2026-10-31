@@ -13,6 +13,8 @@ import {
   auth,
   browserPopupRedirectResolver,
   googleProvider,
+  isSameOriginAuthDomain,
+  warmGoogleAuthPopup,
 } from "../../firebase.config";
 import toast, { Toaster } from "react-hot-toast";
 import { setSessionUser } from "../services/authSession";
@@ -39,10 +41,19 @@ const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loader, setLoader] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleAuthNotice, setGoogleAuthNotice] = useState("");
 
-  // Handle Google OAuth redirect return on mobile / popup-restricted browsers
+  // Pre-warm Firebase popup resolver so window.open executes synchronously on click.
+  // Only check getRedirectResult when authDomain is same-origin (avoids cross-origin
+  // storage-partitioned redirect state errors on modern browsers).
   useEffect(() => {
     let active = true;
+    warmGoogleAuthPopup();
+    if (!isSameOriginAuthDomain()) {
+      return () => {
+        active = false;
+      };
+    }
     getRedirectResult(auth, browserPopupRedirectResolver)
       .then((result) => {
         if (!active || !result?.user) return;
@@ -132,40 +143,58 @@ const LoginPage = () => {
 
   const handleGoogleLogin = async () => {
     if (googleLoading || loader) return;
+    setGoogleAuthNotice("");
+    // Invoke signInWithPopup synchronously inside the user-gesture turn before state re-renders
+    const popupPromise = signInWithPopup(
+      auth,
+      googleProvider,
+      browserPopupRedirectResolver
+    );
     setGoogleLoading(true);
     try {
-      const result = await signInWithPopup(
-        auth,
-        googleProvider,
-        browserPopupRedirectResolver
-      );
+      const result = await popupPromise;
       setSessionUser(buildCustomerSessionPayload(result.user));
       toast.success("Signed in with Google!");
       navigate("/profile");
     } catch (error) {
       const code = error?.code || "";
       if (code === "auth/popup-blocked") {
-        try {
-          await signInWithRedirect(
-            auth,
-            googleProvider,
-            browserPopupRedirectResolver
-          );
-          return;
-        } catch {
-          toast.error(
-            "Popup blocked by browser. Please allow popups for this site and try again."
-          );
+        if (isSameOriginAuthDomain()) {
+          try {
+            await signInWithRedirect(
+              auth,
+              googleProvider,
+              browserPopupRedirectResolver
+            );
+            return;
+          } catch {
+            // Fall through to popup blocked guidance
+          }
         }
+        const msg =
+          "Your browser blocked the Google Sign-In window. Please allow popups for this site in your browser address bar and tap 'Continue With Google' again.";
+        setGoogleAuthNotice(msg);
+        toast.error("Please allow popups for this site to sign in with Google.");
+      } else if (code === "auth/web-storage-unsupported") {
+        const msg =
+          "Strict browser tracking/shield settings blocked Google Sign-In storage. Please temporarily disable browser Shields for this site, or sign in with your Email and Password above.";
+        setGoogleAuthNotice(msg);
+        toast.error("Browser privacy settings blocked Google Sign-In storage.");
+      } else if (code === "auth/account-exists-with-different-credential") {
+        const msg =
+          "An account already exists with this email address. Please sign in using your Email and Password above.";
+        setGoogleAuthNotice(msg);
+        toast.error("Account exists with email/password sign-in.");
       } else if (
         code === "auth/popup-closed-by-user" ||
         code === "auth/cancelled-popup-request"
       ) {
         toast("Google sign-in window was closed.");
       } else if (code === "auth/unauthorized-domain") {
-        toast.error(
-          "This preview domain is not authorized for Google Sign-In. Please open fullstack-ummo-eccomerce.vercel.app."
-        );
+        const msg =
+          "This preview domain is not authorized for Google Sign-In. Please open fullstack-ummo-eccomerce.vercel.app.";
+        setGoogleAuthNotice(msg);
+        toast.error(msg);
       } else if (code === "auth/network-request-failed") {
         toast.error("Network error while connecting to Google Sign-In.");
       } else {
@@ -305,6 +334,15 @@ const LoginPage = () => {
                 </>
               )}
             </button>
+
+            {googleAuthNotice && (
+              <div
+                role="alert"
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-xs leading-5 text-amber-900"
+              >
+                {googleAuthNotice}
+              </div>
+            )}
 
             <div className="text-center pt-2 border-t border-gray-100">
               <p className="text-xs sm:text-sm text-gray-600">

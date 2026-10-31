@@ -47,6 +47,41 @@ try {
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
 
+function isSameOriginAuthDomain() {
+  if (typeof window === "undefined") return false;
+  const configured = String(
+    auth?.config?.authDomain || firebaseConfig.authDomain || ""
+  )
+    .trim()
+    .toLowerCase();
+  return Boolean(
+    configured && window.location.hostname.toLowerCase() === configured
+  );
+}
+
+function warmGoogleAuthPopup() {
+  if (typeof window === "undefined") return;
+  try {
+    const resolver = auth?._popupRedirectResolver;
+    if (resolver && typeof resolver._initialize === "function") {
+      resolver._initialize(auth).catch(() => {});
+    }
+    if (resolver && typeof resolver._originValidation === "function") {
+      resolver._originValidation(auth).catch(() => {});
+    }
+  } catch {
+    // Ignore pre-warm errors; signInWithPopup initializes on demand.
+  }
+}
+
 const analytics = null;
 
-export { app, auth, googleProvider, browserPopupRedirectResolver, analytics };
+export {
+  app,
+  auth,
+  googleProvider,
+  browserPopupRedirectResolver,
+  isSameOriginAuthDomain,
+  warmGoogleAuthPopup,
+  analytics,
+};
