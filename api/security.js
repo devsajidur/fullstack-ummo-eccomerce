@@ -36,18 +36,19 @@ export function verifyDemoAdminCredentials(email, password) {
   );
 }
 
-/** Server-side guard: demo admin may not move money or change privileges. */
+/** Server-side guard: demo admin may not move money, change privileges, or delete customer records. */
 export function isDemoAdminBlockedRequest(method, path) {
   const m = String(method || "GET").toUpperCase();
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
+  if (m === "DELETE" && (path === "/messages" || path === "/subscribers")) {
+    return true;
+  }
   return (
     path === "/payments/reconcile" ||
     path === "/payments/refund" ||
     path === "/payments/sandbox-confirm" ||
     path === "/users/role" ||
-    path === "/users" ||
-    path === "/messages" ||
-    path === "/subscribers"
+    path === "/users"
   );
 }
 export const ADMIN_ACCESS_KEY =

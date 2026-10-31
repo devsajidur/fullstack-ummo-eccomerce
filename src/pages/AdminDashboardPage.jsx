@@ -10,7 +10,6 @@ import {
   EyeOff,
   Flame,
   FolderTree,
-  Globe,
   Image as ImageIcon,
   LayoutDashboard,
   Lock,
@@ -54,7 +53,6 @@ import {
 } from "../services/authSession";
 import { Allitem } from "../slices/AllProductSlice";
 import { addProduct } from "../slices/productSlice";
-import { useLocalization } from "../i18n/LocalizationContext";
 import AdminOverviewTab from "../components/admin/AdminOverviewTab";
 import AdminProductsTab from "../components/admin/AdminProductsTab";
 import AdminCategoriesTab from "../components/admin/AdminCategoriesTab";
@@ -66,27 +64,25 @@ import AdminCouponsTab from "../components/admin/AdminCouponsTab";
 import AdminCustomersTab from "../components/admin/AdminCustomersTab";
 
 const ADMIN_MODULES = [
-  { id: "overview", label: "Overview", labelBn: "ওভারভিউ", icon: LayoutDashboard },
-  { id: "orders", label: "Orders", labelBn: "অর্ডারসমূহ", icon: ShoppingCart },
-  { id: "products", label: "Products", labelBn: "পণ্যসমূহ", icon: Package },
-  { id: "categories", label: "Categories", labelBn: "ক্যাটাগরি", icon: FolderTree },
-  { id: "inventory", label: "Inventory", labelBn: "ইনভেন্টরি", icon: Archive },
-  { id: "discounts", label: "Discounts", labelBn: "ডিসকাউন্ট", icon: Flame },
-  { id: "coupons", label: "Coupons", labelBn: "কুপন", icon: Tag },
-  { id: "customers", label: "Customers", labelBn: "গ্রাহকবৃন্দ", icon: Users },
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "orders", label: "Orders", icon: ShoppingCart },
+  { id: "products", label: "Products", icon: Package },
+  { id: "categories", label: "Categories", icon: FolderTree },
+  { id: "inventory", label: "Inventory", icon: Archive },
+  { id: "discounts", label: "Discounts", icon: Flame },
+  { id: "coupons", label: "Coupons", icon: Tag },
+  { id: "customers", label: "Customers", icon: Users },
   {
     id: "payments",
     label: "Payments & Refunds",
-    labelBn: "পেমেন্ট ও রিফান্ড",
     icon: CreditCard,
   },
-  { id: "banners", label: "Banners & CMS", labelBn: "ব্যানার ও সিএমএস", icon: ImageIcon },
+  { id: "banners", label: "Banners & CMS", icon: ImageIcon },
 ];
 
 export default function AdminDashboardPage() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const { language, toggleLanguage } = useLocalization();
   const catalogProducts = useSelector((state) => state.AllProduct.Products);
 
   const [authUser, setAuthUser] = useState(null);
@@ -729,28 +725,16 @@ export default function AdminDashboardPage() {
             <span className="text-lg font-black tracking-tight text-gray-900">
               UOMO <span className="text-xs font-bold uppercase tracking-widest text-gray-500">Admin</span>
             </span>
-            <button
-              type="button"
-              onClick={toggleLanguage}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg px-2.5 py-1 cursor-pointer"
-            >
-              <Globe size={13} />
-              {language === "bn" ? "English" : "বাংলা"}
-            </button>
           </div>
 
           <div className="w-12 h-12 rounded-xl bg-gray-900 text-white flex items-center justify-center mb-4">
             <Lock size={20} />
           </div>
           <h1 className="text-xl font-bold text-gray-900">
-            {language === "bn"
-              ? "অ্যাডমিন পোর্টাল সাইন ইন"
-              : "Administrator Sign In"}
+            Administrator Sign In
           </h1>
           <p className="text-xs text-gray-500 mt-1 mb-6">
-            {language === "bn"
-              ? "শুধুমাত্র অনুমোদিত অ্যাডমিনিস্ট্রেটরদের জন্য। আপনার অ্যাডমিন ইমেইল এবং পাসওয়ার্ড দিন।"
-              : "Restricted portal. Enter your authorized administrator credentials to continue."}
+            Restricted portal. Enter your authorized administrator credentials to continue.
           </p>
 
           {loginError && (
@@ -768,7 +752,7 @@ export default function AdminDashboardPage() {
                 htmlFor="admin-login-email"
                 className="block text-xs font-semibold text-gray-700 mb-1.5"
               >
-                {language === "bn" ? "অ্যাডমিন ইমেইল" : "Administrator Email"}
+                Administrator Email
               </label>
               <input
                 id="admin-login-email"
@@ -787,7 +771,7 @@ export default function AdminDashboardPage() {
                 htmlFor="admin-login-password"
                 className="block text-xs font-semibold text-gray-700 mb-1.5"
               >
-                {language === "bn" ? "পাসওয়ার্ড" : "Password"}
+                Password
               </label>
               <div className="relative">
                 <input
@@ -817,11 +801,7 @@ export default function AdminDashboardPage() {
               className="w-full bg-gray-900 text-white text-xs font-semibold uppercase tracking-wider py-3.5 rounded-xl hover:bg-gray-800 disabled:opacity-60 cursor-pointer transition-colors"
             >
               {loginSubmitting
-                ? language === "bn"
-                  ? "যাচাই করা হচ্ছে..."
-                  : "Verifying Credentials..."
-                : language === "bn"
-                ? "অ্যাডমিন প্যানেলে প্রবেশ করুন"
+                ? "Verifying Credentials..."
                 : "Sign In to Admin Portal"}
             </button>
           </form>
@@ -831,7 +811,7 @@ export default function AdminDashboardPage() {
             data-testid="demo-admin-hint"
           >
             <p className="text-[11px] font-bold uppercase tracking-wider text-amber-900">
-              {language === "bn" ? "ডেমো অ্যাডমিন (পরীক্ষার জন্য)" : "Demo Admin (for testing)"}
+              Demo Admin (for testing)
             </p>
             <p className="mt-1.5 text-xs text-amber-900 break-all">
               Email: <span className="font-mono font-semibold">demo.admin@ummo.com</span>
@@ -839,9 +819,7 @@ export default function AdminDashboardPage() {
               Password: <span className="font-mono font-semibold">DemoAdmin@2026</span>
             </p>
             <p className="mt-1.5 text-[11px] text-amber-800">
-              {language === "bn"
-                ? "এটি ডেমো প্রজেক্ট। ডেমো অ্যাডমিন পেমেন্ট, রিফান্ড ও ইউজার রোল পরিবর্তন করতে পারে না।"
-                : "This is a demo project. Demo admin cannot change payments, refunds or user roles."}
+              This is a demo project. Demo admin cannot change payments, refunds or user roles.
             </p>
             <button
               type="button"
@@ -851,7 +829,7 @@ export default function AdminDashboardPage() {
               }}
               className="mt-2 text-xs font-bold text-amber-900 underline cursor-pointer"
             >
-              {language === "bn" ? "ডেমো তথ্য পূরণ করুন" : "Fill demo credentials"}
+              Fill demo credentials
             </button>
           </div>
 
@@ -861,7 +839,7 @@ export default function AdminDashboardPage() {
               onClick={() => navigate("/")}
               className="text-xs font-semibold text-gray-500 hover:text-gray-900 cursor-pointer"
             >
-              ← {language === "bn" ? "স্টোরফ্রন্টে ফিরে যান" : "Return to Storefront"}
+              ← Return to Storefront
             </button>
           </div>
         </div>
@@ -901,7 +879,7 @@ export default function AdminDashboardPage() {
               </span>
             </div>
             <p className="text-[11px] text-gray-500 truncate">
-              {language === "bn" ? activeModuleObj.labelBn : activeModuleObj.label}
+              {activeModuleObj.label}
             </p>
           </div>
         </div>
@@ -909,21 +887,10 @@ export default function AdminDashboardPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={toggleLanguage}
-            className="inline-flex items-center gap-1 border border-gray-200 text-gray-700 text-xs font-semibold px-2.5 py-2 rounded-xl hover:bg-gray-50 cursor-pointer"
-          >
-            <Globe size={13} />
-            <span>{language === "bn" ? "EN" : "বাংলা"}</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => navigate("/")}
             className="inline-flex items-center gap-1.5 border border-gray-200 text-gray-700 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-50 cursor-pointer"
           >
-            <span className="hidden sm:inline">
-              {language === "bn" ? "স্টোরফ্রন্ট" : "Storefront"}
-            </span>
+            <span className="hidden sm:inline">Storefront</span>
             <ExternalLink size={13} />
           </button>
 
@@ -933,7 +900,7 @@ export default function AdminDashboardPage() {
             className="hidden sm:inline-flex items-center gap-1.5 border border-red-200 text-red-600 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-red-50 cursor-pointer"
           >
             <LogOut size={13} />
-            <span>{language === "bn" ? "লগআউট" : "Logout"}</span>
+            <span>Logout</span>
           </button>
         </div>
       </header>
@@ -986,7 +953,7 @@ export default function AdminDashboardPage() {
                   >
                     <span className="flex items-center gap-2.5">
                       <Icon size={16} />
-                      {language === "bn" ? mod.labelBn : mod.label}
+                      {mod.label}
                     </span>
                     {mod.id === "orders" && metrics.pendingOrders > 0 && (
                       <span
@@ -1014,7 +981,7 @@ export default function AdminDashboardPage() {
                 className="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-700 text-xs font-semibold py-2.5 rounded-xl hover:bg-gray-50 cursor-pointer"
               >
                 <ExternalLink size={14} />
-                {language === "bn" ? "স্টোরফ্রন্ট দেখুন" : "View Storefront"}
+                View Storefront
               </button>
               <button
                 type="button"
@@ -1022,7 +989,7 @@ export default function AdminDashboardPage() {
                 className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-600 border border-red-200 text-xs font-semibold py-2.5 rounded-xl hover:bg-red-100 cursor-pointer"
               >
                 <LogOut size={14} />
-                {language === "bn" ? "অ্যাডমিন লগআউট" : "Sign Out Admin"}
+                Sign Out Admin
               </button>
             </div>
           </aside>
@@ -1036,7 +1003,7 @@ export default function AdminDashboardPage() {
           <div className="bg-white border border-gray-200 rounded-2xl p-3 sticky top-22 space-y-1 shadow-xs">
             <div className="px-3 py-2 border-b border-gray-100 mb-1">
               <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                {language === "bn" ? "ম্যানেজমেন্ট মডিউল" : "Admin Modules"}
+                Admin Modules
               </p>
               <p className="text-xs font-semibold text-gray-800 truncate mt-0.5">
                 {authUser.email}
@@ -1059,7 +1026,7 @@ export default function AdminDashboardPage() {
                 >
                   <span className="flex items-center gap-2.5">
                     <Icon size={15} />
-                    {language === "bn" ? mod.labelBn : mod.label}
+                    {mod.label}
                   </span>
                   {mod.id === "orders" && metrics.pendingOrders > 0 && (
                     <span
@@ -1097,7 +1064,7 @@ export default function AdminDashboardPage() {
                   }`}
                 >
                   <Icon size={13} />
-                  {language === "bn" ? mod.labelBn : mod.label}
+                  {mod.label}
                 </button>
               );
             })}

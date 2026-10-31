@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronRight,
   Flame,
-  Globe,
   Heart,
   HelpCircle,
   Home,
@@ -42,7 +41,7 @@ const Header = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
-  const { lang, toggleLang, t } = useLocalization();
+  const { t } = useLocalization();
 
   const [user, setUser] = useState(null);
   const [open, setOpen] = useState(false);
@@ -105,16 +104,21 @@ const Header = () => {
 
   useEffect(() => {
     let active = true;
-    fetchCatalogProducts(200).then((items) => {
-      if (active) setProducts(items);
-    });
-    const unsubSync = initStoreConfigSync((updatedCatalog) => {
-      if (active && Array.isArray(updatedCatalog)) {
-        setProducts(updatedCatalog);
-      }
-    });
+    let unsubSync = () => {};
+    const timer = setTimeout(() => {
+      if (!active) return;
+      fetchCatalogProducts(200).then((items) => {
+        if (active) setProducts(items);
+      });
+      unsubSync = initStoreConfigSync((updatedCatalog) => {
+        if (active && Array.isArray(updatedCatalog)) {
+          setProducts(updatedCatalog);
+        }
+      });
+    }, 2500);
     return () => {
       active = false;
+      clearTimeout(timer);
       unsubSync();
     };
   }, []);
@@ -342,17 +346,6 @@ const Header = () => {
 
           {/* Desktop Right Utilities */}
           <Flex className="gap-4 items-center">
-            {/* Language Switcher EN / বাংলা */}
-            <button
-              type="button"
-              onClick={toggleLang}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-gray-200 hover:border-gray-900 text-xs font-bold text-gray-800 transition-colors cursor-pointer"
-              title="Switch language between English and Bangla"
-            >
-              <Globe size={14} className="text-gray-600" />
-              <span>{lang === "bn" ? "বাংলা" : "EN"}</span>
-            </button>
-
             {/* Desktop Search */}
             <div className="relative">
               <button
@@ -498,14 +491,6 @@ const Header = () => {
             >
               <HiOutlineBars3CenterLeft className="text-[26px]" />
             </button>
-            <button
-              type="button"
-              onClick={toggleLang}
-              title="Switch language between English and Bangla"
-              className="px-2 py-1 rounded-md border border-gray-200 text-[11px] font-bold text-gray-800 bg-gray-50 active:bg-gray-100 cursor-pointer"
-            >
-              {lang === "bn" ? "EN" : "বাংলা"}
-            </button>
           </div>
 
           <Link to="/" aria-label="UOMO Storefront Home" className="shrink-0">
@@ -576,14 +561,6 @@ const Header = () => {
                 />
               </Link>
               <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={toggleLang}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full border border-gray-300 text-xs font-bold text-gray-800 bg-gray-50 cursor-pointer"
-                >
-                  <Globe size={13} />
-                  <span>{lang === "bn" ? "English" : "বাংলা"}</span>
-                </button>
                 <button
                   type="button"
                   aria-label="Close navigation menu"

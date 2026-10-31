@@ -320,16 +320,25 @@ export default async function handler(req, res) {
       }
 
       const timestamp = Math.floor(Date.now() / 1000);
-      const customPublicId = asSafeId(body.publicId || "", 96).replace(
+      const rawPublicId = asSafeId(body.publicId || "", 96).replace(
         /[^a-zA-Z0-9_-]/g,
         ""
       );
+      // Prevent public Demo Admin from overwriting canonical product_* or SLIDER* assets
+      const customPublicId =
+        caller.isDemoAdmin && rawPublicId
+          ? rawPublicId.startsWith("demo_")
+            ? rawPublicId
+            : `demo_${rawPublicId}_${timestamp}`
+          : rawPublicId;
       const paramsToSign = {
         folder,
         timestamp: String(timestamp),
       };
       if (customPublicId) {
-        paramsToSign.overwrite = "true";
+        if (!caller.isDemoAdmin) {
+          paramsToSign.overwrite = "true";
+        }
         paramsToSign.public_id = customPublicId;
       }
 

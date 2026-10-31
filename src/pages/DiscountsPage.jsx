@@ -24,7 +24,7 @@ import {
 import { useLocalization } from "../i18n/LocalizationContext";
 
 const DiscountsPage = () => {
-  const { lang, t } = useLocalization();
+  const { t } = useLocalization();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const initialDept = searchParams.get("dept") || "all";
@@ -180,7 +180,7 @@ const DiscountsPage = () => {
               to={`/category/${dept.slug}`}
               className="px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
             >
-              {lang === "bn" ? dept.nameBn : dept.name}
+              {dept.name}
             </Link>
           ))}
         </div>
@@ -254,7 +254,7 @@ const DiscountsPage = () => {
                       : "bg-black/40 text-white hover:bg-black/60"
                   }`}
                 >
-                  {lang === "bn" ? dept.nameBn : dept.name} ({count})
+                  {dept.name} ({count})
                 </button>
               );
             })}
@@ -518,7 +518,7 @@ const DiscountsPage = () => {
                           : "bg-gray-100 text-gray-700"
                       }`}
                     >
-                      {lang === "bn" ? dept.nameBn : dept.name}
+                      {dept.name}
                     </button>
                   ))}
                 </div>

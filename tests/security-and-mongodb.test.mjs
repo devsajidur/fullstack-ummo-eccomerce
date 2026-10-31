@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { MongoClient } from "mongodb";
 import {
   closeMongoConnection,
@@ -1131,16 +1133,16 @@ test("Phase 9: Shared Product Image Resolver & Order Item Image Snapshots resolv
   assert.ok(order.OrderItems[0].productNameSnapshot.length > 0);
 });
 
-test("Phase 10: Product-Specific Optional Customer Messages support Unicode/Bengali, enforce 500-char limit, strip XSS, and preserve separate lines for different messages", () => {
+test("Phase 10: Product-Specific Optional Customer Messages support UTF-8 symbols, enforce 500-char limit, strip XSS, and preserve separate lines for different messages", () => {
   const state = createInitialMemoryState();
 
   // 1. Empty message
   assert.equal(sanitizeProductMessage(""), "");
   assert.equal(sanitizeProductMessage(null), "");
 
-  // 2. Bengali & Unicode message
-  const bengali = "এটি জন্মদিনের উপহার হিসেবে সুন্দর করে প্যাক করবেন, ধন্যবাদ! 🎁";
-  assert.equal(sanitizeProductMessage(bengali), bengali);
+  // 2. International UTF-8 & emoji gift message
+  const giftNote = "Happy Birthday gift wrap — please pack in navy silk paper! 🎁";
+  assert.equal(sanitizeProductMessage(giftNote), giftNote);
 
   // 3. Exact 500-char message succeeds
   const exact500 = "A".repeat(500);
@@ -1182,7 +1184,7 @@ test("Phase 10: Product-Specific Optional Customer Messages support Unicode/Beng
           quantity: 1,
           size: "M",
           color: "Black",
-          optionalMessage: "এটি বোনের জন্য নীল কাগজে প্যাক করবেন",
+          optionalMessage: "Pack in silver box for Sister — express delivery",
         },
       ],
     },
@@ -1197,7 +1199,7 @@ test("Phase 10: Product-Specific Optional Customer Messages support Unicode/Beng
   );
   assert.equal(
     orderWithTwoNotes.OrderItems[1].optionalMessage,
-    "এটি বোনের জন্য নীল কাগজে প্যাক করবেন"
+    "Pack in silver box for Sister — express delivery"
   );
 });
 
@@ -1689,7 +1691,7 @@ test("Gate 5 & Gate 11: Canonical Category Taxonomy & 194-Product Cloudinary Cat
   assert.equal(matchesDepartmentFilter(menProduct, "women"), false);
 });
 
-test("Gates 6, 7, 8 & 10: Discount Engine Scheduled Start/End Windows & Bilingual (en / bn-BD) Dictionary Parity", () => {
+test("Gates 6, 7, 8 & Pure-English Integrity: Discount Engine Scheduled Windows & 100% Pure-English Codebase Audit", () => {
   const now = Date.now();
 
   // Future scheduled discount -> not active yet
@@ -1724,15 +1726,42 @@ test("Gates 6, 7, 8 & 10: Discount Engine Scheduled Start/End Windows & Bilingua
   assert.equal(activeDiscountState.effectivePrice, 160);
   assert.equal(activeDiscountState.savingsAmount, 40);
 
-  // Bilingual dictionary verification
-  assert.ok(TRANSLATIONS.en && TRANSLATIONS.bn, "Expected both en and bn dictionaries");
-  const enKeys = Object.keys(TRANSLATIONS.en);
-  const bnKeys = Object.keys(TRANSLATIONS.bn);
-  assert.deepEqual(
-    enKeys.sort(),
-    bnKeys.sort(),
-    "English and Bangla translation dictionaries must have 100% key parity"
-  );
+  // Pure-English dictionary & codebase verification (zero BN/EN toggle or Bangla script)
+  assert.ok(TRANSLATIONS.en && Object.keys(TRANSLATIONS.en).length > 50, "Expected pure-English TRANSLATIONS.en dictionary");
+  assert.equal(TRANSLATIONS.bn, undefined, "TRANSLATIONS.bn must be completely removed");
+
+  function collectAppFiles(dir, out = []) {
+    if (!fs.existsSync(dir)) return out;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) collectAppFiles(full, out);
+      else if (/\.(js|jsx|mjs|cjs|css|html|json)$/i.test(entry.name)) out.push(full);
+    }
+    return out;
+  }
+
+  const appFiles = [
+    ...collectAppFiles(path.resolve("src")),
+    ...collectAppFiles(path.resolve("api")),
+    path.resolve("index.html"),
+  ];
+  const bnScriptRegex = /[\u0980-\u09FF]/;
+  const forbiddenI18nRegex =
+    /\b(toggleLang|toggleLanguage|setLang|setLanguage|isBangla|ummo_lang|bn-BD|nameBn|titleBn|descriptionBn|labelBn)\b|(?:lang|language)\s*[!=]==?\s*["']bn["']/;
+
+  for (const filePath of appFiles) {
+    const content = fs.readFileSync(filePath, "utf8");
+    assert.equal(
+      bnScriptRegex.test(content),
+      false,
+      `Application file must not contain any Bengali script characters: ${filePath}`
+    );
+    assert.equal(
+      forbiddenI18nRegex.test(content),
+      false,
+      `Application file must not contain any BN/EN switcher or bn locale logic: ${filePath}`
+    );
+  }
 });
 
 test("Pre-Merge Correction Gate #2: Multi-Instance Vercel Serverless Durable Session Revocation & Login Rate Limiting", async () => {
@@ -1855,6 +1884,7 @@ test("Demo Admin: public demo credentials grant admin panel access but server bl
   for (const [method, url] of [
     ["POST", "/api/v1/payments/refund"],
     ["POST", "/api/v1/payments/reconcile"],
+    ["POST", "/api/v1/payments/sandbox-confirm"],
     ["PATCH", "/api/v1/users/role"],
     ["POST", "/api/v1/users"],
     ["DELETE", "/api/v1/messages"],
@@ -1870,6 +1900,83 @@ test("Demo Admin: public demo credentials grant admin panel access but server bl
     assert.equal(r.res.statusCode, 403, `${method} ${url} must be blocked for demo admin`);
     assert.equal(r.res.json?.demoRestricted, true);
   }
+
+  // Demo admin Cloudinary sign prefixes publicId with demo_ and never sets overwrite=true on canonical assets
+  const demoCloudSign = createMockReqRes({
+    method: "POST",
+    url: "/api/v1/cloudinary-sign",
+    headers: { "x-admin-token": token },
+    body: { folder: "ummo_products", publicId: "product_1", mimeType: "image/webp", fileSize: 12000 },
+  });
+  await handler(demoCloudSign.req, demoCloudSign.res);
+  assert.equal(demoCloudSign.res.statusCode, 200);
+  assert.match(String(demoCloudSign.res.json?.publicId || ""), /^demo_product_1_/);
+
+  // Regular customer / unauthenticated callers are strictly blocked from admin endpoints (403)
+  for (const [method, url, body] of [
+    ["POST", "/api/v1/store-config", { coupons: [] }],
+    ["POST", "/api/v1/cloudinary-sign", { folder: "ummo_products" }],
+    ["DELETE", "/api/v1/messages?id=MSG-TEST", undefined],
+    ["DELETE", "/api/v1/subscribers?id=SUB-TEST", undefined],
+    ["PATCH", "/api/v1/users/role", { uid: "u-cust", role: "ADMIN" }],
+  ]) {
+    const custReq = createMockReqRes({
+      method,
+      url,
+      headers: { "x-user-uid": "customer-regular-1", "x-user-email": "cust@ummo.test" },
+      body,
+    });
+    await handler(custReq.req, custReq.res);
+    assert.equal(custReq.res.statusCode, 403, `Customer must receive 403 on ${method} ${url}`);
+  }
+
+  // Security headers, CORS preflight, and NoSQL operator rejection across public endpoints
+  const preflight = createMockReqRes({
+    method: "OPTIONS",
+    url: "/api/v1/health",
+    headers: { origin: "https://fullstack-ummo-eccomerce.vercel.app" },
+  });
+  await handler(preflight.req, preflight.res);
+  assert.ok([200, 204].includes(preflight.res.statusCode));
+
+  const healthCheck = createMockReqRes({
+    method: "GET",
+    url: "/api/v1/health",
+    headers: { origin: "https://fullstack-ummo-eccomerce.vercel.app" },
+  });
+  await handler(healthCheck.req, healthCheck.res);
+  assert.equal(healthCheck.res.statusCode, 200);
+  assert.equal(healthCheck.res.headers["x-content-type-options"], "nosniff");
+  assert.equal(healthCheck.res.headers["x-frame-options"], "DENY");
+  assert.match(String(healthCheck.res.headers["cache-control"] || ""), /no-store/);
+
+  for (const [url, payload] of [
+    ["/api/v1/admin/login", { email: { $ne: "" }, password: "x" }],
+    ["/api/v1/coupons/validate", { code: { $gt: "" }, subtotal: 100 }],
+    ["/api/v1/messages", { name: "Bob", email: { $ne: null }, message: "Hi" }],
+    ["/api/v1/subscribers", { email: { $ne: null } }],
+  ]) {
+    const nosqlReq = createMockReqRes({ method: "POST", url, body: payload });
+    await handler(nosqlReq.req, nosqlReq.res);
+    assert.equal(nosqlReq.res.statusCode, 400, `NoSQL operator injection must return 400 on ${url}`);
+  }
+
+  // Logout revokes Demo Admin session token immediately
+  const demoLogout = createMockReqRes({
+    method: "POST",
+    url: "/api/v1/admin/logout",
+    headers: { "x-admin-token": token },
+  });
+  await handler(demoLogout.req, demoLogout.res);
+  assert.equal(demoLogout.res.statusCode, 200);
+
+  const demoSessAfterLogout = createMockReqRes({
+    method: "GET",
+    url: "/api/v1/admin/session",
+    headers: { "x-admin-token": token },
+  });
+  await handler(demoSessAfterLogout.req, demoSessAfterLogout.res);
+  assert.equal(demoSessAfterLogout.res.statusCode, 401);
 
   // The master admin token is NOT restricted by the demo guard
   const masterTok = createAdminSessionToken({

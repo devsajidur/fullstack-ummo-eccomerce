@@ -26,7 +26,7 @@ import { useLocalization } from "../i18n/LocalizationContext";
 const CategoryPage = () => {
   const { slug } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { lang, t } = useLocalization();
+  const { t } = useLocalization();
 
   const activeSubParam = searchParams.get("sub") || "all";
   const [products, setProducts] = useState(() => getInitialCatalogSnapshot());
@@ -63,11 +63,8 @@ const CategoryPage = () => {
       getDepartmentBySlug(slug) || {
         slug: String(slug || "all").toLowerCase(),
         name: String(slug || "Collection").replace(/-/g, " "),
-        nameBn: String(slug || "কালেকশন"),
         title: `${String(slug || "Collection").replace(/-/g, " ")} Collection`,
-        titleBn: `${String(slug || "কালেকশন")} কালেকশন`,
         description: "Explore curated products verified for quality and value.",
-        descriptionBn: "যাচাইকৃত মান ও আকর্ষণীয় মূল্যের পণ্যের সমাহার।",
         subcategories: [],
       },
     [slug]
@@ -191,7 +188,7 @@ const CategoryPage = () => {
           </Link>
           <span>/</span>
           <span className="text-gray-900 font-bold">
-            {lang === "bn" ? currentDept.nameBn : currentDept.name}
+            {currentDept.name}
           </span>
           {selectedSub !== "all" && (
             <>
@@ -215,7 +212,7 @@ const CategoryPage = () => {
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
               >
-                {lang === "bn" ? dept.nameBn : dept.name}
+                {dept.name}
               </Link>
             );
           })}
@@ -234,15 +231,13 @@ const CategoryPage = () => {
             <div className="max-w-2xl">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 text-white text-[11px] font-bold uppercase tracking-wider mb-2.5">
                 <Sparkles size={12} />
-                {lang === "bn" ? currentDept.nameBn : currentDept.name} Department
+                {currentDept.name} Department
               </span>
               <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight capitalize">
-                {lang === "bn" ? currentDept.titleBn : currentDept.title}
+                {currentDept.title}
               </h1>
               <p className="text-xs sm:text-sm text-gray-300 mt-1.5 leading-relaxed">
-                {lang === "bn"
-                  ? currentDept.descriptionBn
-                  : currentDept.description}
+                {currentDept.description}
               </p>
             </div>
             <div className="flex items-center gap-3 shrink-0">
@@ -270,8 +265,7 @@ const CategoryPage = () => {
                       : "bg-white/10 text-gray-200 hover:bg-white/20"
                   }`}
                 >
-                  All {lang === "bn" ? currentDept.nameBn : currentDept.name} (
-                  {departmentProducts.length})
+                  All {currentDept.name} ({departmentProducts.length})
                 </button>
                 {currentDept.subcategories.map((sub) => {
                   const subCount = departmentProducts.filter((p) =>

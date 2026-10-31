@@ -9,13 +9,9 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "men",
     name: "Men",
-    nameBn: "পুরুষদের ফ্যাশন",
     title: "Men's Fashion & Accessories",
-    titleBn: "পুরুষদের ফ্যাশন ও অ্যাক্সেসরিজ",
     description:
       "Tailored shirts, athletic & casual footwear, luxury timepieces, and classic eyewear crafted for modern men.",
-    descriptionBn:
-      "আধুনিক পুরুষদের জন্য শার্ট, জুতো, প্রিমিয়াম ঘড়ি এবং সানগ্লাসের এক্সক্লুসিভ কালেকশন।",
     isPrimaryFashion: true,
     subcategories: ["Clothing", "Shoes", "Accessories", "Watches"],
     legacyCategories: ["mens-shirts", "mens-shoes", "mens-watches"],
@@ -23,13 +19,9 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "women",
     name: "Women",
-    nameBn: "নারীদের ফ্যাশন",
     title: "Women's Fashion & Luxury Collection",
-    titleBn: "নারীদের ফ্যাশন ও লাক্সারি কালেকশন",
     description:
       "Statement dresses, designer handbags, heels, fine jewellery, watches, and curated beauty essentials.",
-    descriptionBn:
-      "আকর্ষণীয় ড্রেস, হ্যান্ডব্যাগ, জুতো, জুয়েলারি, ঘড়ি এবং বিউটি পণ্যের সমাহার।",
     isPrimaryFashion: true,
     subcategories: ["Clothing", "Shoes", "Bags", "Accessories", "Beauty"],
     legacyCategories: [
@@ -43,13 +35,9 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "kids",
     name: "Kids",
-    nameBn: "শিশুদের কালেকশন",
     title: "Kids' & Junior Collection",
-    titleBn: "শিশুদের পোশাক ও জুনিয়র কালেকশন",
     description:
       "Comfortable summer dresses, frocks, junior sportswear, playful accessories, and everyday essentials for boys and girls.",
-    descriptionBn:
-      "ছেলে ও মেয়ে শিশুদের জন্য আরামদায়ক পোশাক, ফ্রক, জুতো এবং খেলার সামগ্রী।",
     isPrimaryFashion: true,
     subcategories: [
       "Boys",
@@ -64,13 +52,9 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "beauty",
     name: "Beauty & Personal Care",
-    nameBn: "বিউটি ও পার্সোনাল কেয়ার",
     title: "Beauty, Cosmetics & Skin Care",
-    titleBn: "বিউটি, কসমেটিক্স ও স্কিন কেয়ার",
     description:
       "Cruelty-free cosmetics, palettes, lipsticks, nail couture, and nourishing daily skin care.",
-    descriptionBn:
-      "প্রিমিয়াম মেকআপ, লিপস্টিক, আইশ্যাডো এবং ত্বকের যত্নের অরিজিনাল পণ্য।",
     isPrimaryFashion: false,
     subcategories: ["Cosmetics", "Skin Care"],
     legacyCategories: ["beauty", "skin-care"],
@@ -78,13 +62,9 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "fragrances",
     name: "Fragrances",
-    nameBn: "সুগন্ধি ও পারফিউম",
     title: "Luxury Fragrances & Perfumes",
-    titleBn: "লাক্সারি পারফিউম ও সুগন্ধি",
     description:
       "Iconic designer Eau de Parfum and Eau de Toilette fragrances from Chanel, Dior, Gucci, Dolce & Gabbana, and Calvin Klein.",
-    descriptionBn:
-      "বিশ্বখ্যাত ব্র্যান্ডের অরিজিনাল পারফিউম এবং বডি ফ্রেগ্র্যান্স কালেকশন।",
     isPrimaryFashion: false,
     subcategories: ["Perfumes", "Unisex Scents"],
     legacyCategories: ["fragrances"],
@@ -92,13 +72,9 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "electronics",
     name: "Electronics & Gadgets",
-    nameBn: "ইলেকট্রনিক্স ও গ্যাজেট",
     title: "Electronics, Smartphones & Laptops",
-    titleBn: "ইলেকট্রনিক্স, স্মার্টফোন ও ল্যাপটপ",
     description:
       "Flagship smartphones, ultrabooks, tablets, wireless audio, and smart accessories.",
-    descriptionBn:
-      "স্মার্টফোন, ল্যাপটপ, ট্যাবলেট এবং আধুনিক টেক গ্যাজেট।",
     isPrimaryFashion: false,
     subcategories: [
       "Smartphones",
@@ -116,13 +92,9 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "home-living",
     name: "Home & Living",
-    nameBn: "হোম ও লিভিং",
     title: "Home, Furniture & Kitchen Essentials",
-    titleBn: "ফার্নিচার, হোম ডেকোর ও কিচেন অ্যাক্সেসরিজ",
     description:
       "Designer furniture, artisan home decor, and modern kitchen tools & appliances.",
-    descriptionBn:
-      "আধুনিক ফার্নিচার, ঘর সাজানোর সামগ্রী এবং কিচেন অ্যাক্সেসরিজ।",
     isPrimaryFashion: false,
     subcategories: ["Furniture", "Home Decoration", "Kitchen Accessories"],
     legacyCategories: ["furniture", "home-decoration", "kitchen-accessories"],
@@ -130,13 +102,9 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "sports",
     name: "Sports & Outdoors",
-    nameBn: "স্পোর্টস ও আউটডোর",
     title: "Sports, Fitness & Outdoor Gear",
-    titleBn: "স্পোর্টস, ফিটনেস ও আউটডোর গিয়ার",
     description:
       "Athletic training equipment, cricket, football, tennis, golf gear, and outdoor motorsports.",
-    descriptionBn:
-      "ক্রিকেট, ফুটবল, টেনিস, ফিটনেস ও আউটডোর স্পোর্টস সামগ্রী।",
     isPrimaryFashion: false,
     subcategories: ["Team Sports", "Fitness & Training", "Motorsports & Vehicles"],
     legacyCategories: ["sports-accessories", "motorcycle", "vehicle"],
@@ -144,13 +112,9 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "groceries",
     name: "Groceries & Essentials",
-    nameBn: "গ্রোসারি ও নিত্যপণ্য",
     title: "Groceries & Daily Household Essentials",
-    titleBn: "গ্রোসারি ও দৈনন্দিন প্রয়োজনীয় পণ্য",
     description:
       "Fresh produce, pantry staples, beverages, cooking essentials, and pet nutrition.",
-    descriptionBn:
-      "তাজা ফলমূল, রান্নার উপকরণ, পানীয় এবং প্রতিদিনের প্রয়োজনীয় গ্রোসারি পণ্য।",
     isPrimaryFashion: false,
     subcategories: [
       "Fresh Produce",
@@ -164,11 +128,8 @@ export const CANONICAL_DEPARTMENTS = [
   {
     slug: "uncategorized",
     name: "Uncategorized / Needs Review",
-    nameBn: "অশ্রেণীবদ্ধ / রিভিউ প্রয়োজন",
     title: "Uncategorized Products Queue",
-    titleBn: "অশ্রেণীবদ্ধ পণ্য তালিকা",
     description: "Products awaiting administrator category verification.",
-    descriptionBn: "অ্যাডমিন কর্তৃক ক্যাটাগরি যাচাইয়ের অপেক্ষায় থাকা পণ্য।",
     isPrimaryFashion: false,
     isAdminOnly: true,
     subcategories: ["Needs Review"],
@@ -220,11 +181,8 @@ export function getAllDepartments(includeAdminOnly = false) {
       merged.push({
         slug: String(cd.slug).toLowerCase(),
         name: cd.name || cd.slug,
-        nameBn: cd.nameBn || cd.name || cd.slug,
         title: cd.title || cd.name || cd.slug,
-        titleBn: cd.titleBn || cd.nameBn || cd.name || cd.slug,
         description: cd.description || "",
-        descriptionBn: cd.descriptionBn || "",
         isPrimaryFashion: Boolean(cd.isPrimaryFashion),
         subcategories: Array.isArray(cd.subcategories)
           ? cd.subcategories

@@ -3,18 +3,19 @@
  * UMMO ECOMMERCE — REAL PLAYWRIGHT BROWSER E2E & RESPONSIVE VERIFICATION SUITE
  * ============================================================================
  * Executes real headless Chrome (Playwright) tests across mobile (320, 360,
- * 390, 412px), tablet (768, 1024px), and desktop (1440px) viewports in both
- * English and Bangla (বাংলা), verifying:
+ * 390, 412px), tablet (768, 1024px), and desktop (1440px) viewports in
+ * 100% pure English (verifying zero BN/EN switchers & zero Bengali script),
+ * covering:
  *   1. Responsive layouts (`scrollWidth <= innerWidth`), zero horizontal overflow
  *   2. Zero public Admin links in customer header, drawer, bottom nav, or profile
  *   3. Listing cards have zero countdown timers; Single Product page has timer
- *   4. Complete Customer Journey: mobile drawer, bilingual toggle, categories,
+ *   4. Complete Customer Journey: mobile drawer, pure-English UI, categories,
  *      discounts, single product, optional message, multi-quantity cart,
  *      checkout, order confirmation (sandbox simulator hidden by default),
  *      and customer dashboard
- *   5. `/admin` Security Gates: unauthenticated sign-in (no demo auto-fill),
- *      authenticated customer HTTP 403 restriction, client-side localStorage
- *      role tampering blocked with HTTP 403
+ *   5. `/admin` Security Gates: unauthenticated sign-in, Demo Admin login &
+ *      server-side 403 restriction on refunds, authenticated customer HTTP 403
+ *      restriction, client-side localStorage role tampering blocked with HTTP 403
  *   6. Complete Mobile Admin Journey (390x844): real login, mobile slide-out
  *      drawer, product creation, Cloudinary image upload, inventory editing,
  *      discount campaign creation, order fulfillment status & partial/full
@@ -191,8 +192,14 @@ async function runVerification() {
           const adminLinks = Array.from(document.querySelectorAll("a, button")).filter((el) => {
             const href = el.getAttribute("href") || "";
             const txt = (el.textContent || "").trim();
-            return href === "/admin" || href.startsWith("/admin/") || /admin panel|অ্যাডমিন প্যানেল/i.test(txt);
+            return href === "/admin" || href.startsWith("/admin/") || /admin panel/i.test(txt);
           });
+          const langSwitchButtons = Array.from(document.querySelectorAll("button")).filter((el) => {
+            const title = el.getAttribute("title") || "";
+            const txt = (el.textContent || "").trim();
+            return /switch language/i.test(title) || /^(EN|BN)$/i.test(txt) || /[\u0980-\u09FF]/.test(txt);
+          });
+          const hasBanglaText = /[\u0980-\u09FF]/.test(document.body?.innerText || "");
           const countdownNodes = document.querySelectorAll('[data-testid="single-product-countdown"]');
           const cards = Array.from(document.querySelectorAll('[data-testid="product-card"]'));
           const cardTimerOrSaveLeaks = cards.filter((card) => {
@@ -211,6 +218,8 @@ async function runVerification() {
             innerWidth,
             hasOverflow: scrollWidth > innerWidth + 1,
             adminLinksCount: adminLinks.length,
+            langSwitchButtonsCount: langSwitchButtons.length,
+            hasBanglaText,
             countdownCount: countdownNodes.length,
             cardTimerOrSaveLeaks,
             discountedCardsValid,
@@ -234,6 +243,14 @@ async function runVerification() {
         assertCheck(
           metrics.adminLinksCount === 0,
           `Zero public Admin links on ${r.path} at ${vp.width}x${vp.height}`,
+          metrics
+        );
+
+        assertCheck(
+          metrics.langAttr === "en" &&
+            metrics.langSwitchButtonsCount === 0 &&
+            !metrics.hasBanglaText,
+          `Pure-English UI on ${r.path} at ${vp.width}x${vp.height} (lang="en", zero BN/EN switchers, zero Bengali script)`,
           metrics
         );
 
@@ -268,65 +285,52 @@ async function runVerification() {
       }
     }
 
-    // Bilingual (Bangla `bn-BD`) verification at 390x844 and 1440x900
-    console.log("\n3. Verifying Bangla (বাংলা) localization & layout at 390x844 and 1440x900...");
+    // Pure-English UI & Mobile Slide-Out Drawer verification at 390x844
+    console.log("\n3. Verifying 100% Pure-English UI & Mobile Navigation Drawer at 390x844...");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
 
-    // Click mobile header language switch button (`title="Switch language between English and Bangla"`)
-    const langBtn = page.locator('button[title="Switch language between English and Bangla"]:visible').first();
-    await langBtn.click();
-    await page.waitForTimeout(300);
-
-    const bnState = await page.evaluate(() => ({
+    const pureEnState = await page.evaluate(() => ({
       htmlLang: document.documentElement.lang,
       storedLang: localStorage.getItem("ummo_lang"),
-      bodyText: document.body.innerText,
+      hasBanglaText: /[\u0980-\u09FF]/.test(document.body.innerText || ""),
+      langToggleCount: document.querySelectorAll('button[title*="Switch language"]').length,
       scrollWidth: document.documentElement.scrollWidth,
       innerWidth: window.innerWidth,
     }));
 
     assertCheck(
-      bnState.htmlLang === "bn-BD" && bnState.storedLang === "bn",
-      "Language toggle switches document.documentElement.lang to bn-BD and persists in localStorage",
-      bnState
+      pureEnState.htmlLang === "en" &&
+        pureEnState.storedLang === null &&
+        !pureEnState.hasBanglaText &&
+        pureEnState.langToggleCount === 0,
+      "Storefront renders 100% pure English (lang='en', no ummo_lang storage, zero BN/EN buttons, zero Bengali script)",
+      pureEnState
     );
-    assertCheck(
-      bnState.scrollWidth <= bnState.innerWidth + 1,
-      `Bangla (বাংলা) homepage has zero horizontal overflow at 390x844 (${bnState.scrollWidth} <= ${bnState.innerWidth})`,
-      bnState
-    );
-    await page.screenshot({
-      path: path.join(SCREENSHOTS_DIR, "home-mobile-390-bn.png"),
-      fullPage: false,
-    });
 
-    // Open mobile navigation drawer in Bangla and capture screenshot
+    // Open mobile navigation drawer in English and capture screenshot
     await page.locator('button[aria-label="Open navigation menu"]').click();
     await page.waitForTimeout(300);
-    const drawerMetricsBn = await page.evaluate(() => {
+    const drawerMetricsEn = await page.evaluate(() => {
       const aside = document.querySelector('div[role="dialog"][aria-label="Mobile store navigation"] aside');
       const rect = aside ? aside.getBoundingClientRect() : null;
+      const text = aside ? aside.innerText : "";
       return {
         exists: Boolean(aside),
         width: rect ? Math.round(rect.width) : 0,
         viewportWidth: window.innerWidth,
-        text: aside ? aside.innerText : "",
+        hasBanglaText: /[\u0980-\u09FF]/.test(text),
+        text,
       };
     });
     assertCheck(
-      drawerMetricsBn.exists && drawerMetricsBn.width <= 320 && drawerMetricsBn.width < drawerMetricsBn.viewportWidth,
-      `Mobile navigation drawer in Bangla is slide-out (${drawerMetricsBn.width}px < ${drawerMetricsBn.viewportWidth}px) and renders Bangla labels`,
-      drawerMetricsBn
+      drawerMetricsEn.exists &&
+        drawerMetricsEn.width <= 320 &&
+        drawerMetricsEn.width < drawerMetricsEn.viewportWidth &&
+        !drawerMetricsEn.hasBanglaText,
+      `Mobile navigation drawer is slide-out (${drawerMetricsEn.width}px < ${drawerMetricsEn.viewportWidth}px) with 100% pure English labels`,
+      drawerMetricsEn
     );
-    await page.screenshot({
-      path: path.join(SCREENSHOTS_DIR, "mobile-drawer-390-bn.png"),
-      fullPage: false,
-    });
-
-    // Switch back to English via the drawer language button
-    await page.locator('div[role="dialog"][aria-label="Mobile store navigation"] aside button').first().click();
-    await page.waitForTimeout(250);
     await page.screenshot({
       path: path.join(SCREENSHOTS_DIR, "mobile-drawer-390-en.png"),
       fullPage: false,
@@ -352,8 +356,8 @@ async function runVerification() {
       await sizeLBtn.click();
     }
 
-    // Type optional product-specific message (English + Bangla Unicode)
-    const testOptionalMessage = "Please wrap as a luxury gift — গিফট র‍্যাপ করবেন";
+    // Type optional product-specific message (pure English + UTF-8 punctuation)
+    const testOptionalMessage = "Please wrap as a luxury gift — Ribbon & Gift Card";
     const msgInput = page.locator("#product-optional-message");
     await msgInput.fill(testOptionalMessage);
 
@@ -639,7 +643,63 @@ async function runVerification() {
       "Mobile Admin login portal displays clear error message on invalid password and allows retry"
     );
 
-    // Sign in as Administrator via real typing and form submission on mobile (390x844)
+    // 5d-bis. Verify Public Demo Admin ("Fill demo credentials" -> Login -> 403 on Refund -> Logout)
+    await page.locator("button", { hasText: /Fill demo credentials/i }).click();
+    await page.waitForTimeout(150);
+    const demoFilled = await page.evaluate(() => ({
+      email: document.querySelector("#admin-login-email")?.value || "",
+      pass: document.querySelector("#admin-login-password")?.value || "",
+      hasBangla: /[\u0980-\u09FF]/.test(document.body.innerText || ""),
+    }));
+    assertCheck(
+      demoFilled.email === "demo.admin@ummo.com" &&
+        demoFilled.pass === "DemoAdmin@2026" &&
+        !demoFilled.hasBangla,
+      "Demo Admin 'Fill demo credentials' button populates demo.admin@ummo.com in pure-English login card",
+      demoFilled
+    );
+    await page.locator('button[type="submit"]', { hasText: /Sign In to Admin Portal/i }).click();
+    await page.waitForSelector('button[aria-label="Open admin navigation drawer"]', {
+      timeout: 15000,
+    });
+    await page.waitForTimeout(450);
+
+    const demoRefundGuardCheck = await page.evaluate(async () => {
+      const tok =
+        sessionStorage.getItem("ummo_admin_session_token") ||
+        localStorage.getItem("ummo_admin_session_token") ||
+        "";
+      const resp = await fetch("/api/v1/payments/refund", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Token": tok,
+        },
+        body: JSON.stringify({ orderId: "ORD-DEMO-BLOCK", amount: 5 }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      return {
+        status: resp.status,
+        demoRestricted: Boolean(data?.demoRestricted),
+        hasBangla: /[\u0980-\u09FF]/.test(document.body.innerText || ""),
+      };
+    });
+    assertCheck(
+      demoRefundGuardCheck.status === 403 &&
+        demoRefundGuardCheck.demoRestricted &&
+        !demoRefundGuardCheck.hasBangla,
+      "Demo Admin can inspect Admin Panel in pure English while server blocks sensitive money/refund endpoints with HTTP 403",
+      demoRefundGuardCheck
+    );
+
+    // Sign out Demo Admin via Mobile Admin Drawer before signing in as Master Admin
+    await page.locator('button[aria-label="Open admin navigation drawer"]').click();
+    await page.waitForTimeout(250);
+    await page.locator("button", { hasText: /Sign Out Admin/i }).click();
+    await page.waitForSelector("#admin-login-email", { timeout: 10000 });
+    await page.waitForTimeout(300);
+
+    // Sign in as Master Administrator via real typing and form submission on mobile (390x844)
     await page.locator("#admin-login-email").fill("admin@ummo.com");
     await page.locator("#admin-login-password").fill("Admin@12345");
     await page.locator('button[type="submit"]', { hasText: /Sign In to Admin Portal/i }).click();

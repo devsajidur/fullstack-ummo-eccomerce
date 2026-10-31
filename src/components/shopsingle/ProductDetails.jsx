@@ -82,23 +82,26 @@ export default function ProductDetails() {
   }, [targetId]);
 
   useEffect(() => {
-    const unsub = fetchCatalogProducts(200).then((products) => {
-      if (!products?.length) return;
-      const matched = productIdParam
-        ? products.find((p) => String(p.id) === String(productIdParam))
-        : products[0];
-      if (
-        matched &&
-        (!detailsProduct?.id ||
-          String(detailsProduct.id) !== String(matched.id)) &&
-        String(liveProduct?.id) !== String(matched.id)
-      ) {
-        dispatch(productDetail(matched));
-      }
-    });
-    return () => {
-      void unsub;
-    };
+    const needsRemoteLookup =
+      productIdParam && String(liveProduct?.id) !== String(productIdParam);
+    const delayMs = needsRemoteLookup ? 0 : 2500;
+    const timer = setTimeout(() => {
+      fetchCatalogProducts(200).then((products) => {
+        if (!products?.length) return;
+        const matched = productIdParam
+          ? products.find((p) => String(p.id) === String(productIdParam))
+          : products[0];
+        if (
+          matched &&
+          (!detailsProduct?.id ||
+            String(detailsProduct.id) !== String(matched.id)) &&
+          String(liveProduct?.id) !== String(matched.id)
+        ) {
+          dispatch(productDetail(matched));
+        }
+      });
+    }, delayMs);
+    return () => clearTimeout(timer);
   }, [detailsProduct?.id, liveProduct?.id, productIdParam, dispatch]);
 
   const hasTimer = Boolean(

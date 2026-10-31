@@ -6,7 +6,6 @@ import Image from "../layout/common/Image";
 import { setShopOptions } from "../../slices/productSlice";
 import { getStoredBanners } from "../../services/api";
 import { getAllDepartments } from "../../utils/categoryTaxonomy";
-import { useLocalization } from "../../i18n/LocalizationContext";
 
 const SHOP_BANNER_TABS = [
   { id: "all", label: "ALL", category: "" },
@@ -21,7 +20,6 @@ const SHOP_BANNER_TABS = [
 
 const ShopBanner = () => {
   const dispatch = useDispatch();
-  const { lang } = useLocalization();
   const activeCategory = useSelector(
     (state) => state.Products.options.category
   );
@@ -103,7 +101,7 @@ const ShopBanner = () => {
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[#C32929] text-white text-xs font-bold whitespace-nowrap shadow-sm hover:bg-red-700 transition-colors"
           >
             <Flame size={13} />
-            <span>{lang === "bn" ? "আজকের ডিসকাউন্ট" : "Today's Deals"}</span>
+            <span>Today&apos;s Deals</span>
           </Link>
           {departments.map((dept) => (
             <Link
@@ -111,7 +109,7 @@ const ShopBanner = () => {
               to={`/category/${dept.slug}`}
               className="px-3.5 py-2 rounded-full bg-gray-100 hover:bg-gray-900 hover:text-white text-gray-800 text-xs font-bold whitespace-nowrap transition-colors"
             >
-              {lang === "bn" ? dept.nameBn : dept.name}
+              {dept.name}
             </Link>
           ))}
         </div>

@@ -124,7 +124,6 @@ export default function AdminCategoriesTab({ products = [], onUpdateProduct }) {
       {
         slug: cleanSlug,
         name: cleanName,
-        nameBn: cleanName,
         title: `${cleanName} Collection`,
         subcategories: subs.length ? subs : ["General"],
       },

@@ -150,11 +150,11 @@ const ShopResponsive = () => {
       ) : (
         <>
           <div className="grid gap-x-2.5 gap-y-5 grid-cols-2 sm:grid-cols-3 mt-5">
-            {AllProduct.slice(0, visibleCount).map((item, idx) => (
+            {AllProduct.slice(0, visibleCount).map((item) => (
               <Product
                 item={item}
                 key={item.id}
-                prioritizeFirstRow={idx < 4}
+                prioritizeFirstRow={false}
               />
             ))}
           </div>
