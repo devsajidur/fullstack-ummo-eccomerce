@@ -1,8 +1,8 @@
 User-agent: *
 Allow: /
 Disallow: /admin
-Disallow: /profile
+Disallow: /api/
 Disallow: /billing
 Disallow: /ordercomplete
 
-Sitemap: https://ummo-ecommerce.vercel.app/sitemap.xml
+Sitemap: https://fullstack-ummo-eccomerce.vercel.app/sitemap.xml

@@ -1,7 +1,7 @@
 export const CLOUDINARY_CLOUD_NAME =
   import.meta.env?.VITE_CLOUDINARY_CLOUD_NAME || "wxjt7d8q";
 export const CLOUDINARY_API_KEY =
-  import.meta.env?.VITE_CLOUDINARY_API_KEY || "791685979462932";
+  import.meta.env?.VITE_CLOUDINARY_API_KEY || "";
 
 const ALLOWED_IMAGE_MIMES = new Set([
   "image/jpeg",

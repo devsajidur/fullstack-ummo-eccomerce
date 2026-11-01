@@ -10,6 +10,9 @@ import ShopSingle from "./pages/ShopSingle";
 import ShopDynamicPage from "./pages/ShopDynamicPage";
 
 // Route-level code splitting for secondary routes
+const FeaturedCollectionPage = lazy(
+  () => import("./pages/FeaturedCollectionPage")
+);
 const CartPage = lazy(() => import("./pages/CartPage"));
 const WishListPage = lazy(() => import("./pages/WishListPage"));
 const Register = lazy(() => import("./pages/Register"));
@@ -52,6 +55,7 @@ const router = createBrowserRouter([
       { path: "shop/:id", Component: ShopDynamicPage },
       { path: "category/:slug", Component: CategoryPage },
       { path: "discounts", Component: DiscountsPage },
+      { path: "featured", element: withSuspense(FeaturedCollectionPage) },
       { path: "shopsingle", Component: ShopSingle },
       { path: "cart", element: withSuspense(CartPage) },
       { path: "wish", element: withSuspense(WishListPage) },

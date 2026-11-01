@@ -1,36 +1,38 @@
 import { MongoClient } from "mongodb";
+import { loadServerEnv } from "./_services/envLoader.js";
 
-// Server-only configuration (prefers environment variables; encodes fallback for zero-downtime Vercel compatibility)
-const DEFAULT_REPLICA_B64 =
-  "bW9uZ29kYjovL3NhamlkaGFzYW4xNjRfZGJfdXNlcjpFa2N6Nk50N011MVBmd2dCQGFjLXhjdjdmOG0tc2hhcmQtMDAtMDAucWNxMXE3di5tb25nb2RiLm5ldDoyNzAxNyxhYy14Y3Y3ZjhtLXNoYXJkLTAwLTAxLnFjcTFxN3YubW9uZ29kYi5uZXQ6MjcwMTcsYWMteGN2N2Y4bS1zaGFyZC0wMC0wMi5xY3ExcTd2Lm1vbmdvZGIubmV0OjI3MDE3L3VtbW9fZWNvbW1lcmNlP3NzbD10cnVlJnJlcGxpY2FTZXQ9YXRsYXMtdnNqdHd4LXNoYXJkLTAmYXV0aFNvdXJjZT1hZG1pbiZyZXRyeVdyaXRlcz10cnVlJnc9bWFqb3JpdHk=";
-
-const DEFAULT_SRV_B64 =
-  "bW9uZ29kYitzcnY6Ly9zYWppZGhhc2FuMTY0X2RiX3VzZXI6RWtjejZOdDdNdTFQZndnQkBjbHVzdGVyMC5xY3ExcTd2Lm1vbmdvZGIubmV0L3VtbW9fZWNvbW1lcmNlP3JldHJ5V3JpdGVzPXRydWUmdz1tYWpvcml0eQ==";
-
-const DEFAULT_CLD_SECRET_B64 = "czZUSlNtQ3JqQU1qd09rVFhfVzdON1BrUEZv";
+loadServerEnv();
 
 export const DB_NAME = process.env.MONGODB_DB_NAME || "ummo_ecommerce";
 
-export const CLOUDINARY_CLOUD_NAME =
-  process.env.CLOUDINARY_CLOUD_NAME || "wxjt7d8q";
-export const CLOUDINARY_API_KEY =
-  process.env.CLOUDINARY_API_KEY || "791685979462932";
+export function getCloudinaryCloudName() {
+  return String(process.env.CLOUDINARY_CLOUD_NAME || "wxjt7d8q").trim();
+}
+
+export const CLOUDINARY_CLOUD_NAME = getCloudinaryCloudName();
+
+export function getCloudinaryApiKey() {
+  return String(process.env.CLOUDINARY_API_KEY || "").trim();
+}
+
+export const CLOUDINARY_API_KEY = getCloudinaryApiKey();
 
 export function getCloudinarySecret() {
-  return (
-    process.env.CLOUDINARY_API_SECRET ||
-    Buffer.from(DEFAULT_CLD_SECRET_B64, "base64").toString("utf8")
-  );
+  return String(process.env.CLOUDINARY_API_SECRET || "").trim();
+}
+
+export function isMongoConfigured() {
+  return getMongoUris().length > 0;
 }
 
 export function getMongoUris() {
-  if (process.env.MONGODB_URI) {
-    return [process.env.MONGODB_URI];
-  }
-  return [
-    Buffer.from(DEFAULT_REPLICA_B64, "base64").toString("utf8"),
-    Buffer.from(DEFAULT_SRV_B64, "base64").toString("utf8"),
-  ];
+  const uris = [
+    process.env.MONGODB_URI,
+    process.env.MONGODB_URI_FALLBACK,
+  ]
+    .map((u) => String(u || "").trim())
+    .filter(Boolean);
+  return [...new Set(uris)];
 }
 
 let cachedMongoClient = null;
@@ -44,9 +46,12 @@ export function createInitialMemoryState() {
     storeConfig: {
       coupons: null,
       banners: null,
+      featuredCollection: null,
       customProducts: [],
       deletedIds: [],
       cartRules: null,
+      discountCampaigns: null,
+      customTaxonomy: null,
     },
     orders: [],
     payments: [],
@@ -207,10 +212,18 @@ export async function getFullState(options = {}) {
         ...inMemoryState.storeConfig,
         coupons: cfgDoc.coupons ?? inMemoryState.storeConfig.coupons,
         banners: cfgDoc.banners ?? inMemoryState.storeConfig.banners,
+        featuredCollection:
+          cfgDoc.featuredCollection ??
+          inMemoryState.storeConfig.featuredCollection,
         customProducts:
           cfgDoc.customProducts ?? inMemoryState.storeConfig.customProducts,
         deletedIds: cfgDoc.deletedIds ?? inMemoryState.storeConfig.deletedIds,
         cartRules: cfgDoc.cartRules ?? inMemoryState.storeConfig.cartRules,
+        discountCampaigns:
+          cfgDoc.discountCampaigns ??
+          inMemoryState.storeConfig.discountCampaigns,
+        customTaxonomy:
+          cfgDoc.customTaxonomy ?? inMemoryState.storeConfig.customTaxonomy,
       };
     }
 

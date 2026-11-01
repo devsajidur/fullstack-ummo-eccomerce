@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Toaster } from "react-hot-toast";
 import Container from "../components/layout/common/Container";
+import AutoSlideStrip from "../components/layout/common/AutoSlideStrip";
 import Product from "../components/layout/common/Product";
 import {
   getInitialCatalogSnapshot,
@@ -22,6 +23,7 @@ import {
   matchesDepartmentFilter,
 } from "../utils/categoryTaxonomy";
 import { useLocalization } from "../i18n/LocalizationContext";
+import { usePageSeo } from "../utils/seo";
 
 const DiscountsPage = () => {
   const { t } = useLocalization();
@@ -135,6 +137,12 @@ const DiscountsPage = () => {
     );
   }, [allDiscountedProducts]);
 
+  usePageSeo({
+    title: `Flash Sales & Verified Discounts (Up to ${maxDiscountPct}% OFF)`,
+    description: `Shop ${allDiscountedProducts.length}+ verified markdowns and flash deals across Men, Women, Kids, Beauty, Electronics & Lifestyle at UOMO.`,
+    canonicalPath: "/discounts",
+  });
+
   const handleSelectDepartment = (slug) => {
     setSelectedDept(slug);
     if (slug === "all") {
@@ -171,19 +179,6 @@ const DiscountsPage = () => {
             {t("nav.allDiscounts", "Discounts")}
           </span>
         </nav>
-
-        {/* Department Quick Switcher Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 no-scrollbar">
-          {departments.map((dept) => (
-            <Link
-              key={dept.slug}
-              to={`/category/${dept.slug}`}
-              className="px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-            >
-              {dept.name}
-            </Link>
-          ))}
-        </div>
 
         {/* Hero Banner */}
         <div className="rounded-2xl bg-gradient-to-r from-[#111827] via-[#1f2937] to-[#7f1d1d] text-white p-5 sm:p-8 md:p-10 mb-6 shadow-md">
@@ -224,8 +219,11 @@ const DiscountsPage = () => {
             </div>
           </div>
 
-          {/* Horizontal Department Filter Pills */}
-          <div className="mt-6 pt-4 border-t border-white/15 flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+          {/* Smooth Auto-Sliding Horizontal Department Filter Pills (Zero Scrollbar) */}
+          <AutoSlideStrip
+            ariaLabel="Discount department filters"
+            className="mt-6 pt-4 border-t border-white/15 flex items-center gap-2 pb-1"
+          >
             <button
               type="button"
               onClick={() => handleSelectDepartment("all")}
@@ -258,7 +256,7 @@ const DiscountsPage = () => {
                 </button>
               );
             })}
-          </div>
+          </AutoSlideStrip>
         </div>
 
         {/* Controls Bar: Search, Mobile Filter Trigger, Sort */}

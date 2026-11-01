@@ -235,19 +235,47 @@ const DEFAULT_CART_RULES = {
   giftWrapFee: 5,
 };
 
-function computeEffectiveServerPrice(product) {
-  const basePrice = Number(product.originalPrice ?? product.price ?? 0);
-  const discPct = Number(product.discountPercentage || 0);
-  if (discPct <= 0) return Number(basePrice.toFixed(2));
-
-  if (product.discountEndTime && product.discountEndTime !== "none") {
-    const endMs = new Date(product.discountEndTime).getTime();
-    if (!Number.isNaN(endMs) && endMs <= Date.now()) {
-      // Discount timer has expired; charge full base price
-      return Number(basePrice.toFixed(2));
+function getActiveFeaturedDiscountForId(itemId, featuredCollection) {
+  if (
+    !featuredCollection ||
+    typeof featuredCollection !== "object" ||
+    featuredCollection.enabled === false
+  ) {
+    return 0;
+  }
+  const pct = Math.min(
+    90,
+    Math.max(0, Number(featuredCollection.discountPercentage || 0))
+  );
+  if (pct <= 0) return 0;
+  const ids = Array.isArray(featuredCollection.productIds)
+    ? featuredCollection.productIds.map(String)
+    : [];
+  if (!ids.includes(String(itemId))) return 0;
+  if (
+    featuredCollection.timerEnabled !== false &&
+    featuredCollection.countdownDate
+  ) {
+    const endMs = Date.parse(featuredCollection.countdownDate);
+    if (Number.isFinite(endMs) && endMs <= Date.now()) {
+      return 0;
     }
   }
-  return Number((basePrice * (1 - discPct / 100)).toFixed(2));
+  return pct;
+}
+
+function computeEffectiveServerPrice(product, featuredDiscountPct = 0) {
+  const basePrice = Number(product.originalPrice ?? product.price ?? 0);
+  let ownPct = Number(product.discountPercentage || 0);
+  if (ownPct > 0 && product.discountEndTime && product.discountEndTime !== "none") {
+    const endMs = new Date(product.discountEndTime).getTime();
+    if (!Number.isNaN(endMs) && endMs <= Date.now()) {
+      ownPct = 0;
+    }
+  }
+  const bestPct = Math.max(ownPct, Number(featuredDiscountPct || 0));
+  if (bestPct <= 0) return Number(basePrice.toFixed(2));
+  return Number((basePrice * (1 - bestPct / 100)).toFixed(2));
 }
 
 /**
@@ -281,6 +309,7 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
     ? state.storeConfig.customProducts
     : [];
   const customMap = new Map(customProducts.map((p) => [String(p.id), p]));
+  const featuredCollection = state.storeConfig?.featuredCollection || null;
 
   const validatedItems = [];
   const unlockedFreeGifts = [];
@@ -332,19 +361,26 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
       throw err;
     }
 
-    // Price integrity check
+    // Price integrity check (including active Featured Collection discount)
+    const featuredPct = getActiveFeaturedDiscountForId(
+      itemId,
+      featuredCollection
+    );
     let unitPrice;
     if (catalogOverride && Number(catalogOverride.price) > 0) {
-      unitPrice = computeEffectiveServerPrice(catalogOverride);
+      unitPrice = computeEffectiveServerPrice(catalogOverride, featuredPct);
     } else {
-      // Check if item's own discountEndTime expired
       if (
         rawItem?.discountEndTime &&
         rawItem.discountEndTime !== "none" &&
         new Date(rawItem.discountEndTime).getTime() <= Date.now() &&
         Number(rawItem?.originalPrice) > Number(rawItem?.price)
       ) {
-        unitPrice = Number(rawItem.originalPrice);
+        const reg = Number(rawItem.originalPrice);
+        unitPrice =
+          featuredPct > 0
+            ? Number((reg * (1 - featuredPct / 100)).toFixed(2))
+            : reg;
       } else {
         unitPrice = Number(rawItem?.price);
       }
@@ -401,14 +437,12 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
       catalogOverride,
       rawItem
     );
-    const resolvedSize = asSafeId(
-      rawItem?.size || rawItem?.selectedSize || "M",
-      32
-    );
-    const resolvedColor = asSafeId(
-      rawItem?.color || rawItem?.selectedColor || "Black",
-      32
-    );
+    const rawSizeVal = rawItem?.size ?? rawItem?.selectedSize;
+    const resolvedSize =
+      rawSizeVal === undefined ? "M" : asSafeId(rawSizeVal, 32);
+    const rawColorVal = rawItem?.color ?? rawItem?.selectedColor;
+    const resolvedColor =
+      rawColorVal === undefined ? "Black" : asSafeId(rawColorVal, 32);
     const resolvedTitle = asSafeId(
       catalogOverride?.title ||
         rawItem?.productNameSnapshot ||
@@ -423,7 +457,7 @@ export function validateAndBuildServerOrder(body, state, caller, idempotencyKey 
       rawItem?.productMessage ??
       "";
     const validatedMessage = sanitizeProductMessage(rawItemMsg);
-    const variantId = `${itemId}-${resolvedSize}-${resolvedColor}`;
+    const variantId = `${itemId}-${resolvedSize || "std"}-${resolvedColor || "std"}`;
 
     validatedItems.push({
       id: itemId,

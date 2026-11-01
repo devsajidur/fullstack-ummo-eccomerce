@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { Link } from "react-router";
 import { Flame } from "lucide-react";
 import Image from "../layout/common/Image";
+import AutoSlideStrip from "../layout/common/AutoSlideStrip";
 import { setShopOptions } from "../../slices/productSlice";
 import { getStoredBanners } from "../../services/api";
 import { getAllDepartments } from "../../utils/categoryTaxonomy";
@@ -93,9 +94,12 @@ const ShopBanner = () => {
         </div>
       </div>
 
-      {/* Canonical Department Quick Navigation Bar */}
+      {/* Smooth Auto-Sliding Canonical Department Bar (Zero Scrollbar) */}
       <div className="container mt-4 px-2">
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
+        <AutoSlideStrip
+          ariaLabel="Department quick navigation"
+          className="flex items-center gap-2 pb-2"
+        >
           <Link
             to="/discounts"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[#C32929] text-white text-xs font-bold whitespace-nowrap shadow-sm hover:bg-red-700 transition-colors"
@@ -112,7 +116,7 @@ const ShopBanner = () => {
               {dept.name}
             </Link>
           ))}
-        </div>
+        </AutoSlideStrip>
       </div>
     </div>
   );

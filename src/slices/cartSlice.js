@@ -1,10 +1,19 @@
 import { createSlice } from "@reduxjs/toolkit";
 import { resolveProductImage } from "../utils/productImage";
 
-const getNormalizedSize = (obj) => obj?.size || obj?.selectedSize || "M";
+const getNormalizedSize = (obj) => {
+  if (obj && (obj.size !== undefined || obj.selectedSize !== undefined)) {
+    return String(obj.size ?? obj.selectedSize ?? "").trim();
+  }
+  return "";
+};
+
 const getNormalizedColor = (obj) => {
-  const raw = obj?.color || obj?.selectedColor || "Black";
-  return raw === "Default" ? "Black" : raw;
+  if (obj && (obj.color !== undefined || obj.selectedColor !== undefined)) {
+    const raw = String(obj.color ?? obj.selectedColor ?? "").trim();
+    return raw === "Default" ? "" : raw;
+  }
+  return "";
 };
 
 export const sanitizeClientProductMessage = (raw) => {
@@ -21,7 +30,7 @@ const getNormalizedMessage = (obj) =>
   ).trim();
 
 const buildLineId = (id, size, color, msg, idx = 0) =>
-  `${id || "item"}-${size}-${color}-${msg ? encodeURIComponent(msg.slice(0, 32)) : "nomessage"}-${idx}`;
+  `${id || "item"}-${size || "std"}-${color || "std"}-${msg ? encodeURIComponent(msg.slice(0, 32)) : "nomessage"}-${idx}`;
 
 const normalizeCartItem = (item, idx = 0) => {
   if (!item || typeof item !== "object") return null;
@@ -32,7 +41,7 @@ const normalizeCartItem = (item, idx = 0) => {
   return {
     ...item,
     productId: item.productId ?? item.id,
-    variantId: item.variantId || `${item.id}-${size}-${color}`,
+    variantId: item.variantId || `${item.id}-${size || "std"}-${color || "std"}`,
     cartLineId:
       item.cartLineId || buildLineId(item.id, size, color, optionalMessage, idx),
     quantity: Math.max(1, Number(item.quantity) || 1),
@@ -177,7 +186,7 @@ export const cartSlice = createSlice({
         state.products.push({
           ...action.payload,
           productId: action.payload?.productId ?? action.payload?.id,
-          variantId: `${action.payload?.id}-${incomingSize}-${incomingColor}`,
+          variantId: `${action.payload?.id}-${incomingSize || "std"}-${incomingColor || "std"}`,
           cartLineId: buildLineId(
             action.payload?.id,
             incomingSize,

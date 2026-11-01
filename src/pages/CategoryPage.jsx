@@ -6,10 +6,10 @@ import {
   RotateCcw,
   X,
   Sparkles,
-  Flame,
 } from "lucide-react";
 import { Toaster } from "react-hot-toast";
 import Container from "../components/layout/common/Container";
+import AutoSlideStrip from "../components/layout/common/AutoSlideStrip";
 import Product from "../components/layout/common/Product";
 import {
   getInitialCatalogSnapshot,
@@ -17,11 +17,11 @@ import {
 } from "../services/api";
 import { getProductDiscountState } from "../utils/discountTimer";
 import {
-  getAllDepartments,
   getDepartmentBySlug,
   matchesDepartmentFilter,
 } from "../utils/categoryTaxonomy";
 import { useLocalization } from "../i18n/LocalizationContext";
+import { usePageSeo } from "../utils/seo";
 
 const CategoryPage = () => {
   const { slug } = useParams();
@@ -57,7 +57,6 @@ const CategoryPage = () => {
     };
   }, []);
 
-  const allDepartments = useMemo(() => getAllDepartments(false), []);
   const currentDept = useMemo(
     () =>
       getDepartmentBySlug(slug) || {
@@ -80,6 +79,12 @@ const CategoryPage = () => {
         matchesDepartmentFilter(p, currentDept.slug, "all")
     );
   }, [products, currentDept.slug]);
+
+  usePageSeo({
+    title: `${currentDept.title} (${departmentProducts.length} Products)`,
+    description: currentDept.description,
+    canonicalPath: `/category/${currentDept.slug}`,
+  });
 
   const availableBrands = useMemo(() => {
     const set = new Set();
@@ -198,33 +203,6 @@ const CategoryPage = () => {
           )}
         </nav>
 
-        {/* Department Switcher Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 no-scrollbar">
-          {allDepartments.map((dept) => {
-            const isCurrent = dept.slug === currentDept.slug;
-            return (
-              <Link
-                key={dept.slug}
-                to={`/category/${dept.slug}`}
-                className={`px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${
-                  isCurrent
-                    ? "bg-gray-900 text-white shadow-sm"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                {dept.name}
-              </Link>
-            );
-          })}
-          <Link
-            to="/discounts"
-            className="px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap bg-red-50 text-[#C32929] hover:bg-red-100 inline-flex items-center gap-1"
-          >
-            <Flame size={13} />
-            {t("nav.allDiscounts", "All Discounts")}
-          </Link>
-        </div>
-
         {/* Department Hero Header */}
         <div className="rounded-2xl bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 text-white p-5 sm:p-8 mb-6 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -252,10 +230,13 @@ const CategoryPage = () => {
             </div>
           </div>
 
-          {/* Subcategory Pills */}
+          {/* Smooth Auto-Sliding Subcategory Pills (Zero Scrollbar) */}
           {Array.isArray(currentDept.subcategories) &&
             currentDept.subcategories.length > 0 && (
-              <div className="mt-5 pt-4 border-t border-white/15 flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+              <AutoSlideStrip
+                ariaLabel={`${currentDept.name} subcategory filters`}
+                className="mt-5 pt-4 border-t border-white/15 flex items-center gap-2 pb-1"
+              >
                 <button
                   type="button"
                   onClick={() => handleSubcategoryChange("all")}
@@ -286,7 +267,7 @@ const CategoryPage = () => {
                     </button>
                   );
                 })}
-              </div>
+              </AutoSlideStrip>
             )}
         </div>
 

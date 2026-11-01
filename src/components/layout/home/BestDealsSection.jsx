@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArrowRight, Flame } from "lucide-react";
 import Container from "../common/Container";
+import AutoSlideStrip from "../common/AutoSlideStrip";
 import Product from "../common/Product";
 import {
   getInitialCatalogSnapshot,
@@ -95,8 +96,11 @@ const BestDealsSection = () => {
           </Link>
         </div>
 
-        {/* Department Filter Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-5 no-scrollbar">
+        {/* Smooth Auto-Sliding Department Filter Pills (Zero Scrollbar) */}
+        <AutoSlideStrip
+          ariaLabel="Best deals department filters"
+          className="flex items-center gap-2 pb-3 mb-5"
+        >
           {filterTabs.map((tab) => (
             <button
               key={tab.slug}
@@ -111,7 +115,7 @@ const BestDealsSection = () => {
               {tab.label}
             </button>
           ))}
-        </div>
+        </AutoSlideStrip>
 
         {/* Deals Product Grid (Clean cards, no countdown timers per Gate 6) */}
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-5">

@@ -3,12 +3,20 @@ import ShopBanner from "../components/shop/ShopBanner";
 import ShopFilter from "../components/shop/ShopFilter";
 import ShopAllProducts from "../components/shop/ShopAllProducts";
 import ShopResponsive from "../components/shop/ShopResponsive";
+import { usePageSeo } from "../utils/seo";
 
 const ShopPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window === "undefined" || !window.matchMedia) return true;
     return window.matchMedia("(min-width: 1024px)").matches;
+  });
+
+  usePageSeo({
+    title: "Shop All Collections & Departments",
+    description:
+      "Browse all 194+ authentic UOMO products across Fashion, Footwear, Fragrances, Beauty, Electronics, Home & Living, and Daily Essentials.",
+    canonicalPath: "/shop",
   });
 
   useEffect(() => {

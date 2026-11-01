@@ -9,6 +9,12 @@ import {
   useNowTick,
 } from "../../utils/discountTimer";
 import { classifyProductTaxonomy } from "../../utils/categoryTaxonomy";
+import {
+  getCategoryDefaultVariants,
+  normalizeColorList,
+  normalizeSizeList,
+  resolveProductVariants,
+} from "../../utils/productVariants";
 import AdminProductModal from "./AdminProductModal";
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -16,32 +22,40 @@ const currency = new Intl.NumberFormat("en-US", {
   currency: "USD",
 });
 
-const EMPTY_PRODUCT_FORM = {
-  title: "",
-  sku: "",
-  department: "women",
-  subcategory: "Clothing",
-  category: "womens-dresses",
-  brand: "UOMO Studio",
-  price: "",
-  discountPercentage: "0",
-  discountEndTime: "",
-  stock: "25",
-  thumbnail: "",
-  images: [],
-  sizesInput: "XS, S, M, L, XL",
-  colorsInput: "Black, White, Navy",
-  isVisible: true,
-  isFeatured: false,
-  status: "active",
-  description: "",
-  freeGiftEnabled: false,
-  freeGiftMinBuyQty: "1",
-  freeGiftQty: "1",
-  freeGiftName: "",
-  freeGiftImage: "",
-  freeGiftProductId: "",
-};
+function createDefaultProductForm() {
+  const initialVariants = getCategoryDefaultVariants({
+    department: "women",
+    subcategory: "Clothing",
+    category: "womens-dresses",
+  });
+  return {
+    title: "",
+    sku: "",
+    department: "women",
+    subcategory: "Clothing",
+    category: "womens-dresses",
+    brand: "UOMO Studio",
+    price: "",
+    discountPercentage: "0",
+    discountEndTime: "",
+    stock: "25",
+    thumbnail: "",
+    images: [],
+    sizes: initialVariants.sizes,
+    colors: initialVariants.colors,
+    variantsTouched: false,
+    isVisible: true,
+    isFeatured: false,
+    status: "active",
+    description: "",
+    freeGiftEnabled: false,
+    freeGiftMinBuyQty: "1",
+    freeGiftQty: "1",
+    freeGiftName: "",
+    freeGiftImage: "",
+    freeGiftProductId: "",
+  };
+}
 
 export default function AdminProductsTab({
   products,
@@ -52,7 +66,7 @@ export default function AdminProductsTab({
   const [deptFilter, setDeptFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [productForm, setProductForm] = useState(EMPTY_PRODUCT_FORM);
+  const [productForm, setProductForm] = useState(createDefaultProductForm);
   const [uploadingField, setUploadingField] = useState("");
   const [uploadStatusMsg, setUploadStatusMsg] = useState("");
 
@@ -79,7 +93,7 @@ export default function AdminProductsTab({
 
   function openAddModal() {
     setEditingProduct(null);
-    setProductForm(EMPTY_PRODUCT_FORM);
+    setProductForm(createDefaultProductForm());
     setUploadStatusMsg("");
     setShowModal(true);
   }
@@ -87,6 +101,7 @@ export default function AdminProductsTab({
   function openEditModal(product) {
     const fg = product.freeGift || {};
     const tax = classifyProductTaxonomy(product);
+    const resolvedVariants = resolveProductVariants(product);
     setEditingProduct(product);
     setProductForm({
       title: product.title || "",
@@ -111,12 +126,9 @@ export default function AdminProductsTab({
           : product.thumbnail
             ? [product.thumbnail]
             : [],
-      sizesInput: Array.isArray(product.sizes)
-        ? product.sizes.join(", ")
-        : "XS, S, M, L, XL",
-      colorsInput: Array.isArray(product.colors)
-        ? product.colors.join(", ")
-        : "Black, White, Navy",
+      sizes: resolvedVariants.sizes,
+      colors: resolvedVariants.colors,
+      variantsTouched: true,
       isVisible: product.isVisible !== false && product.status !== "draft",
       isFeatured: Boolean(product.isFeatured),
       status: product.status || "active",
@@ -173,7 +185,7 @@ export default function AdminProductsTab({
           [targetField]: uploadedUrl,
         };
       });
-      setUploadStatusMsg("✅ Uploaded to Cloudinary!");
+      setUploadStatusMsg("Uploaded to Cloudinary!");
       toast.success("Image uploaded to Cloudinary!");
     } catch (err) {
       setUploadStatusMsg("");
@@ -233,6 +245,7 @@ export default function AdminProductsTab({
     const payload = {
       id: editingProduct ? editingProduct.id : Date.now(),
       isCustomNew: editingProduct ? editingProduct.isCustomNew : true,
+      hasCustomVariants: true,
       title: productForm.title.trim(),
       sku:
         (productForm.sku || "").trim() ||
@@ -248,14 +261,8 @@ export default function AdminProductsTab({
       rating: editingProduct?.rating || 4.8,
       thumbnail: primaryThumb,
       images: galleryList,
-      sizes: String(productForm.sizesInput || "XS, S, M, L, XL")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      colors: String(productForm.colorsInput || "Black, White")
-        .split(",")
-        .map((c) => c.trim())
-        .filter(Boolean),
+      sizes: normalizeSizeList(productForm.sizes),
+      colors: normalizeColorList(productForm.colors),
       isVisible: productForm.isVisible !== false,
       isFeatured: Boolean(productForm.isFeatured),
       status: productForm.isVisible !== false ? "active" : "draft",
@@ -299,10 +306,10 @@ export default function AdminProductsTab({
               <option value="men">Men</option>
               <option value="women">Women</option>
               <option value="kids">Kids</option>
-              <option value="beauty">Beauty & Care</option>
+              <option value="beauty">Beauty &amp; Care</option>
               <option value="fragrances">Fragrances</option>
               <option value="electronics">Electronics</option>
-              <option value="home-living">Home & Living</option>
+              <option value="home-living">Home &amp; Living</option>
               <option value="sports">Sports</option>
               <option value="groceries">Groceries</option>
             </select>
@@ -322,6 +329,7 @@ export default function AdminProductsTab({
           {filteredProducts.slice(0, 40).map((product) => {
             const dState = getProductDiscountState(product, now);
             const tax = classifyProductTaxonomy(product);
+            const variants = resolveProductVariants(product);
             const isVisible =
               product.isVisible !== false && product.status !== "draft";
 
@@ -357,6 +365,15 @@ export default function AdminProductsTab({
                     </h4>
                     <p className="text-[11px] text-gray-500 font-mono">
                       SKU: {product.sku || `UMMO-${product.id}`}
+                    </p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">
+                      {variants.sizes.length > 0
+                        ? `${variants.sizes.length} Sizes`
+                        : "No Sizes"}{" "}
+                      •{" "}
+                      {variants.colors.length > 0
+                        ? `${variants.colors.length} Colors`
+                        : "No Colors"}
                     </p>
                   </div>
                 </div>
@@ -417,8 +434,8 @@ export default function AdminProductsTab({
             <thead>
               <tr className="border-b border-gray-200 text-[11px] font-bold uppercase text-gray-500">
                 <th className="py-3 pr-4">Product</th>
-                <th className="py-3 pr-4">Department / Sub</th>
-                <th className="py-3 pr-4">Price & Discount</th>
+                <th className="py-3 pr-4">Department / Variants</th>
+                <th className="py-3 pr-4">Price &amp; Discount</th>
                 <th className="py-3 pr-4">Single-Page Timer</th>
                 <th className="py-3 pr-4">Free Gift</th>
                 <th className="py-3 pr-4">Stock</th>
@@ -429,6 +446,7 @@ export default function AdminProductsTab({
               {filteredProducts.slice(0, 60).map((product) => {
                 const dState = getProductDiscountState(product, now);
                 const tax = classifyProductTaxonomy(product);
+                const variants = resolveProductVariants(product);
                 const hasFreeGift =
                   Boolean(product.freeGift?.enabled) &&
                   Boolean(product.freeGift?.giftName);
@@ -458,7 +476,14 @@ export default function AdminProductsTab({
                         {tax.departmentName}
                       </span>
                       <span className="block text-[11px] text-gray-500">
-                        {tax.subcategory}
+                        {tax.subcategory} •{" "}
+                        {variants.sizes.length > 0
+                          ? `${variants.sizes.length} sizes`
+                          : "no sizes"}
+                        ,{" "}
+                        {variants.colors.length > 0
+                          ? `${variants.colors.length} colors`
+                          : "no colors"}
                       </span>
                     </td>
                     <td className="py-3 pr-4">

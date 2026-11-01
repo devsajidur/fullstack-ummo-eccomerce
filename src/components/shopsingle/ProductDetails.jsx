@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { FaRegHeart } from "react-icons/fa6";
 import { LuShare2 } from "react-icons/lu";
-import { Gift, ShieldCheck, RotateCcw, Ruler, Truck, X, Zap } from "lucide-react";
+import { Gift, RotateCcw, ShieldCheck, Truck, Zap } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import toast, { Toaster } from "react-hot-toast";
 import Reviews from "./Reviews";
 import AdditionalInformation from "./AdditionalInformation";
-import Image from "../layout/common/Image";
+import ProductImageGallery from "./details/ProductImageGallery";
+import ProductVariantPicker from "./details/ProductVariantPicker";
+import SizeGuideModal from "./details/SizeGuideModal";
 import {
   addToCart,
   sanitizeClientProductMessage,
@@ -28,14 +30,8 @@ import {
   recordRecentlyViewedProduct,
 } from "../../utils/cartPromotions";
 import { classifyProductTaxonomy } from "../../utils/categoryTaxonomy";
-
-const SIZES = ["XS", "S", "M", "L", "XL"];
-const COLORS = [
-  { name: "Black", hex: "#222222" },
-  { name: "Sand", hex: "#D8C3A5" },
-  { name: "Navy", hex: "#1B365D" },
-  { name: "Olive", hex: "#556B2F" },
-];
+import { resolveProductVariants } from "../../utils/productVariants";
+import { buildProductSeoConfig, usePageSeo } from "../../utils/seo";
 
 export default function ProductDetails() {
   const detailsProduct = useSelector(
@@ -48,15 +44,6 @@ export default function ProductDetails() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState("description");
-  const [selectedSize, setSelectedSize] = useState("M");
-  const [selectedColor, setSelectedColor] = useState("Black");
-  const [quantity, setQuantity] = useState(1);
-  const [optionalMessage, setOptionalMessage] = useState("");
-  const [activeImageIdx, setActiveImageIdx] = useState(0);
-  const [showSizeGuide, setShowSizeGuide] = useState(false);
-
-  // Always prefer the freshest product from catalogProducts or synchronous seed snapshot
   const targetId = productIdParam || detailsProduct?.id || 1;
   const fallbackCatalog =
     catalogProducts && catalogProducts.length > 0
@@ -67,7 +54,41 @@ export default function ProductDetails() {
     detailsProduct ||
     fallbackCatalog[0];
 
+  const variantInfo = useMemo(
+    () => resolveProductVariants(liveProduct),
+    [liveProduct]
+  );
+
+  const [activeTab, setActiveTab] = useState("description");
+  const [selectedSize, setSelectedSize] = useState(
+    () => variantInfo.sizes[0] || ""
+  );
+  const [selectedColor, setSelectedColor] = useState(
+    () => variantInfo.colors[0]?.name || ""
+  );
+  const [quantity, setQuantity] = useState(1);
+  const [optionalMessage, setOptionalMessage] = useState("");
+  const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [showSizeGuide, setShowSizeGuide] = useState(false);
+
   const freeGiftConfig = getProductFreeGiftConfig(liveProduct, catalogProducts);
+
+  const sizesKey = variantInfo.sizes.join("|");
+  const colorsKey = variantInfo.colors.map((c) => c.name).join("|");
+
+  useEffect(() => {
+    setSelectedSize((prev) =>
+      variantInfo.sizes.includes(prev) ? prev : variantInfo.sizes[0] || ""
+    );
+  }, [liveProduct?.id, sizesKey, variantInfo.sizes]);
+
+  useEffect(() => {
+    setSelectedColor((prev) =>
+      variantInfo.colors.some((c) => c.name === prev)
+        ? prev
+        : variantInfo.colors[0]?.name || ""
+    );
+  }, [liveProduct?.id, colorsKey, variantInfo.colors]);
 
   useEffect(() => {
     if (liveProduct?.id) {
@@ -110,6 +131,12 @@ export default function ProductDetails() {
   const now = useNowTick(hasTimer);
   const discountState = getProductDiscountState(liveProduct, now);
   const stockCount = Number(liveProduct?.stock ?? 20);
+  const taxonomy = useMemo(
+    () => classifyProductTaxonomy(liveProduct),
+    [liveProduct]
+  );
+
+  usePageSeo(buildProductSeoConfig(liveProduct, discountState, taxonomy));
 
   const galleryImages =
     Array.isArray(liveProduct?.images) && liveProduct.images.length > 0
@@ -130,6 +157,9 @@ export default function ProductDetails() {
     );
     const latestDiscount = getProductDiscountState(liveProduct);
     const cleanedMessage = sanitizeClientProductMessage(optionalMessage).trim();
+    const chosenSize = variantInfo.sizes.length > 0 ? selectedSize : "";
+    const chosenColor = variantInfo.colors.length > 0 ? selectedColor : "";
+
     dispatch(
       addToCart({
         id: liveProduct.id,
@@ -147,22 +177,23 @@ export default function ProductDetails() {
         thumbnail: liveProduct.thumbnail,
         productImageSnapshot: liveProduct.thumbnail,
         quantity: finalQty,
-        size: selectedSize,
-        color: selectedColor,
+        size: chosenSize,
+        color: chosenColor,
         optionalMessage: cleanedMessage,
       })
     );
     setOptionalMessage("");
+    const variantSuffix = [chosenSize, chosenColor].filter(Boolean).join(" / ");
     if (freeGiftConfig && finalQty >= freeGiftConfig.minBuyQty) {
       const earnedGifts =
         Math.floor(finalQty / freeGiftConfig.minBuyQty) *
         freeGiftConfig.giftQty;
       toast.success(
-        `Added ${finalQty} × ${liveProduct.title} + 🎁 ${earnedGifts}x FREE "${freeGiftConfig.giftName}" to cart!`
+        `Added ${finalQty} × ${liveProduct.title}${variantSuffix ? ` (${variantSuffix})` : ""} + 🎁 ${earnedGifts}x FREE "${freeGiftConfig.giftName}" to cart!`
       );
     } else {
       toast.success(
-        `Added ${finalQty} × ${liveProduct.title} ($${(latestDiscount.effectivePrice * finalQty).toFixed(2)}) to cart!`
+        `Added ${finalQty} × ${liveProduct.title}${variantSuffix ? ` (${variantSuffix})` : ""} ($${(latestDiscount.effectivePrice * finalQty).toFixed(2)}) to cart!`
       );
     }
     if (redirectToCheckout) {
@@ -193,59 +224,23 @@ export default function ProductDetails() {
     <div className="min-h-screen bg-white font-jost text-primary px-3">
       <Toaster position="top-center" />
       <div className="mx-auto container px-4 py-8 sm:px-4 md:px-0 lg:py-12">
-        {/* Main content: gallery + info */}
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-20">
-          {/* Interactive Gallery */}
-          <div className="flex flex-col-reverse gap-3 sm:flex-row">
-            {galleryImages.length > 1 && (
-              <div className="flex sm:flex-col gap-2.5 overflow-x-auto sm:overflow-visible">
-                {galleryImages.slice(0, 5).map((imgUrl, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setActiveImageIdx(idx)}
-                    className={`w-16 h-16 sm:w-20 sm:h-20 border-2 rounded-sm bg-[#EDECE9] p-1 shrink-0 cursor-pointer transition-all ${
-                      activeImageIdx === idx
-                        ? "border-primary"
-                        : "border-transparent opacity-70 hover:opacity-100"
-                    }`}
-                  >
-                    <Image
-                      src={imgUrl}
-                      alt={`${liveProduct.title} view ${idx + 1}`}
-                      className="w-full h-full object-contain"
-                      width={80}
-                      height={80}
-                      loading="lazy"
-                      fetchPriority="low"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="relative flex-1 bg-[#EDECE9] rounded-sm overflow-hidden">
-              <Image
-                className="aspect-square w-full object-contain"
-                src={activeImage}
-                alt={liveProduct.title}
-                loading="eager"
-                fetchPriority="high"
-                width={420}
-                height={420}
-              />
-              {discountState.isDiscountActive && (
-                <span className="absolute top-3 left-3 bg-[#D6001C] text-white text-xs font-bold px-3 py-1 rounded-sm shadow">
-                  -{discountState.discountPercent}% OFF
-                </span>
-              )}
-            </div>
-          </div>
+          <ProductImageGallery
+            galleryImages={galleryImages}
+            activeImage={activeImage}
+            activeImageIdx={activeImageIdx}
+            setActiveImageIdx={setActiveImageIdx}
+            productTitle={liveProduct.title}
+            discountState={discountState}
+          />
 
-          {/* Product info */}
           <div>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-medium leading-6 text-primary">
               <div className="flex flex-wrap items-center gap-1">
-                <span className="cursor-pointer hover:underline" onClick={() => navigate("/")}>
+                <span
+                  className="cursor-pointer hover:underline"
+                  onClick={() => navigate("/")}
+                >
                   HOME
                 </span>
                 <span className="mx-1">/</span>
@@ -255,37 +250,30 @@ export default function ProductDetails() {
                 >
                   SHOP
                 </span>
-                {(() => {
-                  const tax = classifyProductTaxonomy(liveProduct);
-                  return (
-                    <>
-                      <span className="mx-1">/</span>
-                      <span
-                        className="cursor-pointer uppercase font-bold hover:underline"
-                        onClick={() => navigate(`/category/${tax.department}`)}
-                      >
-                        {tax.departmentName}
-                      </span>
-                      {tax.subcategory && (
-                        <>
-                          <span className="mx-1">/</span>
-                          <span
-                            className="cursor-pointer uppercase text-gray-600 hover:underline"
-                            onClick={() =>
-                              navigate(
-                                `/category/${tax.department}?sub=${encodeURIComponent(
-                                  tax.subcategory
-                                )}`
-                              )
-                            }
-                          >
-                            {tax.subcategory}
-                          </span>
-                        </>
-                      )}
-                    </>
-                  );
-                })()}
+                <span className="mx-1">/</span>
+                <span
+                  className="cursor-pointer uppercase font-bold hover:underline"
+                  onClick={() => navigate(`/category/${taxonomy.department}`)}
+                >
+                  {taxonomy.departmentName}
+                </span>
+                {taxonomy.subcategory && (
+                  <>
+                    <span className="mx-1">/</span>
+                    <span
+                      className="cursor-pointer uppercase text-gray-600 hover:underline"
+                      onClick={() =>
+                        navigate(
+                          `/category/${taxonomy.department}?sub=${encodeURIComponent(
+                            taxonomy.subcategory
+                          )}`
+                        )
+                      }
+                    >
+                      {taxonomy.subcategory}
+                    </span>
+                  </>
+                )}
               </div>
               <span
                 className={`text-xs font-semibold px-2.5 py-1 rounded ${
@@ -305,7 +293,6 @@ export default function ProductDetails() {
                 {liveProduct.title}
               </h1>
 
-              {/* Price + Discount Savings Display */}
               <div className="mt-2.5 flex flex-wrap items-center gap-3">
                 <span
                   className={`text-xl sm:text-[26px] font-extrabold ${
@@ -329,7 +316,6 @@ export default function ProductDetails() {
                 )}
               </div>
 
-              {/* Gate 7: Live Countdown Timer ONLY on Single Product Page */}
               {discountState.hasActiveTimer && (
                 <div
                   className="mt-4 p-3.5 sm:p-4 rounded-xl bg-gradient-to-r from-[#fff5f5] to-[#fffbeb] border border-red-200"
@@ -343,7 +329,10 @@ export default function ProductDetails() {
                     <div className="flex items-center gap-1.5 font-mono flex-wrap">
                       <TimerBox value={pad2(discountState.days)} label="Days" />
                       <span className="font-bold text-[#D6001C]">:</span>
-                      <TimerBox value={pad2(discountState.hours)} label="Hours" />
+                      <TimerBox
+                        value={pad2(discountState.hours)}
+                        label="Hours"
+                      />
                       <span className="font-bold text-[#D6001C]">:</span>
                       <TimerBox
                         value={pad2(discountState.minutes)}
@@ -359,11 +348,11 @@ export default function ProductDetails() {
                 </div>
               )}
 
-              {/* Low Stock Urgency Bar */}
               {stockCount > 0 && stockCount <= 15 && (
                 <div className="mt-4">
                   <p className="text-xs font-medium text-amber-800 mb-1">
-                    Hurry! Only <strong>{stockCount}</strong> items left in stock.
+                    Hurry! Only <strong>{stockCount}</strong> items left in
+                    stock.
                   </p>
                   <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
                     <div
@@ -380,65 +369,15 @@ export default function ProductDetails() {
                 {liveProduct.description}
               </p>
 
-              {/* Size Selector */}
-              <div className="mt-5">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-gray">
-                    Size: <strong className="text-primary">{selectedSize}</strong>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowSizeGuide(true)}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline hover:text-gray cursor-pointer"
-                  >
-                    <Ruler size={13} />
-                    Size Guide
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  {SIZES.map((sz) => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => setSelectedSize(sz)}
-                      className={`w-10 h-10 text-xs font-medium border cursor-pointer transition-colors ${
-                        selectedSize === sz
-                          ? "border-primary bg-primary text-white"
-                          : "border-gray-300 text-primary hover:border-primary"
-                      }`}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <ProductVariantPicker
+                variantInfo={variantInfo}
+                selectedSize={selectedSize}
+                setSelectedSize={setSelectedSize}
+                selectedColor={selectedColor}
+                setSelectedColor={setSelectedColor}
+                onOpenSizeGuide={() => setShowSizeGuide(true)}
+              />
 
-              {/* Color Selector */}
-              <div className="mt-4">
-                <span className="text-xs font-semibold uppercase tracking-wider text-gray block mb-2">
-                  Color:{" "}
-                  <strong className="text-primary">{selectedColor}</strong>
-                </span>
-                <div className="flex items-center gap-3">
-                  {COLORS.map((col) => (
-                    <button
-                      key={col.name}
-                      type="button"
-                      onClick={() => setSelectedColor(col.name)}
-                      style={{ backgroundColor: col.hex }}
-                      title={col.name}
-                      aria-label={`Select color ${col.name}`}
-                      className={`w-7 h-7 rounded-full cursor-pointer transition-transform ${
-                        selectedColor === col.name
-                          ? "ring-2 ring-offset-2 ring-primary scale-110"
-                          : "opacity-80 hover:opacity-100"
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Product-Specific Optional Customer Message (Max 500 Unicode chars) */}
               <div className="mt-5 p-3.5 rounded-lg border border-gray-200 bg-gray-50/70">
                 <div className="flex items-center justify-between mb-1.5">
                   <label
@@ -489,7 +428,6 @@ export default function ProductDetails() {
                 </div>
               </div>
 
-              {/* Quantity + Add to Cart + Buy Now */}
               <div className="mt-6 flex flex-wrap items-center gap-4">
                 <div className="flex items-center border-2 border-gray-300 h-12 px-3 gap-4">
                   <button
@@ -505,7 +443,9 @@ export default function ProductDetails() {
                   <button
                     type="button"
                     onClick={() =>
-                      setQuantity((q) => Math.min(Math.max(1, stockCount), q + 1))
+                      setQuantity((q) =>
+                        Math.min(Math.max(1, stockCount), q + 1)
+                      )
                     }
                     className="text-lg font-medium cursor-pointer px-1"
                   >
@@ -536,7 +476,6 @@ export default function ProductDetails() {
                 </button>
               </div>
 
-              {/* Per-Product Free Gift Offer Set by Admin */}
               {freeGiftConfig && stockCount > 0 && (
                 <div className="mt-4 p-3.5 rounded-lg border border-emerald-300 bg-emerald-50/70 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3 text-xs text-emerald-950">
@@ -559,11 +498,15 @@ export default function ProductDetails() {
                           {freeGiftConfig.minBuyQty} unit
                           {freeGiftConfig.minBuyQty > 1 ? "s" : ""}
                         </strong>{" "}
-                        of this product & get{" "}
+                        of this product &amp; get{" "}
                         <strong>
                           {freeGiftConfig.giftQty}x {freeGiftConfig.giftName}
                         </strong>{" "}
-                        for <strong className="text-emerald-700">$0.00 (FREE)</strong>!
+                        for{" "}
+                        <strong className="text-emerald-700">
+                          $0.00 (FREE)
+                        </strong>
+                        !
                       </p>
                     </div>
                   </div>
@@ -574,7 +517,7 @@ export default function ProductDetails() {
                     }
                     className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold uppercase tracking-wider px-4 py-2 rounded cursor-pointer transition-colors"
                   >
-                    + Buy {freeGiftConfig.minBuyQty} & Get Free Gift
+                    + Buy {freeGiftConfig.minBuyQty} &amp; Get Free Gift
                   </button>
                 </div>
               )}
@@ -596,7 +539,6 @@ export default function ProductDetails() {
                 </button>
               </div>
 
-              {/* Storefront Guarantee & Delivery Badges */}
               <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-5 border-t border-gray-200 text-xs text-gray-700">
                 <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded">
                   <Truck size={16} className="text-primary shrink-0" />
@@ -628,7 +570,6 @@ export default function ProductDetails() {
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="mt-14 border-b border-gray/15 sm:mt-20">
           <div className="flex flex-wrap justify-center gap-8 text-center text-xs tracking-wide sm:gap-12">
             {[
@@ -657,7 +598,6 @@ export default function ProductDetails() {
           </div>
         </div>
 
-        {/* Tab content */}
         {activeTab === "description" && (
           <div className="mx-auto mt-10 max-w-3xl sm:mt-14">
             <h2 className="text-base font-medium">Product Overview</h2>
@@ -669,7 +609,7 @@ export default function ProductDetails() {
 
         {activeTab === "additional" && (
           <div className="mx-auto mt-10 max-w-3xl text-gray sm:mt-14">
-            <AdditionalInformation />
+            <AdditionalInformation product={liveProduct} />
           </div>
         )}
 
@@ -680,73 +620,11 @@ export default function ProductDetails() {
         )}
       </div>
 
-      {/* International Size Guide Modal */}
       {showSizeGuide && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setShowSizeGuide(false)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-primary flex items-center gap-2">
-                <Ruler size={16} />
-                International Size Guide (US / UK / EU)
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowSizeGuide(false)}
-                className="text-gray-400 hover:text-gray-900 cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse">
-                <thead>
-                  <tr className="bg-gray-100 text-gray-800 uppercase">
-                    <th className="p-2.5 border border-gray-200">Size</th>
-                    <th className="p-2.5 border border-gray-200">US</th>
-                    <th className="p-2.5 border border-gray-200">EU</th>
-                    <th className="p-2.5 border border-gray-200">Chest (in)</th>
-                    <th className="p-2.5 border border-gray-200">Waist (in)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { s: "XS", us: "2–4", eu: "34", chest: "32–34", waist: "25–27" },
-                    { s: "S", us: "4–6", eu: "36", chest: "35–37", waist: "28–30" },
-                    { s: "M", us: "8–10", eu: "38–40", chest: "38–40", waist: "31–33" },
-                    { s: "L", us: "12–14", eu: "42", chest: "41–43", waist: "34–36" },
-                    { s: "XL", us: "16–18", eu: "44–46", chest: "44–46", waist: "37–40" },
-                  ].map((row) => (
-                    <tr
-                      key={row.s}
-                      className={
-                        selectedSize === row.s
-                          ? "bg-amber-50 font-semibold"
-                          : "hover:bg-gray-50"
-                      }
-                    >
-                      <td className="p-2.5 border border-gray-200 font-bold">
-                        {row.s}
-                      </td>
-                      <td className="p-2.5 border border-gray-200">{row.us}</td>
-                      <td className="p-2.5 border border-gray-200">{row.eu}</td>
-                      <td className="p-2.5 border border-gray-200">{row.chest}</td>
-                      <td className="p-2.5 border border-gray-200">{row.waist}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-[11px] text-gray-500 mt-3">
-              Tip: If you are between two sizes, choose the smaller size for a tailored fit or the larger size for a relaxed fit.
-            </p>
-          </div>
-        </div>
+        <SizeGuideModal
+          selectedSize={selectedSize}
+          onClose={() => setShowSizeGuide(false)}
+        />
       )}
     </div>
   );

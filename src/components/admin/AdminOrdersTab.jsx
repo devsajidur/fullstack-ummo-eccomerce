@@ -182,7 +182,7 @@ export default function AdminOrdersTab({
       </div>
 
       {/* Order Status Pills */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-5">
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-2 mb-5">
         {["ALL", ...ORDER_STATUSES].map((st) => (
           <button
             key={st}

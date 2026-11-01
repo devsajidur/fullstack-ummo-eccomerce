@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { MongoClient } from "mongodb";
@@ -11,7 +12,11 @@ import {
   getMongoUris,
 } from "../api/db.js";
 import {
-  ADMIN_ACCESS_KEY,
+  hashAdminPassword,
+  SECURITY_GUARD_DOC_ID,
+  setOwnerAdminPasswordDurable,
+  validateOwnerPasswordPolicy,
+  verifyAdminPasswordHash,
   asSafeEmail,
   asSafeId,
   canAccessUser,
@@ -57,6 +62,15 @@ import {
 } from "../src/utils/categoryTaxonomy.js";
 import { INITIAL_CATALOG_SEED } from "../src/services/catalogSeed.js";
 import { TRANSLATIONS } from "../src/i18n/translations.js";
+import {
+  normalizeColorList,
+  normalizeSizeList,
+  resolveProductVariants,
+} from "../src/utils/productVariants.js";
+import {
+  buildDynamicSitemapXml,
+  buildProductBotSeoHtml,
+} from "../api/_services/seoService.js";
 import handler from "../api/index.js";
 
 function createMockReqRes({
@@ -257,7 +271,11 @@ test("Phase 3.6: File upload signature endpoint enforces Admin auth, MIME whitel
   const adminHeaders = {
     "x-user-uid": MASTER_ADMIN_UID,
     "x-user-email": MASTER_ADMIN_EMAIL,
-    "x-admin-key": ADMIN_ACCESS_KEY,
+    "x-admin-token": createAdminSessionToken({
+      uid: MASTER_ADMIN_UID,
+      email: MASTER_ADMIN_EMAIL,
+      role: "ADMIN",
+    }),
   };
 
   // 2. Admin blocked from uploading SVG (XSS risk)
@@ -312,7 +330,10 @@ test("Phase 3.6: File upload signature endpoint enforces Admin auth, MIME whitel
     assert.equal(res.statusCode, 200);
     assert.equal(res.json.status, "ok");
     assert.match(res.json.signature, /^[a-f0-9]{40}$/);
-    assert.equal(res.rawBody.includes("s6TJSmCr"), false);
+    assert.equal(
+      res.rawBody.includes(process.env.CLOUDINARY_API_SECRET || "__NO_SECRET__"),
+      false
+    );
   }
 });
 
@@ -522,7 +543,11 @@ test("Phase 7: End-to-End Admin Dashboard (Products, Banners, Coupons, Cart Rule
   const googleAdminHeaders = {
     "x-user-uid": "qa-google-admin-uid",
     "x-user-email": "qa-admin-user@gmail.com",
-    "x-admin-key": ADMIN_ACCESS_KEY,
+    "x-admin-token": createAdminSessionToken({
+      uid: "qa-google-admin-uid",
+      email: "qa-admin-user@gmail.com",
+      role: "ADMIN",
+    }),
   };
 
   const testCustomerUid = "qa-test-customer-999";
@@ -1345,12 +1370,15 @@ test("Phase 12: Stripe Test Mode Checkout, HMAC-SHA256 Webhook Signature Verific
     },
   });
 
+  const ephemeralWebhookSecret = `whsec_ephemeral_${crypto.randomBytes(16).toString("hex")}`;
+
   // 2. Reject forged/invalid Stripe-Signature header
   assert.throws(
     () =>
       processStripeWebhookEvent({
         rawPayload: validEventPayload,
         signatureHeader: "t=1700000000,v1=deadbeef0000",
+        webhookSecret: ephemeralWebhookSecret,
         state,
       }),
     (err) => err.statusCode === 400
@@ -1360,7 +1388,7 @@ test("Phase 12: Stripe Test Mode Checkout, HMAC-SHA256 Webhook Signature Verific
   const expiredTs = Math.floor(Date.now() / 1000) - 900;
   const expiredSig = generateStripeWebhookSignature(
     validEventPayload,
-    undefined,
+    ephemeralWebhookSecret,
     expiredTs
   );
   assert.throws(
@@ -1368,16 +1396,21 @@ test("Phase 12: Stripe Test Mode Checkout, HMAC-SHA256 Webhook Signature Verific
       processStripeWebhookEvent({
         rawPayload: validEventPayload,
         signatureHeader: expiredSig,
+        webhookSecret: ephemeralWebhookSecret,
         state,
       }),
     (err) => err.statusCode === 400 && /timestamp outside tolerance/i.test(err.message)
   );
 
   // 4. Valid HMAC-SHA256 Stripe-Signature transitions order to PAID + PROCESSING
-  const validSig = generateStripeWebhookSignature(validEventPayload);
+  const validSig = generateStripeWebhookSignature(
+    validEventPayload,
+    ephemeralWebhookSecret
+  );
   const processed = processStripeWebhookEvent({
     rawPayload: validEventPayload,
     signatureHeader: validSig,
+    webhookSecret: ephemeralWebhookSecret,
     state,
   });
   assert.equal(processed.paymentStatus, "PAID");
@@ -1388,6 +1421,7 @@ test("Phase 12: Stripe Test Mode Checkout, HMAC-SHA256 Webhook Signature Verific
   const duplicateProcessed = processStripeWebhookEvent({
     rawPayload: validEventPayload,
     signatureHeader: validSig,
+    webhookSecret: ephemeralWebhookSecret,
     state,
   });
   assert.equal(duplicateProcessed.idempotentReplay, true);
@@ -1403,10 +1437,14 @@ test("Phase 12: Stripe Test Mode Checkout, HMAC-SHA256 Webhook Signature Verific
       },
     },
   });
-  const lateFailSig = generateStripeWebhookSignature(lateFailPayload);
+  const lateFailSig = generateStripeWebhookSignature(
+    lateFailPayload,
+    ephemeralWebhookSecret
+  );
   const lateResult = processStripeWebhookEvent({
     rawPayload: lateFailPayload,
     signatureHeader: lateFailSig,
+    webhookSecret: ephemeralWebhookSecret,
     state,
   });
   assert.equal(lateResult.ignoredOutOfOrder, true);
@@ -1457,6 +1495,10 @@ test("Phase 12: Stripe Test Mode Checkout, HMAC-SHA256 Webhook Signature Verific
 // 13. ENTERPRISE TRANSFORMATION GATES 2, 5, 6-8, 10, 11 & 13 CERTIFICATION
 // ============================================================================
 test("Gate 2: Server-Side Admin Authentication (/api/v1/admin/login & /api/v1/admin/session) & HMAC Session Token Verification", async () => {
+  const prevAdminHash = process.env.ADMIN_PASSWORD_HASH;
+  const ephemeralOwnerPass = `Own3r#${crypto.randomBytes(12).toString("hex")}`;
+  process.env.ADMIN_PASSWORD_HASH = hashAdminPassword(ephemeralOwnerPass);
+  try {
   // 1. Missing credentials rejected with 400
   {
     const { req, res } = createMockReqRes({
@@ -1495,8 +1537,7 @@ test("Gate 2: Server-Side Admin Authentication (/api/v1/admin/login & /api/v1/ad
   }
 
   // 4. Valid administrator credentials return signed HMAC token (200 OK)
-  const expectedPass =
-    process.env.ADMIN_PASSWORD || "Admin@12345";
+  const expectedPass = ephemeralOwnerPass;
   const credCheck = verifyAdminPasswordCredentials(
     MASTER_ADMIN_EMAIL,
     expectedPass
@@ -1650,6 +1691,10 @@ test("Gate 2: Server-Side Admin Authentication (/api/v1/admin/login & /api/v1/ad
     if (prevAllow !== undefined)
       process.env.ALLOW_SANDBOX_CONFIRM = prevAllow;
   }
+  } finally {
+    if (prevAdminHash === undefined) delete process.env.ADMIN_PASSWORD_HASH;
+    else process.env.ADMIN_PASSWORD_HASH = prevAdminHash;
+  }
 });
 
 test("Gate 5 & Gate 11: Canonical Category Taxonomy & 194-Product Cloudinary Catalog Seed Verification", () => {
@@ -1767,6 +1812,10 @@ test("Gates 6, 7, 8 & Pure-English Integrity: Discount Engine Scheduled Windows 
 test("Pre-Merge Correction Gate #2: Multi-Instance Vercel Serverless Durable Session Revocation & Login Rate Limiting", async () => {
   const db = await getMongoDb();
   await resetAdminRateLimitsForTest(db);
+  const prevAdminHash = process.env.ADMIN_PASSWORD_HASH;
+  const ephemeralOwnerPass = `Own3r#${crypto.randomBytes(12).toString("hex")}`;
+  process.env.ADMIN_PASSWORD_HASH = hashAdminPassword(ephemeralOwnerPass);
+  try {
 
   // 1. Issue an admin session token on Instance A
   const token = createAdminSessionToken({
@@ -1831,7 +1880,7 @@ test("Pre-Merge Correction Gate #2: Multi-Instance Vercel Serverless Durable Ses
     method: "POST",
     url: "/api/v1/admin/login",
     headers: { "x-forwarded-for": testIp },
-    body: { email: MASTER_ADMIN_EMAIL, password: "Admin@12345" },
+    body: { email: MASTER_ADMIN_EMAIL, password: ephemeralOwnerPass },
   });
   await handler(lockedReq.req, lockedReq.res);
   assert.equal(
@@ -1842,11 +1891,21 @@ test("Pre-Merge Correction Gate #2: Multi-Instance Vercel Serverless Durable Ses
 
   // Clean up test rate-limit state in MongoDB
   await resetAdminRateLimitsForTest(db);
+  } finally {
+    if (prevAdminHash === undefined) delete process.env.ADMIN_PASSWORD_HASH;
+    else process.env.ADMIN_PASSWORD_HASH = prevAdminHash;
+  }
 });
 
-test("Demo Admin: public demo credentials grant admin panel access but server blocks payments, refunds, roles and customer data deletion", async () => {
+test("Demo Admin: opt-in restricted demo credentials grant admin panel access while server blocks password rotation, payments, refunds, roles and customer data deletion", async () => {
   const db = await getMongoDb();
   await resetAdminRateLimitsForTest(db);
+  const prevDemoEnabled = process.env.DEMO_ADMIN_ENABLED;
+  const prevDemoHash = process.env.DEMO_ADMIN_PASSWORD_HASH;
+  const ephemeralDemoPass = `D3m0#${crypto.randomBytes(12).toString("hex")}`;
+  process.env.DEMO_ADMIN_ENABLED = "true";
+  process.env.DEMO_ADMIN_PASSWORD_HASH = hashAdminPassword(ephemeralDemoPass);
+  try {
 
   // Wrong demo password is rejected
   const bad = createMockReqRes({
@@ -1863,7 +1922,7 @@ test("Demo Admin: public demo credentials grant admin panel access but server bl
     method: "POST",
     url: "/api/v1/admin/login",
     headers: { "x-forwarded-for": "198.51.100.77" },
-    body: { email: "demo.admin@ummo.com", password: "DemoAdmin@2026" },
+    body: { email: "demo.admin@ummo.com", password: ephemeralDemoPass },
   });
   await handler(ok.req, ok.res);
   assert.equal(ok.res.statusCode, 200);
@@ -1882,6 +1941,7 @@ test("Demo Admin: public demo credentials grant admin panel access but server bl
 
   // Protected actions are blocked with 403 + demoRestricted
   for (const [method, url] of [
+    ["POST", "/api/v1/admin/password"],
     ["POST", "/api/v1/payments/refund"],
     ["POST", "/api/v1/payments/reconcile"],
     ["POST", "/api/v1/payments/sandbox-confirm"],
@@ -1994,6 +2054,339 @@ test("Demo Admin: public demo credentials grant admin panel access but server bl
   assert.notEqual(masterReq.res.json?.demoRestricted, true);
 
   await resetAdminRateLimitsForTest(db);
+  } finally {
+    if (prevDemoEnabled === undefined) delete process.env.DEMO_ADMIN_ENABLED;
+    else process.env.DEMO_ADMIN_ENABLED = prevDemoEnabled;
+    if (prevDemoHash === undefined) delete process.env.DEMO_ADMIN_PASSWORD_HASH;
+    else process.env.DEMO_ADMIN_PASSWORD_HASH = prevDemoHash;
+  }
+});
+
+
+test("Category-Smart Product Variants, Featured Collection Pricing & Dynamic SEO Endpoints", async () => {
+  const apple = INITIAL_CATALOG_SEED.find((p) => p.category === "groceries");
+  const appleVars = resolveProductVariants(apple);
+  assert.deepEqual(appleVars.sizes, [], "Groceries should not have clothing sizes");
+  assert.deepEqual(appleVars.colors, [], "Groceries should not have clothing colors");
+
+  const perfume = INITIAL_CATALOG_SEED.find((p) => p.category === "fragrances");
+  const perfumeVars = resolveProductVariants(perfume);
+  assert.deepEqual(perfumeVars.sizes, ["50ml", "100ml"], "Fragrances should default to bottle ml sizes");
+  assert.deepEqual(perfumeVars.colors, [], "Fragrances should not have color swatches");
+
+  const dress = INITIAL_CATALOG_SEED.find((p) => p.category === "womens-dresses");
+  const dressVars = resolveProductVariants(dress);
+  assert.ok(dressVars.sizes.includes("M"), "Dresses should have apparel sizes");
+  assert.ok(dressVars.colors.length >= 3, "Dresses should have color swatches");
+
+  const customBag = resolveProductVariants({
+    id: 9001,
+    title: "Custom Leather Tote",
+    category: "womens-bags",
+    hasCustomVariants: true,
+    sizes: normalizeSizeList(["Mini", "Large"]),
+    colors: normalizeColorList([{ name: "Crimson", hex: "#DC2626" }, "Black"]),
+  });
+  assert.deepEqual(customBag.sizes, ["Mini", "Large"]);
+  assert.equal(customBag.colors[0].name, "Crimson");
+  assert.equal(customBag.colors[0].hex, "#DC2626");
+  assert.equal(customBag.colors[1].name, "Black");
+
+  const customNoVariants = resolveProductVariants({
+    id: 9002,
+    title: "Special Edition Tee",
+    category: "mens-shirts",
+    hasCustomVariants: true,
+    sizes: [],
+    colors: [],
+  });
+  assert.deepEqual(customNoVariants.sizes, []);
+  assert.deepEqual(customNoVariants.colors, []);
+
+  const memState = createInitialMemoryState();
+  memState.storeConfig.customProducts = [
+    {
+      id: 7777,
+      title: "Featured Perfume 100ml",
+      price: 100,
+      discountPercentage: 0,
+      stock: 15,
+      isCustomNew: true,
+    },
+  ];
+  memState.storeConfig.featuredCollection = {
+    enabled: true,
+    titleBold: "Spring",
+    titleRegular: "Collection",
+    discountPercentage: 30,
+    timerEnabled: true,
+    countdownDate: new Date(Date.now() + 7 * 86400 * 1000).toISOString(),
+    productIds: [7777],
+  };
+
+  const builtOrder = validateAndBuildServerOrder(
+    {
+      firstName: "Test",
+      lastName: "Buyer",
+      email: "buyer@example.com",
+      OrderItems: [
+        {
+          id: 7777,
+          title: "Featured Perfume 100ml",
+          price: 70,
+          quantity: 1,
+          size: "100ml",
+          color: "",
+        },
+      ],
+      shippingMethod: "pickup",
+      paymentMethod: "cod",
+    },
+    memState,
+    { uid: "u-test", email: "buyer@example.com", isAuthenticated: true }
+  );
+  assert.equal(builtOrder.OrderItems[0].price, 70);
+  assert.equal(builtOrder.OrderItems[0].size, "100ml");
+  assert.equal(builtOrder.OrderItems[0].color, "");
+
+  const xml = buildDynamicSitemapXml(memState);
+  assert.match(xml, /<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/);
+  assert.match(xml, /\/featured<\/loc>/);
+  assert.match(xml, /\/shop\/1<\/loc>/);
+  assert.match(xml, /\/shop\/7777<\/loc>/);
+
+  const botSeo = buildProductBotSeoHtml("7777", memState);
+  assert.equal(botSeo.statusCode, 200);
+  assert.match(botSeo.html, /Featured Perfume 100ml/);
+  assert.match(botSeo.html, /"@type":"Product"/);
+  assert.match(botSeo.html, /content="70\.00"/);
+
+  const sitemapRes = createMockReqRes({ method: "GET", url: "/api/v1/sitemap.xml" });
+  await handler(sitemapRes.req, sitemapRes.res);
+  assert.equal(sitemapRes.res.statusCode, 200);
+  assert.match(String(sitemapRes.res.headers["content-type"]), /application\/xml/);
+  assert.match(String(sitemapRes.res.rawBody), /\/shop\/1<\/loc>/);
+
+  const botRes = createMockReqRes({ method: "GET", url: "/api/v1/seo-product?id=1" });
+  await handler(botRes.req, botRes.res);
+  assert.equal(botRes.res.statusCode, 200);
+  assert.match(String(botRes.res.headers["content-type"]), /text\/html/);
+  assert.match(String(botRes.res.rawBody), /"@type":"Product"/);
+});
+
+
+test("Security Hardening Gate: Salted Scrypt Owner Password Rotation, Global Session Invalidation, Fail-Closed Missing Secrets & Zero-Secret Bundle/Source Scan", async () => {
+  const db = await getMongoDb();
+  assert.ok(db, "MongoDB Atlas connection required for durable security_guard test");
+
+  const originalSecurityGuard = await db
+    .collection("store_config")
+    .findOne({ _id: SECURITY_GUARD_DOC_ID });
+
+  // 1. Password complexity policy rejects weak/short passwords and accepts strong ones
+  assert.equal(validateOwnerPasswordPolicy("short1!A").valid, false);
+  assert.equal(validateOwnerPasswordPolicy("alllowercase1234!").valid, false);
+  const initialStrongPass = `Own3rInit#${crypto.randomBytes(10).toString("hex")}`;
+  const rotatedStrongPass = `Own3rRot#${crypto.randomBytes(10).toString("hex")}`;
+  assert.equal(validateOwnerPasswordPolicy(initialStrongPass).valid, true);
+
+  // Verify scrypt KDF random salt uniqueness & constant-time verification
+  const h1 = hashAdminPassword(initialStrongPass);
+  const h2 = hashAdminPassword(initialStrongPass);
+  assert.notEqual(h1, h2, "Salted scrypt must generate unique random salts per hash");
+  assert.match(h1, /^scrypt\$[a-f0-9]{32}\$[a-f0-9]{128}$/);
+  assert.equal(verifyAdminPasswordHash(initialStrongPass, h1), true);
+  assert.equal(verifyAdminPasswordHash("WrongPassword#1234", h1), false);
+
+  try {
+    // 2. Initialize durable owner password in MongoDB security_guard
+    await setOwnerAdminPasswordDurable({
+      email: MASTER_ADMIN_EMAIL,
+      uid: "D6jZv9LGcBU29SnUcz9tua6V4g13",
+      newPassword: initialStrongPass,
+      db,
+    });
+
+    // Sign in and obtain Session Token A
+    const loginA = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      body: { email: MASTER_ADMIN_EMAIL, password: initialStrongPass },
+    });
+    await handler(loginA.req, loginA.res);
+    assert.equal(loginA.res.statusCode, 200);
+    const tokenA = loginA.res.json.adminToken;
+    assert.ok(tokenA);
+
+    // Verify Token A works before password rotation
+    const sessBefore = createMockReqRes({
+      method: "GET",
+      url: "/api/v1/admin/session",
+      headers: { "x-admin-token": tokenA },
+    });
+    await handler(sessBefore.req, sessBefore.res);
+    assert.equal(sessBefore.res.statusCode, 200);
+    assert.equal(sessBefore.res.json.securityStatus.passwordConfiguredInDb, true);
+
+    // 3. Reject /api/v1/admin/password when currentPassword is wrong
+    const badRotate = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/password",
+      headers: { "x-admin-token": tokenA },
+      body: {
+        currentPassword: "WrongCurrentPassword#999",
+        newPassword: rotatedStrongPass,
+      },
+    });
+    await handler(badRotate.req, badRotate.res);
+    assert.equal(badRotate.res.statusCode, 401);
+
+    // 4. Rotate owner password via /api/v1/admin/password -> invalidates Token A & issues Token B
+    const goodRotate = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/password",
+      headers: { "x-admin-token": tokenA },
+      body: {
+        currentPassword: initialStrongPass,
+        newPassword: rotatedStrongPass,
+      },
+    });
+    await handler(goodRotate.req, goodRotate.res);
+    assert.equal(goodRotate.res.statusCode, 200);
+    assert.equal(goodRotate.res.json.previousSessionsInvalidated, true);
+    const tokenB = goodRotate.res.json.adminToken;
+    assert.ok(tokenB && tokenB !== tokenA);
+
+    // Simulate cold-start on another serverless instance
+    evictLocalSecurityCacheForTest();
+
+    // Old Token A must now be rejected (401) across cold-start instances!
+    const oldTokenCheck = createMockReqRes({
+      method: "GET",
+      url: "/api/v1/admin/session",
+      headers: { "x-admin-token": tokenA },
+    });
+    await handler(oldTokenCheck.req, oldTokenCheck.res);
+    assert.equal(
+      oldTokenCheck.res.statusCode,
+      401,
+      "Pre-rotation session token must be invalidated after owner password change"
+    );
+
+    // Old password must fail login (401), new password + Token B must succeed (200)
+    const oldPassLogin = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      body: { email: MASTER_ADMIN_EMAIL, password: initialStrongPass },
+    });
+    await handler(oldPassLogin.req, oldPassLogin.res);
+    assert.equal(oldPassLogin.res.statusCode, 401);
+
+    const newTokenCheck = createMockReqRes({
+      method: "GET",
+      url: "/api/v1/admin/session",
+      headers: { "x-admin-token": tokenB },
+    });
+    await handler(newTokenCheck.req, newTokenCheck.res);
+    assert.equal(newTokenCheck.res.statusCode, 200);
+
+    // 5. Missing secrets fail closed safely with HTTP 503 (never fallback to hardcoded defaults)
+    const savedAuthSecret = process.env.AUTH_SECRET;
+    const savedAdminTokSecret = process.env.ADMIN_TOKEN_SECRET;
+    const savedJwtSecret = process.env.JWT_SECRET;
+    delete process.env.AUTH_SECRET;
+    delete process.env.ADMIN_TOKEN_SECRET;
+    delete process.env.JWT_SECRET;
+    try {
+      const noSecretLogin = createMockReqRes({
+        method: "POST",
+        url: "/api/v1/admin/login",
+        body: { email: MASTER_ADMIN_EMAIL, password: rotatedStrongPass },
+      });
+      await handler(noSecretLogin.req, noSecretLogin.res);
+      assert.equal(noSecretLogin.res.statusCode, 503);
+    } finally {
+      if (savedAuthSecret !== undefined) process.env.AUTH_SECRET = savedAuthSecret;
+      if (savedAdminTokSecret !== undefined) process.env.ADMIN_TOKEN_SECRET = savedAdminTokSecret;
+      if (savedJwtSecret !== undefined) process.env.JWT_SECRET = savedJwtSecret;
+    }
+
+    const savedCldSecret = process.env.CLOUDINARY_API_SECRET;
+    delete process.env.CLOUDINARY_API_SECRET;
+    try {
+      const noCldSign = createMockReqRes({
+        method: "POST",
+        url: "/api/v1/cloudinary-sign",
+        headers: { "x-admin-token": tokenB },
+        body: { folder: "ummo_products", mimeType: "image/webp", fileSize: 4096 },
+      });
+      await handler(noCldSign.req, noCldSign.res);
+      assert.equal(noCldSign.res.statusCode, 503);
+    } finally {
+      if (savedCldSecret !== undefined) process.env.CLOUDINARY_API_SECRET = savedCldSecret;
+    }
+
+    // 6. Zero-Secret Source & Production Frontend Bundle Scan
+    function walkFiles(dir, out = []) {
+      if (!fs.existsSync(dir)) return out;
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, ent.name);
+        if (ent.isDirectory()) walkFiles(p, out);
+        else if (/\.(js|jsx|mjs|cjs|css|html)$/i.test(ent.name)) out.push(p);
+      }
+      return out;
+    }
+
+    const runtimeSecretValues = [
+      process.env.MONGODB_URI,
+      process.env.MONGODB_URI_FALLBACK,
+      process.env.CLOUDINARY_API_SECRET,
+      process.env.AUTH_SECRET,
+      process.env.STRIPE_SECRET_KEY,
+      process.env.STRIPE_WEBHOOK_SECRET,
+      process.env.STORE_PASSWORD,
+    ].filter((v) => typeof v === "string" && v.trim().length >= 8);
+
+    const filesToScan = [
+      ...walkFiles(path.resolve("src")),
+      ...walkFiles(path.resolve("api")),
+      ...walkFiles(path.resolve("dist")),
+    ];
+    assert.ok(
+      fs.existsSync(path.resolve("dist", "index.html")),
+      "Production dist/ build must exist for bundle secret scan"
+    );
+
+    for (const file of filesToScan) {
+      const text = fs.readFileSync(file, "utf8");
+      assert.equal(
+        /mongodb\+srv:\/\//i.test(text),
+        false,
+        `File must not contain MongoDB SRV URI: ${file}`
+      );
+      for (const secretVal of runtimeSecretValues) {
+        assert.equal(
+          text.includes(secretVal),
+          false,
+          `File must not contain runtime secret value: ${file}`
+        );
+      }
+    }
+  } finally {
+    await resetAdminRateLimitsForTest(db);
+    if (originalSecurityGuard) {
+      await db
+        .collection("store_config")
+        .replaceOne({ _id: SECURITY_GUARD_DOC_ID }, originalSecurityGuard, {
+          upsert: true,
+        });
+    } else {
+      await db
+        .collection("store_config")
+        .deleteOne({ _id: SECURITY_GUARD_DOC_ID });
+    }
+    evictLocalSecurityCacheForTest();
+  }
 });
 
 test.after(async () => {

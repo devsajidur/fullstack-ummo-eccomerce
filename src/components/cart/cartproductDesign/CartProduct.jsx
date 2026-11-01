@@ -42,6 +42,10 @@ const CartProduct = (props) => {
   const pricing = resolveCartItemPricing(props, catalogProducts);
   const qty = Math.max(1, Number(props.quantity || 1));
   const itemMsg = props.optionalMessage || "";
+  const variantLabelParts = [
+    props.size ? `Size: ${props.size}` : "",
+    props.color ? `Color: ${props.color}` : "",
+  ].filter(Boolean);
 
   return (
     <>
@@ -60,9 +64,9 @@ const CartProduct = (props) => {
             <h2 className="text-[16px] font-normal text-primary">
               {props.title}
             </h2>
-            {(props.size || props.color) && (
-              <p className="text-xs text-gray-400 mt-1">
-                Size: {props.size || "M"} | Color: {props.color || "Black"}
+            {variantLabelParts.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                {variantLabelParts.join(" | ")}
               </p>
             )}
 
@@ -210,9 +214,9 @@ const CartProduct = (props) => {
               <h2 className="text-sm font-medium text-primary truncate">
                 {props.title}
               </h2>
-              {(props.size || props.color) && (
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  Size: {props.size || "M"} • Color: {props.color || "Black"}
+              {variantLabelParts.length > 0 && (
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  {variantLabelParts.join(" • ")}
                 </p>
               )}
             </div>

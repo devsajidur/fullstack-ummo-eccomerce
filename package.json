@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test tests/security-and-mongodb.test.mjs"
+    "test": "node --test tests/security-and-mongodb.test.mjs",
+    "admin:recover": "node scripts/owner-admin-recovery.mjs"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.12.0",

@@ -1,28 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
-import toast, { Toaster } from "react-hot-toast";
-import {
-  Archive,
-  CreditCard,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  Flame,
-  FolderTree,
-  Image as ImageIcon,
-  LayoutDashboard,
-  Lock,
-  LogOut,
-  Menu,
-  Package,
-  ShieldAlert,
-  ShieldCheck,
-  ShoppingCart,
-  Tag,
-  Users,
-  X,
-} from "lucide-react";
+import toast from "react-hot-toast";
 import {
   applyRemoteStoreConfig,
   deleteContactMessageFromMongo,
@@ -58,27 +37,21 @@ import AdminProductsTab from "../components/admin/AdminProductsTab";
 import AdminCategoriesTab from "../components/admin/AdminCategoriesTab";
 import AdminInventoryTab from "../components/admin/AdminInventoryTab";
 import AdminDiscountsTab from "../components/admin/AdminDiscountsTab";
+import AdminFeaturedCollectionTab from "../components/admin/AdminFeaturedCollectionTab";
 import AdminOrdersTab from "../components/admin/AdminOrdersTab";
 import AdminBannersTab from "../components/admin/AdminBannersTab";
 import AdminCouponsTab from "../components/admin/AdminCouponsTab";
 import AdminCustomersTab from "../components/admin/AdminCustomersTab";
-
-const ADMIN_MODULES = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "orders", label: "Orders", icon: ShoppingCart },
-  { id: "products", label: "Products", icon: Package },
-  { id: "categories", label: "Categories", icon: FolderTree },
-  { id: "inventory", label: "Inventory", icon: Archive },
-  { id: "discounts", label: "Discounts", icon: Flame },
-  { id: "coupons", label: "Coupons", icon: Tag },
-  { id: "customers", label: "Customers", icon: Users },
-  {
-    id: "payments",
-    label: "Payments & Refunds",
-    icon: CreditCard,
-  },
-  { id: "banners", label: "Banners & CMS", icon: ImageIcon },
-];
+import AdminSecurityTab from "../components/admin/AdminSecurityTab";
+import {
+  AdminForbiddenGate,
+  AdminLoginPortal,
+} from "../components/admin/shell/AdminAuthGates";
+import AdminNavigationShell from "../components/admin/shell/AdminNavigationShell";
+import {
+  normalizeAdminProductSubmission,
+  useAdminMetrics,
+} from "../components/admin/shell/useAdminMetrics";
 
 export default function AdminDashboardPage() {
   const dispatch = useDispatch();
@@ -88,14 +61,12 @@ export default function AdminDashboardPage() {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Dedicated Admin Sign-In form state (never pre-filled with demo credentials)
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPass, setAdminPass] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loginSubmitting, setLoginSubmitting] = useState(false);
   const [loginError, setLoginError] = useState("");
 
-  // Mobile navigation drawer state
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -105,10 +76,11 @@ export default function AdminDashboardPage() {
   const [messages, setMessages] = useState([]);
   const [subscribers, setSubscribers] = useState([]);
   const [coupons, setCoupons] = useState(() => getStoredCoupons());
+  const [securityStatus, setSecurityStatus] = useState(null);
 
   const isAdminVerified = useMemo(() => isUserAdmin(authUser), [authUser]);
+  const metrics = useAdminMetrics(orders, products, customers);
 
-  // 1. Verify Authentication & Admin Role (Client + Authoritative Server Session Check)
   useEffect(() => {
     const unsub = onUserChanged((user) => {
       setAuthUser(user || null);
@@ -126,6 +98,8 @@ export default function AdminDashboardPage() {
         if (!res?.isAdmin) {
           saveAdminSessionToken("");
           setAuthUser((prev) => (prev ? { ...prev, role: "CUSTOMER" } : null));
+        } else if (res?.securityStatus) {
+          setSecurityStatus(res.securityStatus);
         }
       })
       .catch((err) => {
@@ -141,7 +115,6 @@ export default function AdminDashboardPage() {
     };
   }, [authUser, isAdminVerified]);
 
-  // Lock body scroll when mobile admin drawer is open & close on Escape
   useEffect(() => {
     if (!mobileDrawerOpen) return;
     const prevOverflow = document.body.style.overflow;
@@ -156,7 +129,6 @@ export default function AdminDashboardPage() {
     };
   }, [mobileDrawerOpen]);
 
-  // 2. Load Catalog Products
   useEffect(() => {
     if (catalogProducts?.length) {
       setProducts(catalogProducts);
@@ -169,7 +141,6 @@ export default function AdminDashboardPage() {
     }
   }, [catalogProducts, dispatch]);
 
-  // 3. Load & Sync Orders, Customers, Messages, Subscribers & StoreConfig from MongoDB Atlas
   useEffect(() => {
     if (!authUser || !isAdminVerified) return;
 
@@ -194,15 +165,9 @@ export default function AdminDashboardPage() {
           );
           setOrders(mergedOrders);
 
-          if (Array.isArray(data.users)) {
-            setCustomers(data.users);
-          }
-          if (Array.isArray(data.messages)) {
-            setMessages(data.messages);
-          }
-          if (Array.isArray(data.subscribers)) {
-            setSubscribers(data.subscribers);
-          }
+          if (Array.isArray(data.users)) setCustomers(data.users);
+          if (Array.isArray(data.messages)) setMessages(data.messages);
+          if (Array.isArray(data.subscribers)) setSubscribers(data.subscribers);
 
           if (!initialConfigApplied && data.storeConfig) {
             initialConfigApplied = true;
@@ -229,58 +194,6 @@ export default function AdminDashboardPage() {
     };
   }, [authUser, isAdminVerified, dispatch]);
 
-  const metrics = useMemo(() => {
-    const validOrders = orders.filter((o) => o.status !== "CANCELLED");
-    const totalRevenue = validOrders.reduce(
-      (sum, o) => sum + Number(o.total ?? o.totalAmount ?? 0),
-      0
-    );
-    const paidOrders = orders.filter((o) => o.paymentStatus === "PAID");
-    const paidRevenue = paidOrders.reduce(
-      (sum, o) =>
-        sum +
-        Math.max(
-          0,
-          Number(o.total ?? o.totalAmount ?? 0) - Number(o.refundedAmount || 0)
-        ),
-      0
-    );
-    const failedOrRefundedCount = orders.filter((o) =>
-      [
-        "FAILED",
-        "CANCELED",
-        "REFUNDED",
-        "PARTIALLY_REFUNDED",
-        "REQUIRES_REVIEW",
-      ].includes(o.paymentStatus)
-    ).length;
-    const avgOrderValue =
-      validOrders.length > 0 ? totalRevenue / validOrders.length : 0;
-    const pendingOrders = orders.filter(
-      (o) => (o.status || "PENDING") === "PENDING"
-    ).length;
-    const lowStockProducts = products.filter(
-      (p) => Number(p.stock ?? 20) > 0 && Number(p.stock ?? 20) < 10
-    ).length;
-    const outOfStockProducts = products.filter(
-      (p) => Number(p.stock ?? 20) <= 0
-    ).length;
-
-    return {
-      totalRevenue,
-      paidRevenue,
-      paidOrdersCount: paidOrders.length,
-      failedOrRefundedCount,
-      avgOrderValue,
-      totalOrders: orders.length,
-      pendingOrders,
-      totalProducts: products.length,
-      lowStockProducts,
-      outOfStockProducts,
-      totalCustomers: customers.length,
-    };
-  }, [orders, products, customers]);
-
   function handleUpdateProductDirect(updatedProduct) {
     if (!updatedProduct || !updatedProduct.id) return;
     const customList = getCustomAdminProducts();
@@ -305,74 +218,7 @@ export default function AdminDashboardPage() {
 
   function handleSaveProduct(arg1, arg2) {
     const customList = getCustomAdminProducts();
-    const isDirectPayload =
-      arg1 && typeof arg1 === "object" && typeof arg2 === "boolean";
-    const isEditing = isDirectPayload ? arg2 : Boolean(arg1);
-    const productForm = isDirectPayload ? arg1 : arg2 || {};
-    const editingProduct = isDirectPayload ? (arg2 ? arg1 : null) : arg1;
-
-    const cleanThumb = String(productForm.thumbnail || "").trim();
-    const galleryImages = Array.isArray(productForm.images)
-      ? productForm.images.filter(Boolean)
-      : [];
-    const mergedGallery = cleanThumb
-      ? [cleanThumb, ...galleryImages.filter((u) => u !== cleanThumb)]
-      : galleryImages;
-
-    const sizesList = Array.isArray(productForm.sizes)
-      ? productForm.sizes
-      : String(productForm.sizesInput || "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-    const colorsList = Array.isArray(productForm.colors)
-      ? productForm.colors
-      : String(productForm.colorsInput || "")
-          .split(",")
-          .map((c) => c.trim())
-          .filter(Boolean);
-
-    const freeGift =
-      productForm.freeGift && typeof productForm.freeGift === "object"
-        ? productForm.freeGift
-        : productForm.freeGiftEnabled &&
-          String(productForm.freeGiftName || "").trim()
-        ? {
-            enabled: true,
-            minBuyQty: Math.max(1, Number(productForm.freeGiftMinBuyQty) || 1),
-            giftName: String(productForm.freeGiftName).trim(),
-            giftQty: Math.max(1, Number(productForm.freeGiftQty) || 1),
-            giftImage: String(productForm.freeGiftImage || "").trim(),
-            giftProductId: productForm.freeGiftProductId || "",
-          }
-        : { enabled: false };
-
-    const isVisible = productForm.isVisible !== false;
-    const payload = {
-      id: productForm.id || (editingProduct ? editingProduct.id : Date.now()),
-      title: String(productForm.title || "").trim(),
-      department: String(productForm.department || "women").trim(),
-      subcategory: String(productForm.subcategory || "Clothing").trim(),
-      category: String(productForm.category || "fashion").trim(),
-      brand: String(productForm.brand || "UOMO").trim() || "UOMO",
-      price: Number(productForm.price) || 29.99,
-      discountPercentage: Number(productForm.discountPercentage) || 0,
-      discountEndTime: productForm.discountEndTime || "none",
-      freeGift,
-      stock: Math.max(0, Number(productForm.stock ?? 0)),
-      sku: String(productForm.sku || "").trim() || `UMMO-${Date.now()}`,
-      thumbnail: mergedGallery[0] || cleanThumb,
-      images: mergedGallery.length ? mergedGallery : [cleanThumb].filter(Boolean),
-      sizes: sizesList,
-      colors: colorsList,
-      isVisible,
-      isFeatured: Boolean(productForm.isFeatured),
-      status: isVisible ? "active" : "draft",
-      description: String(productForm.description || "").trim(),
-      rating: productForm.rating || editingProduct?.rating || 4.8,
-      isCustomNew: !isEditing || Boolean(productForm.isCustomNew || editingProduct?.isCustomNew),
-    };
-
+    const { payload, isEditing } = normalizeAdminProductSubmission(arg1, arg2);
     const nextCustom = [
       payload,
       ...customList.filter((item) => String(item.id) !== String(payload.id)),
@@ -384,7 +230,10 @@ export default function AdminDashboardPage() {
       ? products.map((p) =>
           String(p.id) === String(payload.id) ? { ...p, ...payload } : p
         )
-      : [payload, ...products.filter((p) => String(p.id) !== String(payload.id))];
+      : [
+          payload,
+          ...products.filter((p) => String(p.id) !== String(payload.id)),
+        ];
 
     setProducts(nextProducts);
     dispatch(Allitem(nextProducts));
@@ -558,9 +407,7 @@ export default function AdminDashboardPage() {
         expiresAt: couponForm.expiresAt || "",
         description:
           couponForm.description.trim() ||
-          `${safeValue}${
-            couponForm.type === "percentage" ? "%" : "$"
-          } discount`,
+          `${safeValue}${couponForm.type === "percentage" ? "%" : "$"} discount`,
         active: true,
       },
       ...coupons.filter((c) => c.code !== cleanCode),
@@ -665,493 +512,142 @@ export default function AdminDashboardPage() {
     );
   }
 
-  // ============================================================================
-  // GATE 2B: Authenticated Non-Admin User -> 403 Access Denied
-  // ============================================================================
   if (authUser && !isAdminVerified) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-gray-50">
-        <Toaster position="top-right" />
-        <div className="max-w-md w-full bg-white border border-red-200 rounded-2xl p-6 sm:p-8 shadow-sm text-center">
-          <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-4">
-            <ShieldAlert size={22} />
-          </div>
-          <span className="inline-block text-[11px] font-bold uppercase tracking-widest bg-red-100 text-red-800 px-3 py-0.5 rounded-full mb-2">
-            HTTP 403 • Access Denied
-          </span>
-          <h1 className="text-lg sm:text-xl font-bold text-gray-900">
-            Administrator Privileges Required
-          </h1>
-          <p className="text-xs sm:text-sm text-gray-600 mt-2">
-            You are currently signed in as{" "}
-            <strong className="text-gray-900">{authUser.email}</strong> (Role:{" "}
-            <span className="font-mono font-semibold">
-              {authUser.role || "CUSTOMER"}
-            </span>
-            ). This account does not have permission to access the UOMO
-            Administration Portal.
-          </p>
-
-          <div className="mt-6 space-y-2.5">
-            <button
-              type="button"
-              onClick={() => navigate("/")}
-              className="w-full bg-gray-900 text-white text-xs font-semibold uppercase tracking-wider py-3 rounded-xl hover:bg-gray-800 cursor-pointer transition-colors"
-            >
-              Return to Storefront
-            </button>
-            <button
-              type="button"
-              onClick={handleAdminSignOut}
-              className="w-full border border-gray-300 text-gray-700 text-xs font-semibold uppercase tracking-wider py-3 rounded-xl hover:bg-gray-50 cursor-pointer transition-colors"
-            >
-              Sign Out & Switch to Admin Account
-            </button>
-          </div>
-        </div>
-      </div>
+      <AdminForbiddenGate
+        authUser={authUser}
+        onReturnStore={() => navigate("/")}
+        onSignOut={handleAdminSignOut}
+      />
     );
   }
 
-  // ============================================================================
-  // GATE 2A: Unauthenticated User -> Dedicated Administrator Sign-In Portal
-  // ============================================================================
   if (!authUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-gray-950">
-        <Toaster position="top-right" />
-        <div className="max-w-md w-full bg-white border border-gray-200 rounded-2xl p-6 sm:p-8 shadow-xl">
-          <div className="flex items-center justify-between mb-6">
-            <span className="text-lg font-black tracking-tight text-gray-900">
-              UOMO <span className="text-xs font-bold uppercase tracking-widest text-gray-500">Admin</span>
-            </span>
-          </div>
-
-          <div className="w-12 h-12 rounded-xl bg-gray-900 text-white flex items-center justify-center mb-4">
-            <Lock size={20} />
-          </div>
-          <h1 className="text-xl font-bold text-gray-900">
-            Administrator Sign In
-          </h1>
-          <p className="text-xs text-gray-500 mt-1 mb-6">
-            Restricted portal. Enter your authorized administrator credentials to continue.
-          </p>
-
-          {loginError && (
-            <div
-              role="alert"
-              className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-medium"
-            >
-              {loginError}
-            </div>
-          )}
-
-          <form onSubmit={handleAdminSignIn} className="space-y-4 text-left">
-            <div>
-              <label
-                htmlFor="admin-login-email"
-                className="block text-xs font-semibold text-gray-700 mb-1.5"
-              >
-                Administrator Email
-              </label>
-              <input
-                id="admin-login-email"
-                type="email"
-                required
-                autoComplete="username"
-                placeholder="admin@domain.com"
-                value={adminEmail}
-                onChange={(e) => setAdminEmail(e.target.value)}
-                className="w-full border border-gray-300 rounded-xl px-3.5 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-900"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="admin-login-password"
-                className="block text-xs font-semibold text-gray-700 mb-1.5"
-              >
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="admin-login-password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  autoComplete="current-password"
-                  placeholder="••••••••••••"
-                  value={adminPass}
-                  onChange={(e) => setAdminPass(e.target.value)}
-                  className="w-full border border-gray-300 rounded-xl pl-3.5 pr-10 py-3 text-sm text-gray-900 focus:outline-none focus:border-gray-900"
-                />
-                <button
-                  type="button"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 cursor-pointer p-1"
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loginSubmitting}
-              className="w-full bg-gray-900 text-white text-xs font-semibold uppercase tracking-wider py-3.5 rounded-xl hover:bg-gray-800 disabled:opacity-60 cursor-pointer transition-colors"
-            >
-              {loginSubmitting
-                ? "Verifying Credentials..."
-                : "Sign In to Admin Portal"}
-            </button>
-          </form>
-
-          <div
-            className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-left"
-            data-testid="demo-admin-hint"
-          >
-            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-900">
-              Demo Admin (for testing)
-            </p>
-            <p className="mt-1.5 text-xs text-amber-900 break-all">
-              Email: <span className="font-mono font-semibold">demo.admin@ummo.com</span>
-              <br />
-              Password: <span className="font-mono font-semibold">DemoAdmin@2026</span>
-            </p>
-            <p className="mt-1.5 text-[11px] text-amber-800">
-              This is a demo project. Demo admin cannot change payments, refunds or user roles.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setAdminEmail("demo.admin@ummo.com");
-                setAdminPass("DemoAdmin@2026");
-              }}
-              className="mt-2 text-xs font-bold text-amber-900 underline cursor-pointer"
-            >
-              Fill demo credentials
-            </button>
-          </div>
-
-          <div className="mt-6 pt-4 border-t border-gray-100 text-center">
-            <button
-              type="button"
-              onClick={() => navigate("/")}
-              className="text-xs font-semibold text-gray-500 hover:text-gray-900 cursor-pointer"
-            >
-              ← Return to Storefront
-            </button>
-          </div>
-        </div>
-      </div>
+      <AdminLoginPortal
+        adminEmail={adminEmail}
+        setAdminEmail={setAdminEmail}
+        adminPass={adminPass}
+        setAdminPass={setAdminPass}
+        showPassword={showPassword}
+        setShowPassword={setShowPassword}
+        loginSubmitting={loginSubmitting}
+        loginError={loginError}
+        onSubmit={handleAdminSignIn}
+        onReturnStore={() => navigate("/")}
+      />
     );
   }
 
-  // ============================================================================
-  // GATE 3: Mobile-First Admin Control Center Shell
-  // ============================================================================
-  const activeModuleObj =
-    ADMIN_MODULES.find((m) => m.id === activeTab) || ADMIN_MODULES[0];
-
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Toaster position="top-right" />
-
-      {/* Sticky Top Header (Mobile + Desktop) */}
-      <header className="sticky top-0 z-30 h-16 bg-white border-b border-gray-200 px-4 sm:px-6 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            type="button"
-            aria-label="Open admin navigation drawer"
-            onClick={() => setMobileDrawerOpen(true)}
-            className="lg:hidden p-2 -ml-1 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-100 cursor-pointer"
-          >
-            <Menu size={20} />
-          </button>
-
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-base sm:text-lg font-black tracking-tight text-gray-900">
-                UOMO
-              </span>
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
-                <ShieldCheck size={11} /> Admin
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-500 truncate">
-              {activeModuleObj.label}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className="inline-flex items-center gap-1.5 border border-gray-200 text-gray-700 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-50 cursor-pointer"
-          >
-            <span className="hidden sm:inline">Storefront</span>
-            <ExternalLink size={13} />
-          </button>
-
-          <button
-            type="button"
-            onClick={handleAdminSignOut}
-            className="hidden sm:inline-flex items-center gap-1.5 border border-red-200 text-red-600 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-red-50 cursor-pointer"
-          >
-            <LogOut size={13} />
-            <span>Logout</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Mobile Slide-Out Navigation Drawer (< 1024px) */}
-      {mobileDrawerOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
-          <div
-            aria-hidden="true"
-            onClick={() => setMobileDrawerOpen(false)}
-            className="fixed inset-0 bg-black/50 backdrop-blur-xs"
-          />
-          <aside
-            aria-label="Mobile Admin Navigation"
-            className="relative z-10 w-[84vw] max-w-[300px] h-[100dvh] bg-white shadow-2xl flex flex-col justify-between overflow-y-auto"
-          >
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-gray-900">
-                  UOMO Admin Portal
-                </p>
-                <p className="text-[11px] text-gray-500 truncate max-w-[200px]">
-                  {authUser.email}
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Close admin navigation drawer"
-                onClick={() => setMobileDrawerOpen(false)}
-                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <nav className="p-3 space-y-1 flex-1 overflow-y-auto">
-              {ADMIN_MODULES.map((mod) => {
-                const Icon = mod.icon;
-                const active = activeTab === mod.id;
-                return (
-                  <button
-                    key={mod.id}
-                    type="button"
-                    onClick={() => handleSelectModule(mod.id)}
-                    className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                      active
-                        ? "bg-gray-900 text-white shadow-xs"
-                        : "text-gray-700 hover:bg-gray-100"
-                    }`}
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <Icon size={16} />
-                      {mod.label}
-                    </span>
-                    {mod.id === "orders" && metrics.pendingOrders > 0 && (
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          active
-                            ? "bg-white text-gray-900"
-                            : "bg-amber-100 text-amber-800"
-                        }`}
-                      >
-                        {metrics.pendingOrders}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div className="p-3 border-t border-gray-100 space-y-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileDrawerOpen(false);
-                  navigate("/");
-                }}
-                className="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-700 text-xs font-semibold py-2.5 rounded-xl hover:bg-gray-50 cursor-pointer"
-              >
-                <ExternalLink size={14} />
-                View Storefront
-              </button>
-              <button
-                type="button"
-                onClick={handleAdminSignOut}
-                className="w-full flex items-center justify-center gap-2 bg-red-50 text-red-600 border border-red-200 text-xs font-semibold py-2.5 rounded-xl hover:bg-red-100 cursor-pointer"
-              >
-                <LogOut size={14} />
-                Sign Out Admin
-              </button>
-            </div>
-          </aside>
-        </div>
+    <AdminNavigationShell
+      authUser={authUser}
+      activeTab={activeTab}
+      metrics={metrics}
+      mobileDrawerOpen={mobileDrawerOpen}
+      setMobileDrawerOpen={setMobileDrawerOpen}
+      onSelectModule={handleSelectModule}
+      onNavigateStorefront={() => navigate("/")}
+      onSignOut={handleAdminSignOut}
+    >
+      {activeTab === "overview" && (
+        <AdminOverviewTab
+          metrics={metrics}
+          orders={orders}
+          products={products}
+          coupons={coupons}
+          onNavigateTab={handleSelectModule}
+          onUpdateOrderStatus={handleUpdateOrderStatus}
+        />
       )}
 
-      {/* Main Layout: Desktop Left Sidebar + Responsive Content Area */}
-      <div className="flex-1 flex container mx-auto max-w-7xl w-full px-3 sm:px-6 py-4 sm:py-6 gap-6">
-        {/* Desktop Sidebar (>= 1024px) */}
-        <aside className="hidden lg:flex flex-col w-60 shrink-0">
-          <div className="bg-white border border-gray-200 rounded-2xl p-3 sticky top-22 space-y-1 shadow-xs">
-            <div className="px-3 py-2 border-b border-gray-100 mb-1">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                Admin Modules
-              </p>
-              <p className="text-xs font-semibold text-gray-800 truncate mt-0.5">
-                {authUser.email}
-              </p>
-            </div>
+      {activeTab === "products" && (
+        <AdminProductsTab
+          products={products}
+          onSaveProduct={handleSaveProduct}
+          onDeleteProduct={handleDeleteProduct}
+          onResetCatalog={handleResetCatalog}
+        />
+      )}
 
-            {ADMIN_MODULES.map((mod) => {
-              const Icon = mod.icon;
-              const active = activeTab === mod.id;
-              return (
-                <button
-                  key={mod.id}
-                  type="button"
-                  onClick={() => handleSelectModule(mod.id)}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    active
-                      ? "bg-gray-900 text-white shadow-xs"
-                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                  }`}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <Icon size={15} />
-                    {mod.label}
-                  </span>
-                  {mod.id === "orders" && metrics.pendingOrders > 0 && (
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        active
-                          ? "bg-white text-gray-900"
-                          : "bg-amber-100 text-amber-800"
-                      }`}
-                    >
-                      {metrics.pendingOrders}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </aside>
+      {activeTab === "featured" && (
+        <AdminFeaturedCollectionTab products={products} />
+      )}
 
-        {/* Active Module Content */}
-        <main className="flex-1 min-w-0">
-          {/* Mobile Horizontal Quick-Switch Bar (< 1024px) */}
-          <div className="flex lg:hidden items-center gap-1.5 overflow-x-auto pb-3 mb-3">
-            {ADMIN_MODULES.map((mod) => {
-              const Icon = mod.icon;
-              const active = activeTab === mod.id;
-              return (
-                <button
-                  key={mod.id}
-                  type="button"
-                  onClick={() => handleSelectModule(mod.id)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold shrink-0 cursor-pointer border ${
-                    active
-                      ? "bg-gray-900 text-white border-gray-900"
-                      : "bg-white text-gray-600 border-gray-200"
-                  }`}
-                >
-                  <Icon size={13} />
-                  {mod.label}
-                </button>
-              );
-            })}
-          </div>
+      {activeTab === "categories" && (
+        <AdminCategoriesTab
+          products={products}
+          onUpdateProduct={handleUpdateProductDirect}
+        />
+      )}
 
-          {activeTab === "overview" && (
-            <AdminOverviewTab
-              metrics={metrics}
-              orders={orders}
-              products={products}
-              coupons={coupons}
-              onNavigateTab={handleSelectModule}
-              onUpdateOrderStatus={handleUpdateOrderStatus}
-            />
-          )}
+      {activeTab === "inventory" && (
+        <AdminInventoryTab
+          products={products}
+          onUpdateProduct={handleUpdateProductDirect}
+        />
+      )}
 
-          {activeTab === "products" && (
-            <AdminProductsTab
-              products={products}
-              onSaveProduct={handleSaveProduct}
-              onDeleteProduct={handleDeleteProduct}
-              onResetCatalog={handleResetCatalog}
-            />
-          )}
+      {activeTab === "discounts" && <AdminDiscountsTab products={products} />}
 
-          {activeTab === "categories" && (
-            <AdminCategoriesTab
-              products={products}
-              onUpdateProduct={handleUpdateProductDirect}
-            />
-          )}
+      {activeTab === "orders" && (
+        <AdminOrdersTab
+          orders={orders}
+          onUpdateOrderStatus={handleUpdateOrderStatus}
+          onReconcilePayment={handleReconcilePayment}
+          onRefundPayment={handleRefundPayment}
+          initialPaymentFilter="ALL"
+        />
+      )}
 
-          {activeTab === "inventory" && (
-            <AdminInventoryTab
-              products={products}
-              onUpdateProduct={handleUpdateProductDirect}
-            />
-          )}
+      {activeTab === "payments" && (
+        <AdminOrdersTab
+          orders={orders}
+          onUpdateOrderStatus={handleUpdateOrderStatus}
+          onReconcilePayment={handleReconcilePayment}
+          onRefundPayment={handleRefundPayment}
+          initialPaymentFilter="PAID"
+        />
+      )}
 
-          {activeTab === "discounts" && (
-            <AdminDiscountsTab products={products} />
-          )}
+      {activeTab === "banners" && <AdminBannersTab />}
 
-          {activeTab === "orders" && (
-            <AdminOrdersTab
-              orders={orders}
-              onUpdateOrderStatus={handleUpdateOrderStatus}
-              onReconcilePayment={handleReconcilePayment}
-              onRefundPayment={handleRefundPayment}
-              initialPaymentFilter="ALL"
-            />
-          )}
+      {activeTab === "coupons" && (
+        <AdminCouponsTab
+          coupons={coupons}
+          orders={orders}
+          onCreateCoupon={handleCreateCoupon}
+          onToggleCoupon={handleToggleCoupon}
+          onDeleteCoupon={handleDeleteCoupon}
+        />
+      )}
 
-          {activeTab === "payments" && (
-            <AdminOrdersTab
-              orders={orders}
-              onUpdateOrderStatus={handleUpdateOrderStatus}
-              onReconcilePayment={handleReconcilePayment}
-              onRefundPayment={handleRefundPayment}
-              initialPaymentFilter="PAID"
-            />
-          )}
+      {activeTab === "customers" && (
+        <AdminCustomersTab
+          customers={customers}
+          messages={messages}
+          subscribers={subscribers}
+          onToggleUserRole={handleToggleUserRole}
+          onDeleteMessage={handleDeleteMessage}
+          onDeleteSubscriber={handleDeleteSubscriber}
+        />
+      )}
 
-          {activeTab === "banners" && <AdminBannersTab />}
-
-          {activeTab === "coupons" && (
-            <AdminCouponsTab
-              coupons={coupons}
-              orders={orders}
-              onCreateCoupon={handleCreateCoupon}
-              onToggleCoupon={handleToggleCoupon}
-              onDeleteCoupon={handleDeleteCoupon}
-            />
-          )}
-
-          {activeTab === "customers" && (
-            <AdminCustomersTab
-              customers={customers}
-              messages={messages}
-              subscribers={subscribers}
-              onToggleUserRole={handleToggleUserRole}
-              onDeleteMessage={handleDeleteMessage}
-              onDeleteSubscriber={handleDeleteSubscriber}
-            />
-          )}
-        </main>
-      </div>
-    </div>
+      {activeTab === "security" && (
+        <AdminSecurityTab
+          authUser={authUser}
+          securityStatus={securityStatus}
+          onSecurityUpdated={(res) =>
+            setSecurityStatus((prev) => ({
+              ...(prev || {}),
+              passwordConfiguredInDb: true,
+              passwordConfigured: true,
+              passwordUpdatedAt: res?.passwordUpdatedAt || new Date().toISOString(),
+            }))
+          }
+          onSignOut={handleAdminSignOut}
+        />
+      )}
+    </AdminNavigationShell>
   );
 }

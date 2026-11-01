@@ -1,42 +1,74 @@
-import crypto from "crypto";
+import crypto from "node:crypto";
+import { loadServerEnv } from "./_services/envLoader.js";
+import {
+  hashAdminPassword,
+  timingSafeStringMatch,
+  validateOwnerPasswordPolicy,
+  verifyAdminPasswordHash,
+} from "./_services/adminPasswordCrypto.js";
+
+loadServerEnv();
+
+export {
+  hashAdminPassword,
+  validateOwnerPasswordPolicy,
+  verifyAdminPasswordHash,
+};
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 export const MAX_BODY_BYTES = 512 * 1024; // 512 KB
 
 export const MASTER_ADMIN_UID = "admin-ummo-master";
-export const MASTER_ADMIN_EMAIL =
-  (process.env.ADMIN_EMAIL || "admin@ummo.com").trim().toLowerCase();
-export const MASTER_ADMIN_PASSWORD =
-  process.env.ADMIN_PASSWORD || "Admin@12345";
 
-// Public, intentionally shared DEMO administrator (this is a demo project).
-// Works like an admin for catalog/inventory/discount/category/banner/order-status
-// testing, but the server blocks money movement and privilege changes (see
-// isDemoAdminBlockedRequest). Disable with DEMO_ADMIN_ENABLED=false.
+export function getMasterAdminEmail() {
+  return String(process.env.ADMIN_EMAIL || "admin@ummo.com")
+    .trim()
+    .toLowerCase();
+}
+
+export const MASTER_ADMIN_EMAIL = getMasterAdminEmail();
+
+// Optional restricted DEMO administrator: disabled (false) by default.
+// Never uses hardcoded passwords; only active when DEMO_ADMIN_ENABLED=true AND
+// an explicit DEMO_ADMIN_PASSWORD_HASH or DEMO_ADMIN_PASSWORD is set in env.
 export const DEMO_ADMIN_UID = "admin-ummo-demo";
-export const DEMO_ADMIN_EMAIL = (
-  process.env.DEMO_ADMIN_EMAIL || "demo.admin@ummo.com"
-)
-  .trim()
-  .toLowerCase();
-export const DEMO_ADMIN_PASSWORD =
-  process.env.DEMO_ADMIN_PASSWORD || "DemoAdmin@2026";
-export const DEMO_ADMIN_ENABLED =
-  String(process.env.DEMO_ADMIN_ENABLED || "true").toLowerCase() !== "false";
 
-export function verifyDemoAdminCredentials(email, password) {
-  if (!DEMO_ADMIN_ENABLED) return false;
-  const safeEmail = String(email || "").trim().toLowerCase();
-  const safePass = String(password || "");
-  if (!safeEmail || !safePass) return false;
-  const h = (v) => crypto.createHash("sha256").update(v).digest();
-  return (
-    crypto.timingSafeEqual(h(safeEmail), h(DEMO_ADMIN_EMAIL)) &&
-    crypto.timingSafeEqual(h(safePass), h(DEMO_ADMIN_PASSWORD))
+export function getDemoAdminEmail() {
+  return String(process.env.DEMO_ADMIN_EMAIL || "demo.admin@ummo.com")
+    .trim()
+    .toLowerCase();
+}
+
+export const DEMO_ADMIN_EMAIL = getDemoAdminEmail();
+
+export function isDemoAdminEnabled(env = process.env) {
+  const flag =
+    String(env?.DEMO_ADMIN_ENABLED || "false").trim().toLowerCase() === "true";
+  if (!flag) return false;
+  return Boolean(
+    String(env?.DEMO_ADMIN_PASSWORD_HASH || "").trim() ||
+      String(env?.DEMO_ADMIN_PASSWORD || "")
   );
 }
 
-/** Server-side guard: demo admin may not move money, change privileges, or delete customer records. */
+export const DEMO_ADMIN_ENABLED = isDemoAdminEnabled();
+
+export function verifyDemoAdminCredentials(email, password) {
+  if (!isDemoAdminEnabled(process.env)) return false;
+  const safeEmail = String(email || "").trim().toLowerCase();
+  const safePass = String(password || "");
+  if (!safeEmail || !safePass) return false;
+  if (!timingSafeStringMatch(safeEmail, getDemoAdminEmail())) return false;
+
+  const demoHash = String(process.env.DEMO_ADMIN_PASSWORD_HASH || "").trim();
+  if (demoHash) {
+    return verifyAdminPasswordHash(safePass, demoHash);
+  }
+  const demoPlain = String(process.env.DEMO_ADMIN_PASSWORD || "");
+  return demoPlain ? timingSafeStringMatch(safePass, demoPlain) : false;
+}
+
+/** Server-side guard: demo admin may not move money, change privileges/passwords, or delete customer records. */
 export function isDemoAdminBlockedRequest(method, path) {
   const m = String(method || "GET").toUpperCase();
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
@@ -44,6 +76,7 @@ export function isDemoAdminBlockedRequest(method, path) {
     return true;
   }
   return (
+    path === "/admin/password" ||
     path === "/payments/reconcile" ||
     path === "/payments/refund" ||
     path === "/payments/sandbox-confirm" ||
@@ -51,11 +84,28 @@ export function isDemoAdminBlockedRequest(method, path) {
     path === "/users"
   );
 }
-export const ADMIN_ACCESS_KEY =
-  process.env.UMMO_ADMIN_KEY || "UMMO_ADMIN_SHIELD_2026";
-const ADMIN_TOKEN_SECRET =
-  process.env.ADMIN_TOKEN_SECRET ||
-  `${ADMIN_ACCESS_KEY}::ummo_enterprise_hmac_2026`;
+
+export function getAdminAccessKey() {
+  const raw = String(process.env.UMMO_ADMIN_KEY || "").trim();
+  return raw.length >= 24 ? raw : "";
+}
+
+export const ADMIN_ACCESS_KEY = getAdminAccessKey();
+
+export function getAdminTokenSecret() {
+  const raw = String(
+    process.env.AUTH_SECRET ||
+      process.env.ADMIN_TOKEN_SECRET ||
+      process.env.JWT_SECRET ||
+      ""
+  ).trim();
+  return raw.length >= 16 ? raw : "";
+}
+
+export function isAuthSecretConfigured() {
+  return Boolean(getAdminTokenSecret());
+}
+
 export const ADMIN_TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 // Revoked token registry (JTI -> expiration timestamp)
@@ -66,12 +116,18 @@ const adminLoginAttempts = new Map();
 export const ADMIN_LOGIN_MAX_ATTEMPTS = 5;
 export const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
+// Durable owner admin auth metadata synced from MongoDB `store_config` (`_id: "security_guard"`)
+let cachedOwnerAuth = null;
+let monotonicTokenMs = 0;
+
+function nextMonotonicMs(nowMs = Date.now()) {
+  monotonicTokenMs = Math.max(Number(nowMs), monotonicTokenMs + 1);
+  return monotonicTokenMs;
+}
+
 /**
  * Determines whether interactive sandbox payment confirmation is permitted.
- * Disabled by default (fail-closed). Requires explicit non-production configuration:
- * - Neither NODE_ENV, VERCEL_ENV, nor PAYMENT_ENV may be "production"
- * - PAYMENT_MODE must be explicitly set to "sandbox"
- * - ALLOW_SANDBOX_CONFIRM must be explicitly set to "true"
+ * Disabled by default (fail-closed).
  */
 export function isSandboxPaymentSimulationEnabled(env = process.env) {
   if (!env || typeof env !== "object") return false;
@@ -93,7 +149,7 @@ export function isSandboxPaymentSimulationEnabled(env = process.env) {
   return paymentMode === "sandbox" && allowSandbox === "true";
 }
 
-const SECURITY_GUARD_DOC_ID = "security_guard";
+export const SECURITY_GUARD_DOC_ID = "security_guard";
 
 function normalizeRateLimitKey(key) {
   return String(key || "anonymous").trim().toLowerCase().slice(0, 160);
@@ -108,10 +164,8 @@ function hashRateLimitKey(key) {
 }
 
 /**
- * Synchronizes durable admin token revocations and brute-force login attempt buckets
- * from MongoDB Atlas (`store_config` document `_id: "security_guard"`) into the
- * current serverless instance's memory cache so multi-instance Vercel deployments
- * enforce revocations and rate limits globally across instances.
+ * Synchronizes durable admin token revocations, brute-force login attempt buckets,
+ * and salted scrypt owner credentials + session invalidation watermark from MongoDB Atlas.
  */
 export async function syncSecurityGuardFromDb(db, nowMs = Date.now()) {
   if (!db) return;
@@ -119,7 +173,26 @@ export async function syncSecurityGuardFromDb(db, nowMs = Date.now()) {
     const doc = await db
       .collection("store_config")
       .findOne({ _id: SECURITY_GUARD_DOC_ID });
-    if (!doc || typeof doc !== "object") return;
+    if (!doc || typeof doc !== "object") {
+      cachedOwnerAuth = null;
+      return;
+    }
+
+    if (doc.ownerAuth && typeof doc.ownerAuth === "object") {
+      cachedOwnerAuth = {
+        uid: doc.ownerAuth.uid ? String(doc.ownerAuth.uid) : "",
+        email: doc.ownerAuth.email
+          ? String(doc.ownerAuth.email).trim().toLowerCase()
+          : "",
+        passwordHash: doc.ownerAuth.passwordHash
+          ? String(doc.ownerAuth.passwordHash)
+          : "",
+        passwordUpdatedAt: doc.ownerAuth.passwordUpdatedAt || null,
+        sessionInvalidBeforeMs: Number(doc.ownerAuth.sessionInvalidBeforeMs || 0),
+      };
+    } else {
+      cachedOwnerAuth = null;
+    }
 
     if (doc.revokedJtis && typeof doc.revokedJtis === "object") {
       for (const [jti, exp] of Object.entries(doc.revokedJtis)) {
@@ -148,6 +221,81 @@ export async function syncSecurityGuardFromDb(db, nowMs = Date.now()) {
   } catch {
     // Fallback to process-local memory if MongoDB query fails transiently
   }
+}
+
+export function getOwnerAuthSecuritySummary() {
+  const dbHashConfigured = Boolean(cachedOwnerAuth?.passwordHash);
+  const envHashConfigured = Boolean(
+    String(process.env.ADMIN_PASSWORD_HASH || "").trim()
+  );
+  const envPlainConfigured = Boolean(String(process.env.ADMIN_PASSWORD || ""));
+  return {
+    ownerEmail: cachedOwnerAuth?.email || getMasterAdminEmail(),
+    ownerUid: cachedOwnerAuth?.uid || MASTER_ADMIN_UID,
+    passwordConfiguredInDb: dbHashConfigured,
+    passwordConfiguredInEnv: envHashConfigured || envPlainConfigured,
+    passwordConfigured: dbHashConfigured || envHashConfigured || envPlainConfigured,
+    passwordUpdatedAt: cachedOwnerAuth?.passwordUpdatedAt || null,
+    authSecretConfigured: isAuthSecretConfigured(),
+    demoAdminEnabled: isDemoAdminEnabled(),
+  };
+}
+
+/**
+ * Sets or rotates the Owner Administrator password using salted scrypt hashing,
+ * persists it to `store_config` (`_id: "security_guard"`), and invalidates all
+ * previously issued owner administrator session tokens.
+ */
+export async function setOwnerAdminPasswordDurable({
+  email = getMasterAdminEmail(),
+  uid = MASTER_ADMIN_UID,
+  newPassword,
+  db = null,
+}) {
+  const policy = validateOwnerPasswordPolicy(newPassword);
+  if (!policy.valid) {
+    const err = new Error(policy.error);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const cleanEmail = String(email || getMasterAdminEmail())
+    .trim()
+    .toLowerCase();
+  const cleanUid = String(uid || MASTER_ADMIN_UID).trim();
+  const passwordHash = hashAdminPassword(newPassword);
+  const invalidationWatermark = nextMonotonicMs(Date.now());
+  const nowIso = new Date(invalidationWatermark).toISOString();
+
+  const nextOwnerAuth = {
+    uid: cleanUid,
+    email: cleanEmail,
+    passwordHash,
+    passwordUpdatedAt: nowIso,
+    sessionInvalidBeforeMs: invalidationWatermark,
+  };
+
+  cachedOwnerAuth = nextOwnerAuth;
+
+  if (db) {
+    await db.collection("store_config").updateOne(
+      { _id: SECURITY_GUARD_DOC_ID },
+      {
+        $set: {
+          ownerAuth: nextOwnerAuth,
+          updatedAt: nowIso,
+        },
+      },
+      { upsert: true }
+    );
+  }
+
+  return {
+    uid: cleanUid,
+    email: cleanEmail,
+    passwordUpdatedAt: nowIso,
+    sessionInvalidBeforeMs: invalidationWatermark,
+  };
 }
 
 export function checkAdminLoginRateLimit(key, nowMs = Date.now()) {
@@ -257,6 +405,7 @@ export async function clearAdminLoginFailuresDurable(key, db = null) {
 export function evictLocalSecurityCacheForTest() {
   adminLoginAttempts.clear();
   revokedAdminTokenJtis.clear();
+  cachedOwnerAuth = null;
 }
 
 export async function resetAdminRateLimitsForTest(db = null) {
@@ -278,35 +427,54 @@ export function verifyAdminPasswordCredentials(email, password) {
   const safeEmail = String(email || "").trim().toLowerCase();
   const safePass = String(password || "");
   if (!safeEmail || !safePass) return false;
-  const emailHashA = crypto.createHash("sha256").update(safeEmail).digest();
-  const emailHashB = crypto
-    .createHash("sha256")
-    .update(MASTER_ADMIN_EMAIL)
-    .digest();
-  const passHashA = crypto.createHash("sha256").update(safePass).digest();
-  const passHashB = crypto
-    .createHash("sha256")
-    .update(MASTER_ADMIN_PASSWORD)
-    .digest();
-  return (
-    crypto.timingSafeEqual(emailHashA, emailHashB) &&
-    crypto.timingSafeEqual(passHashA, passHashB)
-  );
+
+  const expectedEmail = cachedOwnerAuth?.email || getMasterAdminEmail();
+  if (!timingSafeStringMatch(safeEmail, expectedEmail)) {
+    return false;
+  }
+
+  // 1. Authoritative salted scrypt hash persisted in MongoDB `security_guard.ownerAuth`
+  if (cachedOwnerAuth?.passwordHash) {
+    return verifyAdminPasswordHash(safePass, cachedOwnerAuth.passwordHash);
+  }
+
+  // 2. Explicit salted scrypt hash in environment (`ADMIN_PASSWORD_HASH`)
+  const envHash = String(process.env.ADMIN_PASSWORD_HASH || "").trim();
+  if (envHash) {
+    return verifyAdminPasswordHash(safePass, envHash);
+  }
+
+  // 3. Explicit environment password (`ADMIN_PASSWORD`) — NO hardcoded default fallback
+  const envPass = String(process.env.ADMIN_PASSWORD || "");
+  if (envPass) {
+    return timingSafeStringMatch(safePass, envPass);
+  }
+
+  return false;
 }
 
 export function createAdminSessionToken({
   uid = MASTER_ADMIN_UID,
-  email = MASTER_ADMIN_EMAIL,
+  email = getMasterAdminEmail(),
   role = "ADMIN",
   demo = false,
   ttlMs = ADMIN_TOKEN_TTL_MS,
   jti = crypto.randomUUID(),
 } = {}) {
-  const now = Date.now();
+  const secret = getAdminTokenSecret();
+  if (!secret) {
+    const err = new Error(
+      "Server authentication secret (AUTH_SECRET) is not configured."
+    );
+    err.statusCode = 503;
+    throw err;
+  }
+
+  const now = nextMonotonicMs(Date.now());
   const payload = {
     jti: String(jti),
     uid: String(uid || MASTER_ADMIN_UID),
-    email: String(email || MASTER_ADMIN_EMAIL).toLowerCase(),
+    email: String(email || getMasterAdminEmail()).toLowerCase(),
     role: String(role || "ADMIN").toUpperCase(),
     ...(demo ? { demo: true } : {}),
     iat: now,
@@ -316,7 +484,7 @@ export function createAdminSessionToken({
     "base64url"
   );
   const sig = crypto
-    .createHmac("sha256", ADMIN_TOKEN_SECRET)
+    .createHmac("sha256", secret)
     .update(encoded)
     .digest("base64url");
   return `${encoded}.${sig}`;
@@ -335,13 +503,16 @@ export function isAdminTokenRevoked(jti) {
 
 export function verifyAdminSessionToken(token) {
   if (!token || typeof token !== "string" || !token.includes(".")) return null;
+  const secret = getAdminTokenSecret();
+  if (!secret) return null;
+
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [encoded, providedSig] = parts;
   if (!encoded || !providedSig) return null;
   try {
     const expectedSig = crypto
-      .createHmac("sha256", ADMIN_TOKEN_SECRET)
+      .createHmac("sha256", secret)
       .update(encoded)
       .digest("base64url");
     const bufA = Buffer.from(providedSig, "utf8");
@@ -356,6 +527,13 @@ export function verifyAdminSessionToken(token) {
     if (decoded.role !== "ADMIN") return null;
     if (!decoded.exp || Number(decoded.exp) <= Date.now()) return null;
     if (decoded.jti && isAdminTokenRevoked(decoded.jti)) return null;
+    if (
+      !decoded.demo &&
+      cachedOwnerAuth?.sessionInvalidBeforeMs &&
+      Number(decoded.iat || 0) < Number(cachedOwnerAuth.sessionInvalidBeforeMs)
+    ) {
+      return null;
+    }
     return decoded;
   } catch {
     return null;
@@ -397,10 +575,6 @@ export async function revokeAdminSessionTokenDurable(token, db = null) {
   return true;
 }
 
-/**
- * Recursively strips MongoDB operators ($ne, $gt, $where, etc.), dot-path keys,
- * and prototype pollution keys (__proto__, constructor, prototype).
- */
 export function sanitizeInput(value, depth = 0) {
   if (depth > 12) return null;
   if (value === null || value === undefined) return value;
@@ -432,10 +606,6 @@ export function sanitizeInput(value, depth = 0) {
   return undefined;
 }
 
-/**
- * Validates that raw input does not contain any top-level or nested MongoDB operator object
- * where a primitive string/number identifier is expected.
- */
 export function containsNoSqlOperator(raw) {
   if (!raw || typeof raw !== "object") return false;
   if (Array.isArray(raw)) return raw.some(containsNoSqlOperator);
@@ -446,9 +616,6 @@ export function containsNoSqlOperator(raw) {
   return false;
 }
 
-/**
- * Coerces a scalar ID safely; returns empty string if an object/array/operator is passed.
- */
 export function asSafeId(val, maxLen = 128) {
   if (val === null || val === undefined) return "";
   if (typeof val !== "string" && typeof val !== "number") return "";
@@ -464,9 +631,6 @@ export function asSafeEmail(val) {
   return emailRegex.test(str) ? str : "";
 }
 
-/**
- * Parses and validates JSON request body with strict byte-size limit and NoSQL operator sanitization.
- */
 export async function parseJsonBody(req) {
   if (req.body !== undefined && req.body !== null) {
     if (typeof req.body === "object") {
@@ -591,12 +755,13 @@ export function resolveCaller(req, state) {
     verifyAdminSessionToken(adminTokenHeader) ||
     verifyAdminSessionToken(bearerToken);
 
-  const hasValidAdminSecret =
-    Boolean(verifiedAdminSession) ||
-    adminKey === ADMIN_ACCESS_KEY ||
-    bearerToken === ADMIN_ACCESS_KEY;
+  const configuredAdminKey = getAdminAccessKey();
+  const hasExplicitEnvAdminKey =
+    Boolean(configuredAdminKey) &&
+    (timingSafeStringMatch(adminKey, configuredAdminKey) ||
+      timingSafeStringMatch(bearerToken, configuredAdminKey));
 
-  const isAdmin = Boolean(hasValidAdminSecret);
+  const isAdmin = Boolean(verifiedAdminSession) || hasExplicitEnvAdminKey;
   const resolvedUid = verifiedAdminSession?.uid || uid;
   const resolvedEmail = verifiedAdminSession?.email || email;
 

@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useEffect, useState } from "react";
 import Banner from "../components/layout/home/Banner";
 import Category from "../components/layout/home/Category";
+import { usePageSeo } from "../utils/seo";
 
 // Below-the-fold sections are code-split and mounted after first paint so the
 // above-the-fold hero/category LCP element is not delayed by main-thread work.
@@ -22,6 +23,13 @@ const Services = lazy(() => import("../components/layout/home/Services"));
 
 const HomePage = () => {
   const [showRest, setShowRest] = useState(false);
+
+  usePageSeo({
+    title: "UOMO — International Fashion & Lifestyle Storefront",
+    description:
+      "Shop curated women's, men's, kids', beauty, electronics, and luxury lifestyle collections with verified markdowns and fast worldwide delivery.",
+    canonicalPath: "/",
+  });
 
   useEffect(() => {
     const mount = () => setShowRest(true);

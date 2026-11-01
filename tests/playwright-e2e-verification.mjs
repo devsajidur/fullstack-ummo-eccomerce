@@ -28,7 +28,9 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 import { closeMongoConnection, getMongoDb } from "../api/db.js";
+import { hashAdminPassword } from "../api/security.js";
 
 const require = createRequire(import.meta.url);
 let chromium;
@@ -113,6 +115,9 @@ async function runVerification() {
     }
   };
 
+  const ephemeralOwnerPassword = `Own3r#${crypto.randomBytes(12).toString("hex")}`;
+  const ephemeralDemoPassword = `D3m0#${crypto.randomBytes(12).toString("hex")}`;
+
   console.log("1. Starting local Vite production preview server on port 4173...");
   const viteProc = spawn(
     process.execPath,
@@ -120,7 +125,13 @@ async function runVerification() {
     {
       cwd: ROOT_DIR,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, NODE_ENV: "production" },
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        ADMIN_PASSWORD_HASH: hashAdminPassword(ephemeralOwnerPassword),
+        DEMO_ADMIN_ENABLED: "true",
+        DEMO_ADMIN_PASSWORD_HASH: hashAdminPassword(ephemeralDemoPassword),
+      },
     }
   );
 
@@ -643,19 +654,16 @@ async function runVerification() {
       "Mobile Admin login portal displays clear error message on invalid password and allows retry"
     );
 
-    // 5d-bis. Verify Public Demo Admin ("Fill demo credentials" -> Login -> 403 on Refund -> Logout)
-    await page.locator("button", { hasText: /Fill demo credentials/i }).click();
-    await page.waitForTimeout(150);
+    // 5d-bis. Verify Opt-In Demo Admin (Login -> 403 on Refund -> Logout) with zero hardcoded UI passwords
+    await page.locator("#admin-login-email").fill("demo.admin@ummo.com");
+    await page.locator("#admin-login-password").fill(ephemeralDemoPassword);
     const demoFilled = await page.evaluate(() => ({
       email: document.querySelector("#admin-login-email")?.value || "",
-      pass: document.querySelector("#admin-login-password")?.value || "",
       hasBangla: /[\u0980-\u09FF]/.test(document.body.innerText || ""),
     }));
     assertCheck(
-      demoFilled.email === "demo.admin@ummo.com" &&
-        demoFilled.pass === "DemoAdmin@2026" &&
-        !demoFilled.hasBangla,
-      "Demo Admin 'Fill demo credentials' button populates demo.admin@ummo.com in pure-English login card",
+      demoFilled.email === "demo.admin@ummo.com" && !demoFilled.hasBangla,
+      "Demo Admin credentials populated in pure-English login card without hardcoded UI passwords",
       demoFilled
     );
     await page.locator('button[type="submit"]', { hasText: /Sign In to Admin Portal/i }).click();
@@ -701,7 +709,7 @@ async function runVerification() {
 
     // Sign in as Master Administrator via real typing and form submission on mobile (390x844)
     await page.locator("#admin-login-email").fill("admin@ummo.com");
-    await page.locator("#admin-login-password").fill("Admin@12345");
+    await page.locator("#admin-login-password").fill(ephemeralOwnerPassword);
     await page.locator('button[type="submit"]', { hasText: /Sign In to Admin Portal/i }).click();
 
     await page.waitForSelector('button[aria-label="Open admin navigation drawer"]', {
@@ -1096,6 +1104,8 @@ async function runVerification() {
       process.exitCode = 1;
     }
   } finally {
+    viteProc.stdout?.destroy();
+    viteProc.stderr?.destroy();
     viteProc.kill();
   }
 }
