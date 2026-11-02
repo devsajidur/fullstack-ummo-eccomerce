@@ -43,7 +43,9 @@ export default async function handler(req, res) {
         req.headers?.authorization ||
         path.startsWith("/admin")
     );
-    const securityDb = hasAdminAuthHeader ? await getMongoDb() : null;
+    const securityDb = hasAdminAuthHeader
+      ? await getMongoDb({ forceRetry: path === "/admin/login" })
+      : null;
     if (securityDb) {
       await syncSecurityGuardFromDb(securityDb);
     }

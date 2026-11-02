@@ -4,6 +4,7 @@ import {
   getCloudinaryApiKey,
   getCloudinarySecret,
   getFullState,
+  getLastMongoDiagnostic,
   getMongoDb,
   isMongoConfigured,
 } from "../db.js";
@@ -61,7 +62,7 @@ export async function handleSeoAndHealthRoutes({
       sendJson(req, res, 405, { error: "Method not allowed" });
       return true;
     }
-    const db = await getMongoDb();
+    const db = await getMongoDb({ forceRetry: true });
     if (db) {
       await syncSecurityGuardFromDb(db);
     }
@@ -71,6 +72,7 @@ export async function handleSeoAndHealthRoutes({
       ready: Boolean(db),
       mongodbConnected: Boolean(db),
       mongodbUriConfigured: isMongoConfigured(),
+      mongoDiagnostic: db ? null : getLastMongoDiagnostic(),
       authSecretConfigured: isAuthSecretConfigured(),
       ownerPasswordConfiguredInDb: Boolean(
         ownerSummary.passwordConfiguredInDb
