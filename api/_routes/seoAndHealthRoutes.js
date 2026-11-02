@@ -5,7 +5,10 @@ import {
   getCloudinarySecret,
   getFullState,
   getLastMongoDiagnostic,
+  getLastWriteDiagnostic,
   getMongoDb,
+  getMongoUriDiagnostic,
+  inspectMongoWritePermissions,
   isMongoConfigured,
 } from "../db.js";
 import {
@@ -63,9 +66,22 @@ export async function handleSeoAndHealthRoutes({
       return true;
     }
     const db = await getMongoDb({ forceRetry: true });
+    let writePermissions = null;
     if (db) {
       await syncSecurityGuardFromDb(db);
+      writePermissions = await inspectMongoWritePermissions(db, [
+        "orders",
+        "store_config",
+        "payments",
+      ]);
     }
+    const rawWc = db?.client?.options?.writeConcern?.w;
+    const safeWriteConcern =
+      rawWc === "majority" || typeof rawWc === "number"
+        ? rawWc
+        : rawWc === undefined
+          ? null
+          : "NON_STANDARD";
     const ownerSummary = getOwnerAuthSecuritySummary();
     sendJson(req, res, 200, {
       status: db ? "ok" : "degraded",
@@ -73,6 +89,10 @@ export async function handleSeoAndHealthRoutes({
       mongodbConnected: Boolean(db),
       mongodbUriConfigured: isMongoConfigured(),
       mongoDiagnostic: db ? null : getLastMongoDiagnostic(),
+      uriDiagnostic: getMongoUriDiagnostic(),
+      effectiveWriteConcern: safeWriteConcern,
+      writePermissions,
+      lastWriteDiagnostic: getLastWriteDiagnostic(),
       authSecretConfigured: isAuthSecretConfigured(),
       ownerPasswordConfiguredInDb: Boolean(
         ownerSummary.passwordConfiguredInDb

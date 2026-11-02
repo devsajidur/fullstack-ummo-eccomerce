@@ -1,8 +1,10 @@
 import {
-  commitDurableMongoWrite,
+  commitAtomicMongoTransaction,
   getFullState,
   requireDurableMongoDb,
+  runTrackedMongoOp,
   saveCloudMirrorState,
+  stripMongoImmutableId,
 } from "../db.js";
 import {
   asSafeId,
@@ -24,6 +26,15 @@ const ALLOWED_ORDER_STATUSES = new Set([
   "CANCELLED",
 ]);
 
+function cloneStoreConfigForStaging(storeConfig) {
+  return {
+    ...storeConfig,
+    customProducts: Array.isArray(storeConfig?.customProducts)
+      ? storeConfig.customProducts.map((p) => ({ ...p }))
+      : [],
+  };
+}
+
 export async function handleOrderRoutes({ req, res, method, path }) {
   if (path === "/orders" || path === "/orders/checkout") {
     if (method !== "POST") {
@@ -43,24 +54,45 @@ export async function handleOrderRoutes({ req, res, method, path }) {
       req.headers?.["idempotency-key"] || req.headers?.["Idempotency-Key"] || "",
       128
     );
+    const requestedOrderId = body.orderId ? asSafeId(body.orderId, 64) : "";
 
-    if (idempotencyKey || body.orderId) {
-      const existingOrder = state.orders.find(
+    if (idempotencyKey || requestedOrderId) {
+      const existingInMem = state.orders.find(
         (o) =>
           (idempotencyKey && o.idempotencyKey === idempotencyKey) ||
-          (body.orderId && String(o.orderId) === String(body.orderId))
+          (requestedOrderId && String(o.orderId) === requestedOrderId)
       );
-      if (existingOrder) {
+      if (existingInMem) {
         sendJson(req, res, 200, {
           status: "ok",
           idempotentReplay: true,
-          order: existingOrder,
+          order: existingInMem,
         });
         return true;
       }
     }
 
-    await requireDurableMongoDb();
+    const db = await requireDurableMongoDb();
+
+    if ((idempotencyKey || requestedOrderId) && typeof db?.collection === "function") {
+      const orClauses = [];
+      if (idempotencyKey) orClauses.push({ idempotencyKey });
+      if (requestedOrderId) orClauses.push({ orderId: requestedOrderId });
+      const ordersCol = db.collection("orders");
+      if (orClauses.length && typeof ordersCol?.findOne === "function") {
+        const existingInDb = await ordersCol.findOne(
+          orClauses.length === 1 ? orClauses[0] : { $or: orClauses }
+        );
+        if (existingInDb) {
+          sendJson(req, res, 200, {
+            status: "ok",
+            idempotentReplay: true,
+            order: existingInDb,
+          });
+          return true;
+        }
+      }
+    }
 
     const newOrder = validateAndBuildServerOrder(
       body,
@@ -69,34 +101,48 @@ export async function handleOrderRoutes({ req, res, method, path }) {
       idempotencyKey
     );
 
-    deductOrderInventory(state, newOrder.OrderItems, newOrder);
-    const nextOrders = [
+    const stagedStoreConfig = cloneStoreConfigForStaging(state.storeConfig);
+    deductOrderInventory(
+      { storeConfig: stagedStoreConfig },
+      newOrder.OrderItems,
+      newOrder
+    );
+
+    const orderDocToWrite = stripMongoImmutableId(newOrder);
+    const configDocToWrite = stripMongoImmutableId(stagedStoreConfig);
+
+    await commitAtomicMongoTransaction(
+      async (txDb, session) => {
+        const sessionOpt = session ? { session } : {};
+        await runTrackedMongoOp("orders", "updateOne", () =>
+          txDb
+            .collection("orders")
+            .updateOne(
+              { orderId: newOrder.orderId },
+              { $set: orderDocToWrite },
+              { upsert: true, ...sessionOpt }
+            )
+        );
+        await runTrackedMongoOp("store_config", "updateOne", () =>
+          txDb
+            .collection("store_config")
+            .updateOne(
+              { _id: "global" },
+              { $set: configDocToWrite },
+              { upsert: true, ...sessionOpt }
+            )
+        );
+      },
+      { collection: "orders", operation: "withTransaction" }
+    );
+
+    state.storeConfig = stagedStoreConfig;
+    state.orders = [
       newOrder,
       ...state.orders.filter(
         (o) => String(o.orderId) !== String(newOrder.orderId)
       ),
     ];
-
-    await commitDurableMongoWrite(async (db) => {
-      await Promise.all([
-        db
-          .collection("orders")
-          .updateOne(
-            { orderId: newOrder.orderId },
-            { $set: newOrder },
-            { upsert: true }
-          ),
-        db
-          .collection("store_config")
-          .updateOne(
-            { _id: "global" },
-            { $set: state.storeConfig },
-            { upsert: true }
-          ),
-      ]);
-    });
-
-    state.orders = nextOrders;
     await saveCloudMirrorState(state);
 
     sendJson(req, res, 201, {
@@ -172,48 +218,66 @@ export async function handleOrderRoutes({ req, res, method, path }) {
     await requireDurableMongoDb();
 
     const updatedAt = new Date().toISOString();
-    if (nextStatus === "CANCELLED" && targetOrder.status !== "CANCELLED") {
-      restockOrderInventory(state, targetOrder);
+    const stagedStoreConfig = cloneStoreConfigForStaging(state.storeConfig);
+    const stagedTargetOrder = { ...targetOrder };
+    const shouldRestock =
+      nextStatus === "CANCELLED" && targetOrder.status !== "CANCELLED";
+    if (shouldRestock) {
+      restockOrderInventory(
+        { storeConfig: stagedStoreConfig },
+        stagedTargetOrder
+      );
     }
 
-    const nextOrders = state.orders.map((o) =>
+    const configDocToWrite = stripMongoImmutableId(stagedStoreConfig);
+
+    await commitAtomicMongoTransaction(
+      async (txDb, session) => {
+        const sessionOpt = session ? { session } : {};
+        await runTrackedMongoOp("orders", "updateOne", () =>
+          txDb
+            .collection("orders")
+            .updateOne(
+              { $or: [{ orderId }, { id: orderId }] },
+              {
+                $set: {
+                  status: nextStatus,
+                  inventoryRestocked:
+                    stagedTargetOrder.inventoryRestocked || false,
+                  updatedAt,
+                },
+              },
+              sessionOpt
+            )
+        );
+        if (nextStatus === "CANCELLED") {
+          await runTrackedMongoOp("store_config", "updateOne", () =>
+            txDb
+              .collection("store_config")
+              .updateOne(
+                { _id: "global" },
+                { $set: configDocToWrite },
+                { upsert: true, ...sessionOpt }
+              )
+          );
+        }
+      },
+      { collection: "orders", operation: "withTransaction" }
+    );
+
+    if (shouldRestock) {
+      state.storeConfig = stagedStoreConfig;
+    }
+    state.orders = state.orders.map((o) =>
       String(o.orderId || o.id) === orderId
         ? {
             ...o,
             status: nextStatus,
-            inventoryRestocked: targetOrder.inventoryRestocked || false,
+            inventoryRestocked: stagedTargetOrder.inventoryRestocked || false,
             updatedAt,
           }
         : o
     );
-
-    await commitDurableMongoWrite(async (db) => {
-      await Promise.all([
-        db
-          .collection("orders")
-          .updateOne(
-            { $or: [{ orderId }, { id: orderId }] },
-            {
-              $set: {
-                status: nextStatus,
-                inventoryRestocked: targetOrder.inventoryRestocked || false,
-                updatedAt,
-              },
-            }
-          ),
-        nextStatus === "CANCELLED"
-          ? db
-              .collection("store_config")
-              .updateOne(
-                { _id: "global" },
-                { $set: state.storeConfig },
-                { upsert: true }
-              )
-          : Promise.resolve(),
-      ]);
-    });
-
-    state.orders = nextOrders;
     await saveCloudMirrorState(state);
 
     sendJson(req, res, 200, {

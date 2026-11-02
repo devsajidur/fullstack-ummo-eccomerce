@@ -87,6 +87,7 @@ export default async function handler(req, res) {
     return sendJson(req, res, statusCode, {
       error: safeMessage,
       ...(err?.code ? { code: err.code } : {}),
+      ...(err?.diagnostic ? { diagnostic: err.diagnostic } : {}),
     });
   }
 }
