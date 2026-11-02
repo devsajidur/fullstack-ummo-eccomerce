@@ -1,7 +1,13 @@
 import React from "react";
 import { useDispatch } from "react-redux";
+import { Minus, Plus, Trash2 } from "lucide-react";
 import Image from "../layout/common/Image";
-import { updateItemMessage } from "../../slices/cartSlice";
+import {
+  quentityDecrease,
+  quentityIncrease,
+  RemoveItem,
+  updateItemMessage,
+} from "../../slices/cartSlice";
 
 const PAYMENT_METHODS = [
   {
@@ -28,7 +34,7 @@ const PAYMENT_METHODS = [
   { id: "check", label: "Check payments" },
 ];
 
-function SummaryRow({ label, value, border }) {
+function SummaryRow({ label, value, border, testId }) {
   return (
     <div
       className={`flex justify-between items-center py-3 ${
@@ -36,7 +42,9 @@ function SummaryRow({ label, value, border }) {
       }`}
     >
       <span className="font-medium text-sm text-primary">{label}</span>
-      <span className="text-base font-medium text-primary">{value}</span>
+      <span data-testid={testId} className="text-base font-medium text-primary">
+        {value}
+      </span>
     </div>
   );
 }
@@ -61,7 +69,7 @@ export default function BillingOrderSummary({
 
   return (
     <div>
-      <div className="border border-primary p-6">
+      <div className="border border-primary p-4 sm:p-6">
         <h2 className="text-xs sm:text-base font-medium font-jost text-gray-900 mb-5">
           YOUR ORDER
         </h2>
@@ -74,39 +82,108 @@ export default function BillingOrderSummary({
         <div className="space-y-4 mb-4">
           {orderItems.map((item, idx) => {
             const msgLen = Array.from(String(item.optionalMessage || "")).length;
+            const maxStock = Math.max(1, Number(item.maxStock ?? item.stock ?? 99));
+            const qty = Math.max(1, Number(item.quantity || 1));
+            const atMaxStock = qty >= maxStock;
+            const lineTarget = {
+              cartLineId: item.cartLineId,
+              id: item.id,
+              size: item.size || "",
+              color: item.color || "",
+              optionalMessage: item.optionalMessage || "",
+              maxStock,
+            };
+
             return (
               <div
                 key={item.cartLineId || `${item.id}-${idx}`}
-                className="border-b border-gray-100 pb-3 last:border-b-0"
+                data-testid="checkout-order-item"
+                className="border-b border-gray-100 pb-3.5 last:border-b-0"
               >
                 <div className="flex justify-between text-sm text-gray-600 items-start gap-3">
-                  <div className="flex items-start gap-3 min-w-0">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
                     <Image
                       item={item}
                       src={item.image}
                       alt={item.title}
                       width={64}
                       height={64}
-                      className="w-16 h-16 object-contain bg-gray-50 border border-gray-200 rounded-md shrink-0"
+                      className="w-16 h-16 object-contain bg-gray-50 border border-gray-200 rounded-md shrink-0 p-1"
                     />
-                    <div className="min-w-0">
-                      <span className="block font-medium text-gray-900 truncate">
+                    <div className="min-w-0 flex-1">
+                      <span className="block font-medium text-gray-900 break-words">
                         {item.title}
                       </span>
-                      <span className="text-xs text-gray">
-                        Qty: {item.quantity}
+                      <span className="block text-xs text-gray-500 mt-0.5">
+                        ${item.price.toFixed(2)} each
                         {item.size ? ` • Size: ${item.size}` : ""}
                         {item.color ? ` • Color: ${item.color}` : ""}
                       </span>
+
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <div className="inline-flex items-center border border-gray-300 rounded-md bg-white">
+                          <button
+                            type="button"
+                            aria-label={
+                              qty <= 1
+                                ? `Remove ${item.title}`
+                                : `Decrease quantity of ${item.title}`
+                            }
+                            data-testid="checkout-qty-decrease"
+                            onClick={() => dispatch(quentityDecrease(lineTarget))}
+                            className="min-w-[34px] min-h-[34px] flex items-center justify-center text-gray-700 hover:bg-gray-100 cursor-pointer"
+                          >
+                            <Minus size={13} />
+                          </button>
+                          <span
+                            data-testid="checkout-item-qty"
+                            className="min-w-[28px] text-center text-xs font-bold text-gray-900 select-none"
+                          >
+                            {qty}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Increase quantity of ${item.title}`}
+                            data-testid="checkout-qty-increase"
+                            disabled={atMaxStock}
+                            onClick={() => dispatch(quentityIncrease(lineTarget))}
+                            className="min-w-[34px] min-h-[34px] flex items-center justify-center text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            <Plus size={13} />
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          aria-label={`Remove ${item.title} from order`}
+                          data-testid="checkout-remove-item"
+                          onClick={() => dispatch(RemoveItem(lineTarget))}
+                          className="min-w-[34px] min-h-[34px] px-2 inline-flex items-center gap-1 rounded-md text-[11px] font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+                        >
+                          <Trash2 size={13} /> Remove
+                        </button>
+
+                        {atMaxStock && (
+                          <span
+                            data-testid="checkout-stock-cap-msg"
+                            className="text-[10px] font-medium text-amber-700"
+                          >
+                            Max stock ({maxStock})
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <span className="font-semibold text-gray-900 shrink-0">
-                    ${(item.price * item.quantity).toFixed(2)}
+                  <span
+                    data-testid="checkout-item-line-total"
+                    className="font-semibold text-gray-900 shrink-0"
+                  >
+                    ${(item.price * qty).toFixed(2)}
                   </span>
                 </div>
 
                 {/* Product-specific optional customer message on Checkout review row */}
-                <div className="mt-2 pl-0 sm:pl-19">
+                <div className="mt-2.5 pl-0 sm:pl-19">
                   <div className="flex items-center justify-between text-[10px] text-gray-500 mb-1">
                     <label
                       htmlFor={`checkout-item-msg-${item.cartLineId || idx}`}
@@ -121,13 +198,11 @@ export default function BillingOrderSummary({
                     type="text"
                     maxLength={500}
                     value={item.optionalMessage || ""}
+                    data-testid="checkout-item-message-input"
                     onChange={(e) =>
                       dispatch(
                         updateItemMessage({
-                          cartLineId: item.cartLineId,
-                          id: item.id,
-                          size: item.size,
-                          color: item.color,
+                          ...lineTarget,
                           optionalMessage: e.target.value,
                         })
                       )
@@ -144,6 +219,7 @@ export default function BillingOrderSummary({
         <SummaryRow
           label="SUBTOTAL"
           value={`$${subtotal.toFixed(2)}`}
+          testId="checkout-subtotal"
           border
         />
         {(promotions?.unlockedFreeGifts || []).map((fg, idx) => (
@@ -160,6 +236,7 @@ export default function BillingOrderSummary({
               promotions?.tieredDiscountPercent || 10
             }% OFF)`}
             value={`-$${tieredDiscount.toFixed(2)}`}
+            testId="checkout-vip-discount"
             border
           />
         )}
@@ -167,6 +244,7 @@ export default function BillingOrderSummary({
           <SummaryRow
             label={`COUPON (${appliedCoupon?.code})`}
             value={`-$${discount.toFixed(2)}`}
+            testId="checkout-coupon-discount"
             border
           />
         )}
@@ -183,17 +261,22 @@ export default function BillingOrderSummary({
             promotions?.freeShippingUnlocked
               ? "FREE (Unlocked)"
               : shippingCost > 0
-              ? `$${shippingCost.toFixed(2)}`
-              : "Free shipping"
+                ? `$${shippingCost.toFixed(2)}`
+                : "Free shipping"
           }
+          testId="checkout-shipping"
           border
         />
         <SummaryRow label="VAT" value={`$${vat}`} border />
-        <SummaryRow label="TOTAL" value={`$${total.toFixed(2)}`} />
+        <SummaryRow
+          label="TOTAL"
+          value={`$${total.toFixed(2)}`}
+          testId="checkout-total"
+        />
       </div>
 
       {/* Payment methods */}
-      <div className="border border-gray-200 p-6 mt-5">
+      <div className="border border-gray-200 p-4 sm:p-6 mt-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-700">
             Select Payment Gateway
@@ -260,10 +343,10 @@ export default function BillingOrderSummary({
         {submitting
           ? "PROCESSING..."
           : paymentMethod === "sslcommerz"
-          ? "PROCEED TO SSLCOMMERZ SANDBOX"
-          : paymentMethod === "stripe"
-          ? "PROCEED TO STRIPE TEST CHECKOUT"
-          : "PLACE ORDER"}
+            ? "PROCEED TO SSLCOMMERZ SANDBOX"
+            : paymentMethod === "stripe"
+              ? "PROCEED TO STRIPE TEST CHECKOUT"
+              : "PLACE ORDER"}
       </button>
     </div>
   );

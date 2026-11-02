@@ -1,5 +1,13 @@
 import { createSlice } from "@reduxjs/toolkit";
-import { resolveProductImage } from "../utils/productImage";
+import { resolveProductImage } from "../utils/productImage.js";
+
+export const CART_DRAWER_OPEN_EVENT = "ummo:open-cart-drawer";
+
+export function requestOpenCartDrawer(detail = {}) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(CART_DRAWER_OPEN_EVENT, { detail }));
+  }
+}
 
 const getNormalizedSize = (obj) => {
   if (obj && (obj.size !== undefined || obj.selectedSize !== undefined)) {
@@ -29,6 +37,29 @@ const getNormalizedMessage = (obj) =>
     obj?.optionalMessage ?? obj?.itemMessage ?? obj?.productMessage ?? ""
   ).trim();
 
+const resolveMaxStock = (item, payload) => {
+  const candidates = [payload?.maxStock, payload?.stock, item?.stock];
+  for (const c of candidates) {
+    if (c !== undefined && c !== null && c !== "") {
+      const parsed = Number(c);
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        return Math.floor(parsed);
+      }
+    }
+  }
+  return 999;
+};
+
+const persistCartProducts = (products) => {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("carts", JSON.stringify(products));
+    }
+  } catch {
+    // ignore storage quota errors
+  }
+};
+
 const buildLineId = (id, size, color, msg, idx = 0) =>
   `${id || "item"}-${size || "std"}-${color || "std"}-${msg ? encodeURIComponent(msg.slice(0, 32)) : "nomessage"}-${idx}`;
 
@@ -38,13 +69,17 @@ const normalizeCartItem = (item, idx = 0) => {
   const color = getNormalizedColor(item);
   const optionalMessage = getNormalizedMessage(item);
   const resolvedImg = resolveProductImage(item);
+  const rawQty = Number(item.quantity ?? item.qun ?? 1);
+  const safeQty = Number.isFinite(rawQty) && rawQty > 0 ? Math.floor(rawQty) : 1;
+  const maxStock = resolveMaxStock(item, null);
   return {
     ...item,
     productId: item.productId ?? item.id,
     variantId: item.variantId || `${item.id}-${size || "std"}-${color || "std"}`,
     cartLineId:
       item.cartLineId || buildLineId(item.id, size, color, optionalMessage, idx),
-    quantity: Math.max(1, Number(item.quantity) || 1),
+    quantity: maxStock > 0 ? Math.min(safeQty, maxStock) : safeQty,
+    ...(maxStock < 999 ? { stock: maxStock } : {}),
     size,
     color,
     selectedSize: size,
@@ -59,6 +94,7 @@ const normalizeCartItem = (item, idx = 0) => {
 
 const loadCarts = () => {
   try {
+    if (typeof localStorage === "undefined") return [];
     const saved = localStorage.getItem("carts");
     if (!saved) return [];
     const parsed = JSON.parse(saved);
@@ -75,7 +111,8 @@ const loadCarts = () => {
           getNormalizedMessage(m) === norm.optionalMessage
       );
       if (existing) {
-        existing.quantity += norm.quantity;
+        const cap = resolveMaxStock(existing, norm);
+        existing.quantity = Math.min(cap, existing.quantity + norm.quantity);
         if (norm.price !== undefined) existing.price = Number(norm.price);
         if (norm.originalPrice !== undefined) {
           existing.originalPrice = Number(norm.originalPrice);
@@ -101,10 +138,20 @@ const loadCarts = () => {
 
 const loadCoupon = () => {
   try {
+    if (typeof localStorage === "undefined") return null;
     const saved = localStorage.getItem("appliedCoupon");
     return saved ? JSON.parse(saved) : null;
   } catch {
     return null;
+  }
+};
+
+const safeGetStorage = (key, fallback = "") => {
+  try {
+    if (typeof localStorage === "undefined") return fallback;
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
   }
 };
 
@@ -115,7 +162,8 @@ const isSameVariantAndMessage = (item, target) =>
   getNormalizedMessage(item) === getNormalizedMessage(target);
 
 const findCartTarget = (products, payload) => {
-  if (payload?.cartLineId) {
+  if (!payload || typeof payload !== "object") return undefined;
+  if (payload.cartLineId) {
     const byLineId = products.find(
       (item) => item.cartLineId && item.cartLineId === payload.cartLineId
     );
@@ -123,22 +171,27 @@ const findCartTarget = (products, payload) => {
   }
   const exact = products.find((item) => isSameVariantAndMessage(item, payload));
   if (exact) return exact;
-  const byVariant = products.find(
-    (item) =>
-      String(item?.id) === String(payload?.id) &&
-      getNormalizedSize(item) === getNormalizedSize(payload) &&
-      getNormalizedColor(item) === getNormalizedColor(payload)
-  );
-  if (byVariant) return byVariant;
-  return products.find((item) => String(item?.id) === String(payload?.id));
+
+  const hasExplicitVariantOrMsg =
+    payload.cartLineId !== undefined ||
+    payload.size !== undefined ||
+    payload.selectedSize !== undefined ||
+    payload.color !== undefined ||
+    payload.selectedColor !== undefined ||
+    payload.optionalMessage !== undefined;
+
+  if (!hasExplicitVariantOrMsg && payload.id !== undefined) {
+    return products.find((item) => String(item?.id) === String(payload.id));
+  }
+  return undefined;
 };
 
 const initialState = {
   products: loadCarts(),
-  shippingMethod: localStorage.getItem("shippingMethod") || "flat",
+  shippingMethod: safeGetStorage("shippingMethod", "flat") || "flat",
   appliedCoupon: loadCoupon(),
-  giftWrap: localStorage.getItem("ummo_gift_wrap") === "true",
-  giftNote: localStorage.getItem("ummo_gift_note") || "",
+  giftWrap: safeGetStorage("ummo_gift_wrap", "false") === "true",
+  giftNote: safeGetStorage("ummo_gift_note", ""),
 };
 
 export const cartSlice = createSlice({
@@ -146,7 +199,17 @@ export const cartSlice = createSlice({
   initialState,
   reducers: {
     addToCart: (state, action) => {
-      const incomingQty = Math.max(1, Number(action.payload?.quantity) || 1);
+      if (!action.payload || action.payload.id === undefined) return;
+      const rawQty =
+        action.payload.quantity !== undefined
+          ? Number(action.payload.quantity)
+          : action.payload.qun !== undefined
+            ? Number(action.payload.qun)
+            : 1;
+      if (!Number.isFinite(rawQty) || rawQty <= 0) {
+        return;
+      }
+      const incomingQty = Math.floor(rawQty);
       const incomingSize = getNormalizedSize(action.payload);
       const incomingColor = getNormalizedColor(action.payload);
       const incomingMessage = getNormalizedMessage(action.payload);
@@ -161,9 +224,17 @@ export const cartSlice = createSlice({
         })
       );
 
+      const maxStock = resolveMaxStock(existing, action.payload);
+      if (maxStock <= 0) {
+        return;
+      }
+
       if (existing) {
-        existing.quantity =
-          Math.max(1, Number(existing.quantity) || 1) + incomingQty;
+        const currentQty = Math.max(1, Number(existing.quantity) || 1);
+        existing.quantity = Math.min(maxStock, currentQty + incomingQty);
+        if (maxStock < 999) {
+          existing.stock = maxStock;
+        }
         existing.image = resolvedImg;
         existing.thumbnail = resolvedImg;
         existing.productImageSnapshot = resolvedImg;
@@ -183,6 +254,7 @@ export const cartSlice = createSlice({
           existing.freeGift = action.payload.freeGift;
         }
       } else {
+        const cappedQty = Math.min(maxStock, incomingQty);
         state.products.push({
           ...action.payload,
           productId: action.payload?.productId ?? action.payload?.id,
@@ -192,9 +264,10 @@ export const cartSlice = createSlice({
             incomingSize,
             incomingColor,
             incomingMessage,
-            Date.now()
+            `${Date.now()}-${state.products.length}`
           ),
-          quantity: incomingQty,
+          quantity: cappedQty,
+          ...(maxStock < 999 ? { stock: maxStock } : {}),
           size: incomingSize,
           color: incomingColor,
           selectedSize: incomingSize,
@@ -207,24 +280,46 @@ export const cartSlice = createSlice({
           optionalMessage: incomingMessage,
         });
       }
-      localStorage.setItem("carts", JSON.stringify(state.products));
+      persistCartProducts(state.products);
     },
     quentityIncrease: (state, action) => {
       const found = findCartTarget(state.products, action.payload);
-      if (found) {
-        found.quantity = Math.max(1, Number(found.quantity) || 1) + 1;
-        localStorage.setItem("carts", JSON.stringify(state.products));
+      if (!found) return;
+      const maxStock = resolveMaxStock(found, action.payload);
+      if (maxStock < 999) {
+        found.stock = maxStock;
       }
+      const currentQty = Math.max(1, Number(found.quantity) || 1);
+      if (currentQty >= maxStock) {
+        found.quantity = Math.max(1, maxStock);
+        persistCartProducts(state.products);
+        return;
+      }
+      found.quantity = Math.min(maxStock, currentQty + 1);
+      persistCartProducts(state.products);
     },
     quentityDecrease: (state, action) => {
       const found = findCartTarget(state.products, action.payload);
-      if (found) {
-        found.quantity = Math.max(0, (Number(found.quantity) || 1) - 1);
-        if (found.quantity < 1) {
-          state.products = state.products.filter((item) => item !== found);
-        }
-        localStorage.setItem("carts", JSON.stringify(state.products));
+      if (!found) return;
+      found.quantity = Math.max(0, (Number(found.quantity) || 1) - 1);
+      if (found.quantity < 1) {
+        state.products = state.products.filter((item) => item !== found);
       }
+      persistCartProducts(state.products);
+    },
+    setCartItemQuantity: (state, action) => {
+      const found = findCartTarget(state.products, action.payload);
+      if (!found) return;
+      const requested = Number(action.payload?.quantity);
+      if (!Number.isFinite(requested) || requested < 1) {
+        return;
+      }
+      const maxStock = resolveMaxStock(found, action.payload);
+      if (maxStock < 999) {
+        found.stock = maxStock;
+      }
+      found.quantity = Math.max(1, Math.min(maxStock, Math.floor(requested)));
+      persistCartProducts(state.products);
     },
     updateItemMessage: (state, action) => {
       const found = findCartTarget(state.products, action.payload);
@@ -232,7 +327,7 @@ export const cartSlice = createSlice({
         found.optionalMessage = sanitizeClientProductMessage(
           action.payload?.optionalMessage ?? ""
         );
-        localStorage.setItem("carts", JSON.stringify(state.products));
+        persistCartProducts(state.products);
       }
     },
     RemoveItem: (state, action) => {
@@ -244,37 +339,73 @@ export const cartSlice = createSlice({
           (item) => !isSameVariantAndMessage(item, action.payload)
         );
       }
-      localStorage.setItem("carts", JSON.stringify(state.products));
+      persistCartProducts(state.products);
     },
     EmptyCart: (state) => {
       state.products = [];
       state.appliedCoupon = null;
       state.giftWrap = false;
       state.giftNote = "";
-      localStorage.setItem("carts", JSON.stringify(state.products));
-      localStorage.removeItem("appliedCoupon");
-      localStorage.removeItem("ummo_gift_wrap");
-      localStorage.removeItem("ummo_gift_note");
+      persistCartProducts(state.products);
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.removeItem("appliedCoupon");
+          localStorage.removeItem("ummo_gift_wrap");
+          localStorage.removeItem("ummo_gift_note");
+        }
+      } catch {
+        // ignore
+      }
     },
     setShippingMethod: (state, action) => {
       state.shippingMethod = action.payload;
-      localStorage.setItem("shippingMethod", action.payload);
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("shippingMethod", action.payload);
+        }
+      } catch {
+        // ignore
+      }
     },
     applyCoupon: (state, action) => {
       state.appliedCoupon = action.payload;
-      localStorage.setItem("appliedCoupon", JSON.stringify(action.payload));
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("appliedCoupon", JSON.stringify(action.payload));
+        }
+      } catch {
+        // ignore
+      }
     },
     removeCoupon: (state) => {
       state.appliedCoupon = null;
-      localStorage.removeItem("appliedCoupon");
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.removeItem("appliedCoupon");
+        }
+      } catch {
+        // ignore
+      }
     },
     setGiftWrap: (state, action) => {
       state.giftWrap = Boolean(action.payload);
-      localStorage.setItem("ummo_gift_wrap", String(state.giftWrap));
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("ummo_gift_wrap", String(state.giftWrap));
+        }
+      } catch {
+        // ignore
+      }
     },
     setGiftNote: (state, action) => {
       state.giftNote = String(action.payload || "");
-      localStorage.setItem("ummo_gift_note", state.giftNote);
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("ummo_gift_note", state.giftNote);
+        }
+      } catch {
+        // ignore
+      }
     },
   },
 });
@@ -283,6 +414,7 @@ export const {
   addToCart,
   quentityIncrease,
   quentityDecrease,
+  setCartItemQuantity,
   updateItemMessage,
   RemoveItem,
   EmptyCart,

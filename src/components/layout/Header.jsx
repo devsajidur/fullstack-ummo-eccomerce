@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { HiOutlineBars3CenterLeft } from "react-icons/hi2";
 import { Flame, ShoppingBag } from "lucide-react";
@@ -14,8 +14,11 @@ import {
   getInitialCatalogSnapshot,
   initStoreConfigSync,
 } from "../../services/api";
-import { RemoveItem } from "../../slices/cartSlice";
-import { getProductDiscountState } from "../../utils/discountTimer";
+import {
+  CART_DRAWER_OPEN_EVENT,
+  RemoveItem,
+} from "../../slices/cartSlice";
+import { resolveCartItemPricing } from "../../utils/cartPromotions";
 import { useLocalization } from "../../i18n/LocalizationContext";
 
 const Logo = "/images/logo.png";
@@ -29,21 +32,58 @@ const Header = () => {
   const [user, setUser] = useState(null);
   const [open, setOpen] = useState(false);
   const [addCart, setAddCart] = useState(false);
+  const [cartAnnouncement, setCartAnnouncement] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [expandedDept, setExpandedDept] = useState("");
   const [products, setProducts] = useState(() => getInitialCatalogSnapshot());
   const [searchValue, setSearchValue] = useState("");
   const [searchData, setSearchData] = useState([]);
+  const lastTriggerRef = useRef(null);
 
   const data = useSelector(
     (state) => state.cart.products || state.cart.cart || []
   );
+  const reduxCatalog = useSelector((state) => state.AllProduct.Products);
   const wishProduct = useSelector((state) => state.wishList.wishProduct || []);
+
+  const effectiveCatalog =
+    Array.isArray(reduxCatalog) && reduxCatalog.length > 0
+      ? reduxCatalog
+      : products;
 
   const totalCartItems = data.reduce(
     (sum, item) => sum + Math.max(1, Number(item.quantity || item.qun || 1)),
     0
   );
+
+  const openCartDrawerWithFocusSave = useCallback(() => {
+    if (
+      typeof document !== "undefined" &&
+      document.activeElement instanceof HTMLElement
+    ) {
+      lastTriggerRef.current = document.activeElement;
+    }
+    setAddCart(true);
+  }, []);
+
+  const closeCartDrawerAndRestoreFocus = useCallback(() => {
+    setAddCart(false);
+    const prevEl = lastTriggerRef.current;
+    if (
+      prevEl &&
+      typeof prevEl.focus === "function" &&
+      typeof document !== "undefined" &&
+      document.contains(prevEl)
+    ) {
+      requestAnimationFrame(() => {
+        try {
+          prevEl.focus({ preventScroll: true });
+        } catch {
+          // ignore
+        }
+      });
+    }
+  }, []);
 
   useEffect(() => {
     setOpen(false);
@@ -52,9 +92,37 @@ const Header = () => {
   }, [location.pathname, location.search]);
 
   useEffect(() => {
+    const handleOpenCartEvent = (e) => {
+      if (
+        typeof document !== "undefined" &&
+        document.activeElement instanceof HTMLElement
+      ) {
+        lastTriggerRef.current = document.activeElement;
+      }
+      const detail = e?.detail || {};
+      if (detail.title) {
+        const qty = Number(detail.quantity || 0);
+        const variant = [detail.size, detail.color].filter(Boolean).join(", ");
+        setCartAnnouncement(
+          qty > 0
+            ? `Added ${qty} ${detail.title}${variant ? ` (${variant})` : ""} to shopping bag.`
+            : `Shopping bag opened for ${detail.title}.`
+        );
+      }
+      setAddCart(true);
+    };
+
+    window.addEventListener(CART_DRAWER_OPEN_EVENT, handleOpenCartEvent);
+    return () => {
+      window.removeEventListener(CART_DRAWER_OPEN_EVENT, handleOpenCartEvent);
+    };
+  }, []);
+
+  useEffect(() => {
     const anyDrawerOpen = Boolean(open || addCart);
     if (typeof document !== "undefined") {
       document.body.style.overflow = anyDrawerOpen ? "hidden" : "";
+      document.body.style.overscrollBehavior = anyDrawerOpen ? "contain" : "";
     }
     if (typeof window !== "undefined") {
       window.dispatchEvent(
@@ -66,6 +134,7 @@ const Header = () => {
     return () => {
       if (typeof document !== "undefined") {
         document.body.style.overflow = "";
+        document.body.style.overscrollBehavior = "";
       }
     };
   }, [open, addCart]);
@@ -74,13 +143,15 @@ const Header = () => {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") {
         setOpen(false);
-        setAddCart(false);
         setSearchOpen(false);
+        if (addCart) {
+          closeCartDrawerAndRestoreFocus();
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [addCart, closeCartDrawerAndRestoreFocus]);
 
   useEffect(() => {
     let active = true;
@@ -118,7 +189,7 @@ const Header = () => {
       return;
     }
     const q = val.toLowerCase().trim();
-    const filterData = products
+    const filterData = effectiveCatalog
       .filter(
         (item) =>
           item.isVisible !== false &&
@@ -151,13 +222,15 @@ const Header = () => {
     navigate("/");
   };
 
-  const subtotalAmount = data.reduce((total, current) => {
-    const unitPrice = getProductDiscountState(current).effectivePrice;
-    return (
-      total +
-      unitPrice * Math.max(1, Number(current.quantity || current.qun || 1))
-    );
-  }, 0);
+  const subtotalAmount = Number(
+    data
+      .reduce((total, current) => {
+        const pricing = resolveCartItemPricing(current, effectiveCatalog);
+        const qty = Math.max(1, Number(current.quantity || current.qun || 1));
+        return total + pricing.unitPrice * qty;
+      }, 0)
+      .toFixed(2)
+  );
 
   const primaryDepartments = [
     {
@@ -214,7 +287,17 @@ const Header = () => {
   ];
 
   return (
-    <header className="py-3 lg:py-6 border-b border-[#eee] sticky top-0 z-40 bg-white/95 backdrop-blur-md">
+    <>
+      <header className="py-3 lg:py-6 border-b border-[#eee] sticky top-0 z-40 bg-white/95 backdrop-blur-md">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {cartAnnouncement}
+        </div>
+
       <Container>
         <DesktopNavbar
           t={t}
@@ -229,7 +312,7 @@ const Header = () => {
           setSearchData={setSearchData}
           onSearchInput={handleSearchInput}
           onSearchSubmit={handleSearchSubmit}
-          onOpenCart={() => setAddCart(true)}
+          onOpenCart={openCartDrawerWithFocusSave}
           navigate={navigate}
         />
 
@@ -268,12 +351,13 @@ const Header = () => {
             <button
               type="button"
               aria-label={`Open Shopping Bag (${totalCartItems})`}
-              onClick={() => setAddCart(true)}
+              onClick={openCartDrawerWithFocusSave}
               className="relative min-w-[44px] min-h-[44px] -mr-1 flex items-center justify-center rounded-lg text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
             >
               <ShoppingBag size={21} />
               <span
                 aria-hidden="true"
+                data-testid="mobile-header-cart-count"
                 className="absolute top-1.5 right-1.5 bg-[#C32929] h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center leading-none"
               >
                 {totalCartItems}
@@ -282,6 +366,7 @@ const Header = () => {
           </div>
         </div>
       </Container>
+      </header>
 
       {open && (
         <MobileNavDrawer
@@ -309,14 +394,16 @@ const Header = () => {
         <SlideOverCartDrawer
           t={t}
           items={data}
+          catalogProducts={effectiveCatalog}
           totalCartItems={totalCartItems}
           subtotalAmount={subtotalAmount}
+          announcement={cartAnnouncement}
           onDeleteItem={handleDeleteCartItem}
-          onClose={() => setAddCart(false)}
+          onClose={closeCartDrawerAndRestoreFocus}
           navigate={navigate}
         />
       )}
-    </header>
+    </>
   );
 };
 

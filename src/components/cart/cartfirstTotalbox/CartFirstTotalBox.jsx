@@ -402,7 +402,10 @@ export default function CartFirstTotalBox() {
             <span className="text-primary text-sm font-medium leading-6 uppercase">
               Subtotal ({promo.totalUnits} items)
             </span>
-            <span className="text-primary text-sm font-medium leading-6 text-right">
+            <span
+              data-testid="cart-subtotal"
+              className="text-primary text-sm font-medium leading-6 text-right"
+            >
               ${subtotal.toFixed(2)}
             </span>
           </div>
@@ -508,7 +511,10 @@ export default function CartFirstTotalBox() {
             <span className="text-primary text-sm font-bold leading-6 uppercase">
               Total
             </span>
-            <span className="text-primary leading-6 font-bold text-base text-right">
+            <span
+              data-testid="cart-total"
+              className="text-primary leading-6 font-bold text-base text-right"
+            >
               ${total.toFixed(2)}
             </span>
           </div>

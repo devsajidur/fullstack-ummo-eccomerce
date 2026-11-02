@@ -10,6 +10,7 @@ import {
   DB_NAME,
   getMongoDb,
   getMongoUris,
+  setMongoDisconnectedForTest,
 } from "../api/db.js";
 import {
   hashAdminPassword,
@@ -71,6 +72,14 @@ import {
   buildDynamicSitemapXml,
   buildProductBotSeoHtml,
 } from "../api/_services/seoService.js";
+import cartReducer, {
+  addToCart,
+  EmptyCart,
+  quentityDecrease,
+  quentityIncrease,
+  RemoveItem,
+  setCartItemQuantity,
+} from "../src/slices/cartSlice.js";
 import handler from "../api/index.js";
 
 function createMockReqRes({
@@ -2378,6 +2387,244 @@ test("Security Hardening Gate: Salted Scrypt Owner Password Rotation, Global Ses
       await db
         .collection("store_config")
         .replaceOne({ _id: SECURITY_GUARD_DOC_ID }, originalSecurityGuard, {
+          upsert: true,
+        });
+    } else {
+      await db
+        .collection("store_config")
+        .deleteOne({ _id: SECURITY_GUARD_DOC_ID });
+    }
+    evictLocalSecurityCacheForTest();
+  }
+});
+
+test("Cart Reducer: Stock cap enforcement, invalid quantity rejection, and variant/message line isolation", () => {
+  let state = cartReducer(undefined, EmptyCart());
+  assert.equal(state.products.length, 0);
+
+  // Reject invalid / zero / negative / NaN quantities
+  state = cartReducer(
+    state,
+    addToCart({ id: 177, title: "Silk Dress", price: 120, quantity: 0, stock: 3 })
+  );
+  state = cartReducer(
+    state,
+    addToCart({ id: 177, title: "Silk Dress", price: 120, quantity: -2, stock: 3 })
+  );
+  state = cartReducer(
+    state,
+    addToCart({ id: 177, title: "Silk Dress", price: 120, quantity: NaN, stock: 3 })
+  );
+  assert.equal(state.products.length, 0, "Invalid quantities must be rejected");
+
+  // Add same product with two distinct optional messages -> must stay separate lines
+  state = cartReducer(
+    state,
+    addToCart({
+      id: 177,
+      title: "Silk Dress",
+      price: 120,
+      quantity: 1,
+      stock: 3,
+      size: "M",
+      color: "Black",
+      optionalMessage: "Wrap for Sarah",
+    })
+  );
+  state = cartReducer(
+    state,
+    addToCart({
+      id: 177,
+      title: "Silk Dress",
+      price: 120,
+      quantity: 1,
+      stock: 3,
+      size: "M",
+      color: "Black",
+      optionalMessage: "Pack separately for Mom",
+    })
+  );
+  assert.equal(state.products.length, 2, "Different optional messages must create distinct cart lines");
+  const [line1, line2] = state.products;
+  assert.notEqual(line1.cartLineId, line2.cartLineId);
+
+  // Increase line1 up to stock cap (3) -> must stop at 3 and never alter line2 or optionalMessage
+  state = cartReducer(state, quentityIncrease({ cartLineId: line1.cartLineId, maxStock: 3 }));
+  state = cartReducer(state, quentityIncrease({ cartLineId: line1.cartLineId, maxStock: 3 }));
+  state = cartReducer(state, quentityIncrease({ cartLineId: line1.cartLineId, maxStock: 3 }));
+  assert.equal(state.products[0].quantity, 3, "Quantity must not exceed available stock");
+  assert.equal(state.products[0].optionalMessage, "Wrap for Sarah");
+  assert.equal(state.products[1].quantity, 1, "Sibling line must remain untouched");
+  assert.equal(state.products[1].optionalMessage, "Pack separately for Mom");
+
+  // setCartItemQuantity rejects invalid input and clamps above maxStock
+  state = cartReducer(
+    state,
+    setCartItemQuantity({ cartLineId: line1.cartLineId, quantity: 0, maxStock: 3 })
+  );
+  assert.equal(state.products[0].quantity, 3);
+  state = cartReducer(
+    state,
+    setCartItemQuantity({ cartLineId: line1.cartLineId, quantity: 99, maxStock: 3 })
+  );
+  assert.equal(state.products[0].quantity, 3);
+
+  // Decrease line2 from 1 -> removes only line2, keeping line1 intact
+  state = cartReducer(state, quentityDecrease({ cartLineId: line2.cartLineId }));
+  assert.equal(state.products.length, 1);
+  assert.equal(state.products[0].cartLineId, line1.cartLineId);
+  assert.equal(state.products[0].optionalMessage, "Wrap for Sarah");
+
+  // Clean up
+  state = cartReducer(state, RemoveItem({ cartLineId: line1.cartLineId }));
+  assert.equal(state.products.length, 0);
+});
+
+test("Fail-Closed Persistence & Owner Password Precedence: Disconnected MongoDB rejects writes with 503 and DB hash overrides ENV hash", async () => {
+  const db = await getMongoDb({ forceRetry: true, timeoutMs: 8000 });
+  assert.ok(db);
+
+  const masterTok = createAdminSessionToken({
+    uid: MASTER_ADMIN_UID,
+    email: MASTER_ADMIN_EMAIL,
+    role: "ADMIN",
+  });
+
+  // 1. Simulate MongoDB Atlas disconnection -> all business writes & admin login must fail closed (503)
+  setMongoDisconnectedForTest(true);
+  try {
+    const healthRes = createMockReqRes({ method: "GET", url: "/api/v1/health" });
+    await handler(healthRes.req, healthRes.res);
+    assert.equal(healthRes.res.statusCode, 200);
+    assert.equal(healthRes.res.json.mongodbConnected, false);
+    assert.equal(healthRes.res.json.ready, false);
+
+    const writeEndpoints = [
+      [
+        "POST",
+        "/api/v1/orders",
+        { "x-user-uid": "cust-failclosed" },
+        {
+          userUid: "cust-failclosed",
+          email: "cust@example.com",
+          firstName: "Test",
+          lastName: "Customer",
+          OrderItems: [{ id: 1, title: "Item", quantity: 1, price: 25 }],
+          billing: { streetAddress: "123 St", city: "Dhaka", postcode: "1200", country: "Bangladesh", phone: "01700000000" },
+        },
+      ],
+      [
+        "POST",
+        "/api/v1/store-config",
+        { "x-admin-token": masterTok },
+        { coupons: [] },
+      ],
+      [
+        "POST",
+        "/api/v1/payments/refund",
+        { "x-admin-token": masterTok },
+        { orderId: "ORD-NONE", refundAmount: 10 },
+      ],
+      [
+        "POST",
+        "/api/v1/users",
+        { "x-user-uid": "cust-failclosed" },
+        { uid: "cust-failclosed", email: "cust@example.com", username: "Test" },
+      ],
+      [
+        "POST",
+        "/api/v1/addresses",
+        { "x-user-uid": "cust-failclosed" },
+        { userUid: "cust-failclosed", addresses: [{ streetAddress: "123 St" }] },
+      ],
+      [
+        "POST",
+        "/api/v1/reviews",
+        {},
+        { productId: "1", review: { reviewerName: "Tester", rating: 5, comment: "Great" } },
+      ],
+      [
+        "POST",
+        "/api/v1/messages",
+        {},
+        { name: "Tester", email: "t@example.com", message: "Hello" },
+      ],
+      [
+        "POST",
+        "/api/v1/subscribers",
+        {},
+        { email: "sub@example.com" },
+      ],
+      [
+        "POST",
+        "/api/v1/admin/login",
+        {},
+        { email: MASTER_ADMIN_EMAIL, password: "SomeStrong#Password123" },
+      ],
+    ];
+
+    for (const [method, url, headers, body] of writeEndpoints) {
+      const { req, res } = createMockReqRes({ method, url, headers, body });
+      await handler(req, res);
+      assert.equal(
+        res.statusCode,
+        503,
+        `Expected fail-closed 503 when MongoDB is disconnected for ${method} ${url}, got ${res.statusCode}`
+      );
+      assert.equal(res.json?.code, "DB_UNAVAILABLE");
+    }
+  } finally {
+    setMongoDisconnectedForTest(false);
+  }
+
+  // 2. Verify MongoDB security_guard.ownerAuth strictly overrides ADMIN_PASSWORD_HASH env fallback
+  const originalGuard = await db
+    .collection("store_config")
+    .findOne({ _id: SECURITY_GUARD_DOC_ID });
+  const prevEnvHash = process.env.ADMIN_PASSWORD_HASH;
+  const dbPass = `DbAuthOwn3r#${crypto.randomBytes(8).toString("hex")}`;
+  const envPass = `EnvFallb4ck#${crypto.randomBytes(8).toString("hex")}`;
+
+  try {
+    process.env.ADMIN_PASSWORD_HASH = hashAdminPassword(envPass);
+    await setOwnerAdminPasswordDurable({
+      email: MASTER_ADMIN_EMAIL,
+      uid: "D6jZv9LGcBU29SnUcz9tua6V4g13",
+      newPassword: dbPass,
+      db,
+    });
+
+    const envAttempt = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      body: { email: MASTER_ADMIN_EMAIL, password: envPass },
+    });
+    await handler(envAttempt.req, envAttempt.res);
+    assert.equal(
+      envAttempt.res.statusCode,
+      401,
+      "ENV fallback password must be rejected when MongoDB security_guard.ownerAuth is set"
+    );
+
+    const dbAttempt = createMockReqRes({
+      method: "POST",
+      url: "/api/v1/admin/login",
+      body: { email: MASTER_ADMIN_EMAIL, password: dbPass },
+    });
+    await handler(dbAttempt.req, dbAttempt.res);
+    assert.equal(
+      dbAttempt.res.statusCode,
+      200,
+      "Authoritative MongoDB security_guard.ownerAuth password must succeed"
+    );
+  } finally {
+    if (prevEnvHash === undefined) delete process.env.ADMIN_PASSWORD_HASH;
+    else process.env.ADMIN_PASSWORD_HASH = prevEnvHash;
+    await resetAdminRateLimitsForTest(db);
+    if (originalGuard) {
+      await db
+        .collection("store_config")
+        .replaceOne({ _id: SECURITY_GUARD_DOC_ID }, originalGuard, {
           upsert: true,
         });
     } else {

@@ -3,7 +3,7 @@ import Image from "./Image";
 import Flex from "./Flex";
 import { FaHeart, FaRegHeart, FaStar, FaCheck } from "react-icons/fa6";
 import { useDispatch, useSelector } from "react-redux";
-import { addToCart } from "../../../slices/cartSlice";
+import { addToCart, requestOpenCartDrawer } from "../../../slices/cartSlice";
 import {
   addWishList,
   deleteWishEndevisual,
@@ -12,6 +12,7 @@ import { useNavigate } from "react-router";
 import toast from "react-hot-toast";
 import { getProductDiscountState } from "../../../utils/discountTimer";
 import { classifyProductTaxonomy } from "../../../utils/categoryTaxonomy";
+import { resolveProductVariants } from "../../../utils/productVariants";
 import { useLocalization } from "../../../i18n/LocalizationContext";
 
 const Product = ({
@@ -65,26 +66,51 @@ const Product = ({
   );
 
   const handleAddToCart = (e) => {
+    e.preventDefault();
     e.stopPropagation();
     if (isOutOfStock) {
-      toast.error(t("product.outOfStock", "Sorry, this item is currently out of stock."));
+      toast.error(
+        t("product.outOfStock", "Sorry, this item is currently out of stock.")
+      );
       return;
     }
+    const variants = resolveProductVariants(
+      item || {
+        id: resolvedId,
+        title: resolvedTitle,
+        category: resolvedCategory,
+      }
+    );
+    const defaultSize = variants.sizes[0] || "";
+    const defaultColor = variants.colors[0]?.name || "";
+
     dispatch(
       addToCart({
         ...item,
         id: resolvedId,
         title: resolvedTitle,
-        price: regularPrice,
+        price: effectivePrice,
+        originalPrice: regularPrice,
+        discountPercent: activeDiscountPct,
         discountPercentage: activeDiscountPct,
         effectivePrice,
+        image: resolvedImage,
         thumbnail: resolvedImage,
         category: resolvedCategory,
+        quantity: 1,
         qun: 1,
+        stock: stockCount,
+        size: defaultSize,
+        color: defaultColor,
       })
     );
     setJustAdded(true);
-    toast.success(`"${resolvedTitle}" added to cart`);
+    requestOpenCartDrawer({
+      title: resolvedTitle,
+      quantity: 1,
+      size: defaultSize,
+      color: defaultColor,
+    });
     setTimeout(() => setJustAdded(false), 1400);
   };
 
@@ -158,7 +184,7 @@ const Product = ({
           )}
         </button>
 
-        {/* Add to Cart Bar (No ticking timer on listing cards per Gate 6) */}
+        {/* Add to Cart Bar */}
         <button
           type="button"
           onClick={handleAddToCart}
@@ -231,7 +257,6 @@ const Product = ({
           </h2>
         </div>
 
-        {/* Gate 6: Clear Discount & Regular Price Hierarchy (only discounted price & crossed-out original price) */}
         <div className="mt-2 pt-1.5 border-t border-gray-100 flex items-baseline justify-between gap-1.5 flex-wrap">
           {discountState.isDiscountActive ? (
             <div className="flex items-baseline gap-2 flex-wrap">

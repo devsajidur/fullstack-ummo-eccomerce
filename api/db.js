@@ -39,7 +39,12 @@ let cachedMongoClient = null;
 let cachedDb = null;
 let inFlightConnectPromise = null;
 let lastFailedAttemptMs = 0;
+let forceDisconnectedForTest = false;
 const RETRY_COOLDOWN_MS = 10000;
+
+export function setMongoDisconnectedForTest(disconnected) {
+  forceDisconnectedForTest = Boolean(disconnected);
+}
 
 export function createInitialMemoryState() {
   return {
@@ -77,6 +82,9 @@ export function invalidateStateCache() {
  * Deduplicates concurrent cold-start connection requests.
  */
 export async function getMongoDb(options = {}) {
+  if (forceDisconnectedForTest) {
+    return null;
+  }
   if (cachedDb && cachedMongoClient) {
     return cachedDb;
   }
@@ -142,6 +150,48 @@ export async function closeMongoConnection() {
 }
 
 /**
+ * Requires an active MongoDB Atlas connection for authoritative business writes.
+ * Fails closed with HTTP 503 instead of silently acknowledging volatile memory writes.
+ */
+export async function requireDurableMongoDb() {
+  const db = await getMongoDb();
+  if (!db) {
+    const err = new Error(
+      "Database persistence unavailable (MongoDB Atlas disconnected). Write operation aborted to prevent data loss."
+    );
+    err.statusCode = 503;
+    err.exposeMessage = true;
+    err.code = "DB_UNAVAILABLE";
+    throw err;
+  }
+  return db;
+}
+
+/**
+ * Executes a durable MongoDB write without swallowing errors.
+ * Evicts the local state cache if a write fails so stale mutations never linger.
+ */
+export async function commitDurableMongoWrite(writeFn) {
+  const db = await requireDurableMongoDb();
+  try {
+    return await writeFn(db);
+  } catch (err) {
+    inMemoryState.hydrated = false;
+    lastMongoSyncMs = 0;
+    if (err?.statusCode) {
+      throw err;
+    }
+    const writeErr = new Error(
+      "Durable database write failed on MongoDB Atlas. Changes were not saved."
+    );
+    writeErr.statusCode = 503;
+    writeErr.exposeMessage = true;
+    writeErr.code = "DB_WRITE_FAILED";
+    throw writeErr;
+  }
+}
+
+/**
  * Updates the in-process state cache after a MongoDB write.
  * Cloudinary is reserved strictly for media images, not database state.
  */
@@ -159,6 +209,7 @@ export async function saveCloudMirrorState(state) {
 export async function getFullState(options = {}) {
   const now = Date.now();
   if (
+    !forceDisconnectedForTest &&
     !options.forceRefresh &&
     inMemoryState.hydrated &&
     now - lastMongoSyncMs < STATE_CACHE_TTL_MS

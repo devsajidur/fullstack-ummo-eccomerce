@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import {
+  commitDurableMongoWrite,
   getFullState,
-  getMongoDb,
+  requireDurableMongoDb,
   saveCloudMirrorState,
 } from "../db.js";
 import {
@@ -23,8 +24,7 @@ import {
 } from "../paymentService.js";
 
 async function persistPaymentAndOrderMutation(state, result) {
-  const db = await getMongoDb();
-  if (db) {
+  await commitDurableMongoWrite(async (db) => {
     await Promise.all([
       db
         .collection("payments")
@@ -32,8 +32,7 @@ async function persistPaymentAndOrderMutation(state, result) {
           { paymentId: result.payment.paymentId },
           { $set: result.payment },
           { upsert: true }
-        )
-        .catch(() => {}),
+        ),
       result.order
         ? db
             .collection("orders")
@@ -46,7 +45,6 @@ async function persistPaymentAndOrderMutation(state, result) {
               },
               { $set: result.order }
             )
-            .catch(() => {})
         : Promise.resolve(),
       db
         .collection("store_config")
@@ -54,10 +52,9 @@ async function persistPaymentAndOrderMutation(state, result) {
           { _id: "global" },
           { $set: state.storeConfig },
           { upsert: true }
-        )
-        .catch(() => {}),
+        ),
     ]);
-  }
+  });
   await saveCloudMirrorState(state);
 }
 
@@ -107,14 +104,15 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
       return true;
     }
 
+    await requireDurableMongoDb();
+
     const session = await initiateSslCommerzSandboxPayment({
       order: targetOrder,
       state,
       originUrl: asSafeId(body.originUrl || "http://localhost:5173", 200),
     });
 
-    const db = await getMongoDb();
-    if (db) {
+    await commitDurableMongoWrite(async (db) => {
       await Promise.all([
         db
           .collection("payments")
@@ -122,8 +120,7 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
             { paymentId: session.paymentId },
             { $set: session.paymentRecord },
             { upsert: true }
-          )
-          .catch(() => {}),
+          ),
         db
           .collection("orders")
           .updateOne(
@@ -136,10 +133,9 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
                 updatedAt: targetOrder.updatedAt,
               },
             }
-          )
-          .catch(() => {}),
+          ),
       ]);
-    }
+    });
     await saveCloudMirrorState(state);
 
     sendJson(req, res, 200, {
@@ -162,6 +158,7 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
       sendJson(req, res, 400, { error: "Invalid IPN payload" });
       return true;
     }
+    await requireDurableMongoDb();
     const { state } = await getFullState();
     const result = await verifyAndProcessSslCommerzNotification({
       payload: body,
@@ -206,14 +203,15 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
       return true;
     }
 
+    await requireDurableMongoDb();
+
     const session = await createStripeTestCheckoutSession({
       order: targetOrder,
       state,
       originUrl: asSafeId(body.originUrl || "http://localhost:5173", 200),
     });
 
-    const db = await getMongoDb();
-    if (db) {
+    await commitDurableMongoWrite(async (db) => {
       await Promise.all([
         db
           .collection("payments")
@@ -221,8 +219,7 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
             { paymentId: session.paymentId },
             { $set: session.paymentRecord },
             { upsert: true }
-          )
-          .catch(() => {}),
+          ),
         db
           .collection("orders")
           .updateOne(
@@ -235,10 +232,9 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
                 updatedAt: targetOrder.updatedAt,
               },
             }
-          )
-          .catch(() => {}),
+          ),
       ]);
-    }
+    });
     await saveCloudMirrorState(state);
 
     sendJson(req, res, 200, {
@@ -265,6 +261,7 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
       req.headers?.["Stripe-Signature"] ||
       "";
 
+    await requireDurableMongoDb();
     const { state } = await getFullState();
     const result = processStripeWebhookEvent({
       rawPayload,
@@ -325,6 +322,8 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
       });
       return true;
     }
+
+    await requireDurableMongoDb();
 
     let result;
     if (gateway === "stripe") {
@@ -414,6 +413,13 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
     }
     const { state } = await getFullState();
     const caller = resolveCaller(req, state);
+    if (!caller.isAdmin) {
+      sendJson(req, res, 403, {
+        error: "Forbidden: Administrator privileges required to reconcile payments.",
+      });
+      return true;
+    }
+    await requireDurableMongoDb();
     const result = reconcilePaymentByAdmin({
       orderId: asSafeId(body.orderId, 64),
       targetPaymentStatus: asSafeId(
@@ -442,6 +448,13 @@ export async function handlePaymentRoutes({ req, res, method, path }) {
     }
     const { state } = await getFullState();
     const caller = resolveCaller(req, state);
+    if (!caller.isAdmin) {
+      sendJson(req, res, 403, {
+        error: "Forbidden: Administrator privileges required to issue refunds.",
+      });
+      return true;
+    }
+    await requireDurableMongoDb();
     const result = refundPaymentByAdmin({
       orderId: asSafeId(body.orderId, 64),
       refundAmount: body.refundAmount,

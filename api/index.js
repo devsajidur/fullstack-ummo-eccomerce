@@ -79,11 +79,12 @@ export default async function handler(req, res) {
         ? err.statusCode
         : 500;
     const safeMessage =
-      statusCode < 500
+      statusCode < 500 || err?.exposeMessage
         ? err.message
         : "An internal server error occurred. Please try again.";
     return sendJson(req, res, statusCode, {
       error: safeMessage,
+      ...(err?.code ? { code: err.code } : {}),
     });
   }
 }

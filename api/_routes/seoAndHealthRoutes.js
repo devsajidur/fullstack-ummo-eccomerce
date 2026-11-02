@@ -1,10 +1,18 @@
 import {
   CLOUDINARY_CLOUD_NAME,
   DB_NAME,
+  getCloudinaryApiKey,
+  getCloudinarySecret,
   getFullState,
   getMongoDb,
+  isMongoConfigured,
 } from "../db.js";
-import { sendJson } from "../security.js";
+import {
+  getOwnerAuthSecuritySummary,
+  isAuthSecretConfigured,
+  sendJson,
+  syncSecurityGuardFromDb,
+} from "../security.js";
 import {
   buildDynamicSitemapXml,
   buildProductBotSeoHtml,
@@ -54,10 +62,25 @@ export async function handleSeoAndHealthRoutes({
       return true;
     }
     const db = await getMongoDb();
+    if (db) {
+      await syncSecurityGuardFromDb(db);
+    }
+    const ownerSummary = getOwnerAuthSecuritySummary();
     sendJson(req, res, 200, {
-      status: "ok",
-      ready: true,
+      status: db ? "ok" : "degraded",
+      ready: Boolean(db),
       mongodbConnected: Boolean(db),
+      mongodbUriConfigured: isMongoConfigured(),
+      authSecretConfigured: isAuthSecretConfigured(),
+      ownerPasswordConfiguredInDb: Boolean(
+        ownerSummary.passwordConfiguredInDb
+      ),
+      ownerPasswordConfiguredInEnv: Boolean(
+        ownerSummary.passwordConfiguredInEnv
+      ),
+      cloudinarySigningConfigured: Boolean(
+        getCloudinaryApiKey() && getCloudinarySecret()
+      ),
       database: `${DB_NAME} (MongoDB Atlas)`,
       cloudinaryCloudName: CLOUDINARY_CLOUD_NAME,
       firebaseAuthProject: "ummo-eccomerce",

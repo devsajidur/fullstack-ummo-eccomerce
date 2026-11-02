@@ -4,8 +4,9 @@ import { FiTrash2 } from "react-icons/fi";
 import { MdOutlineShoppingBag } from "react-icons/md";
 import { useDispatch } from "react-redux";
 import { deleteWishEndevisual } from "../../slices/wishListSlice";
-import { addToCart } from "../../slices/cartSlice";
+import { addToCart, requestOpenCartDrawer } from "../../slices/cartSlice";
 import { getProductDiscountState } from "../../utils/discountTimer";
+import { resolveProductVariants } from "../../utils/productVariants";
 import Image from "../layout/common/Image";
 import toast from "react-hot-toast";
 
@@ -20,6 +21,10 @@ const WishListProduct = ({ product }) => {
 
   function handleAddtoCart(Citem) {
     const latestDiscount = getProductDiscountState(Citem);
+    const variants = resolveProductVariants(Citem);
+    const chosenSize = variants.sizes[0] || "";
+    const chosenColor = variants.colors[0]?.name || "";
+    const maxStock = Number(Citem.stock ?? 20);
     dispatch(
       addToCart({
         id: Citem.id,
@@ -31,14 +36,19 @@ const WishListProduct = ({ product }) => {
         discountEndTime: Citem.discountEndTime || null,
         freeGift: Citem.freeGift || null,
         image: Citem.thumbnail,
+        thumbnail: Citem.thumbnail,
         quantity: 1,
-        size: "M",
-        color: "Black",
+        stock: maxStock,
+        size: chosenSize,
+        color: chosenColor,
       })
     );
-    toast.success(
-      `"${Citem.title}" added to cart at $${latestDiscount.effectivePrice.toFixed(2)}!`
-    );
+    requestOpenCartDrawer({
+      title: Citem.title,
+      quantity: 1,
+      size: chosenSize,
+      color: chosenColor,
+    });
   }
 
   const rating = Number(product?.rating || 4.8);

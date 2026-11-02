@@ -1,6 +1,7 @@
 import {
+  commitDurableMongoWrite,
   getFullState,
-  getMongoDb,
+  requireDurableMongoDb,
   saveCloudMirrorState,
 } from "../db.js";
 import {
@@ -84,18 +85,16 @@ export async function handleCustomerAndInboxRoutes({
       updatedAt: new Date().toISOString(),
     };
 
+    await commitDurableMongoWrite(async (db) => {
+      await db
+        .collection("users")
+        .updateOne({ uid }, { $set: userDoc }, { upsert: true });
+    });
+
     state.users = [
       userDoc,
       ...state.users.filter((u) => String(u.uid) !== uid),
     ];
-
-    const db = await getMongoDb();
-    if (db) {
-      await db
-        .collection("users")
-        .updateOne({ uid }, { $set: userDoc }, { upsert: true })
-        .catch(() => {});
-    }
     await saveCloudMirrorState(state);
 
     sendJson(req, res, 200, { status: "ok", user: userDoc });
@@ -142,18 +141,16 @@ export async function handleCustomerAndInboxRoutes({
       updatedAt: new Date().toISOString(),
     };
 
+    await commitDurableMongoWrite(async (db) => {
+      await db
+        .collection("users")
+        .updateOne({ uid }, { $set: updatedUserDoc }, { upsert: true });
+    });
+
     state.users = [
       { ...(existingUser || {}), ...updatedUserDoc },
       ...state.users.filter((u) => String(u.uid) !== uid),
     ];
-
-    const db = await getMongoDb();
-    if (db) {
-      await db
-        .collection("users")
-        .updateOne({ uid }, { $set: updatedUserDoc }, { upsert: true })
-        .catch(() => {});
-    }
     await saveCloudMirrorState(state);
 
     sendJson(req, res, 200, { status: "ok", uid, role });
@@ -203,19 +200,18 @@ export async function handleCustomerAndInboxRoutes({
       const safeList = Array.isArray(body.addresses)
         ? body.addresses.slice(0, 20)
         : [];
-      state.addresses[userUid] = safeList;
 
-      const db = await getMongoDb();
-      if (db) {
+      await commitDurableMongoWrite(async (db) => {
         await db
           .collection("addresses")
           .updateOne(
             { userUid },
             { $set: { userUid, items: safeList } },
             { upsert: true }
-          )
-          .catch(() => {});
-      }
+          );
+      });
+
+      state.addresses[userUid] = safeList;
       await saveCloudMirrorState(state);
       sendJson(req, res, 200, {
         status: "ok",
@@ -273,19 +269,18 @@ export async function handleCustomerAndInboxRoutes({
 
       const current = state.reviews[productId] || [];
       const updated = [cleanReview, ...current].slice(0, 100);
-      state.reviews[productId] = updated;
 
-      const db = await getMongoDb();
-      if (db) {
+      await commitDurableMongoWrite(async (db) => {
         await db
           .collection("reviews")
           .updateOne(
             { productId },
             { $set: { productId, items: updated } },
             { upsert: true }
-          )
-          .catch(() => {});
-      }
+          );
+      });
+
+      state.reviews[productId] = updated;
       await saveCloudMirrorState(state);
       sendJson(req, res, 201, { status: "ok", reviews: updated });
       return true;
@@ -318,11 +313,10 @@ export async function handleCustomerAndInboxRoutes({
         message,
         createdAt: new Date().toISOString(),
       };
+      await commitDurableMongoWrite(async (db) => {
+        await db.collection("messages").insertOne({ ...msg });
+      });
       state.messages = [msg, ...state.messages].slice(0, 200);
-      const db = await getMongoDb();
-      if (db) {
-        await db.collection("messages").insertOne(msg).catch(() => {});
-      }
       await saveCloudMirrorState(state);
       sendJson(req, res, 201, { status: "ok", message: msg });
       return true;
@@ -340,11 +334,10 @@ export async function handleCustomerAndInboxRoutes({
         sendJson(req, res, 400, { error: "Valid message id is required." });
         return true;
       }
+      await commitDurableMongoWrite(async (db) => {
+        await db.collection("messages").deleteOne({ id });
+      });
       state.messages = state.messages.filter((m) => String(m.id) !== id);
-      const db = await getMongoDb();
-      if (db) {
-        await db.collection("messages").deleteOne({ id }).catch(() => {});
-      }
       await saveCloudMirrorState(state);
       sendJson(req, res, 200, { status: "ok" });
       return true;
@@ -375,17 +368,15 @@ export async function handleCustomerAndInboxRoutes({
         createdAt: nowIso,
         subscribedAt: nowIso,
       };
+      await commitDurableMongoWrite(async (db) => {
+        await db
+          .collection("subscribers")
+          .updateOne({ email: sub.email }, { $set: sub }, { upsert: true });
+      });
       state.subscribers = [
         sub,
         ...state.subscribers.filter((s) => s.email !== sub.email),
       ].slice(0, 500);
-      const db = await getMongoDb();
-      if (db) {
-        await db
-          .collection("subscribers")
-          .updateOne({ email: sub.email }, { $set: sub }, { upsert: true })
-          .catch(() => {});
-      }
       await saveCloudMirrorState(state);
       sendJson(req, res, 201, { status: "ok", subscriber: sub });
       return true;
@@ -405,11 +396,10 @@ export async function handleCustomerAndInboxRoutes({
         });
         return true;
       }
+      await commitDurableMongoWrite(async (db) => {
+        await db.collection("subscribers").deleteOne({ id });
+      });
       state.subscribers = state.subscribers.filter((s) => String(s.id) !== id);
-      const db = await getMongoDb();
-      if (db) {
-        await db.collection("subscribers").deleteOne({ id }).catch(() => {});
-      }
       await saveCloudMirrorState(state);
       sendJson(req, res, 200, { status: "ok" });
       return true;

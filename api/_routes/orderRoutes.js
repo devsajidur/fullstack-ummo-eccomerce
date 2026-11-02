@@ -1,6 +1,7 @@
 import {
+  commitDurableMongoWrite,
   getFullState,
-  getMongoDb,
+  requireDurableMongoDb,
   saveCloudMirrorState,
 } from "../db.js";
 import {
@@ -59,6 +60,8 @@ export async function handleOrderRoutes({ req, res, method, path }) {
       }
     }
 
+    await requireDurableMongoDb();
+
     const newOrder = validateAndBuildServerOrder(
       body,
       state,
@@ -67,15 +70,14 @@ export async function handleOrderRoutes({ req, res, method, path }) {
     );
 
     deductOrderInventory(state, newOrder.OrderItems, newOrder);
-    state.orders = [
+    const nextOrders = [
       newOrder,
       ...state.orders.filter(
         (o) => String(o.orderId) !== String(newOrder.orderId)
       ),
     ];
 
-    const db = await getMongoDb();
-    if (db) {
+    await commitDurableMongoWrite(async (db) => {
       await Promise.all([
         db
           .collection("orders")
@@ -83,18 +85,18 @@ export async function handleOrderRoutes({ req, res, method, path }) {
             { orderId: newOrder.orderId },
             { $set: newOrder },
             { upsert: true }
-          )
-          .catch(() => {}),
+          ),
         db
           .collection("store_config")
           .updateOne(
             { _id: "global" },
             { $set: state.storeConfig },
             { upsert: true }
-          )
-          .catch(() => {}),
+          ),
       ]);
-    }
+    });
+
+    state.orders = nextOrders;
     await saveCloudMirrorState(state);
 
     sendJson(req, res, 201, {
@@ -130,6 +132,13 @@ export async function handleOrderRoutes({ req, res, method, path }) {
     );
 
     if (!targetOrder) {
+      if (!caller.isAuthenticated) {
+        sendJson(req, res, 403, {
+          error: "Forbidden: Authentication required to modify order status.",
+        });
+        return true;
+      }
+      await requireDurableMongoDb();
       sendJson(req, res, 404, { error: "Order not found." });
       return true;
     }
@@ -160,12 +169,14 @@ export async function handleOrderRoutes({ req, res, method, path }) {
       }
     }
 
+    await requireDurableMongoDb();
+
     const updatedAt = new Date().toISOString();
     if (nextStatus === "CANCELLED" && targetOrder.status !== "CANCELLED") {
       restockOrderInventory(state, targetOrder);
     }
 
-    state.orders = state.orders.map((o) =>
+    const nextOrders = state.orders.map((o) =>
       String(o.orderId || o.id) === orderId
         ? {
             ...o,
@@ -176,8 +187,7 @@ export async function handleOrderRoutes({ req, res, method, path }) {
         : o
     );
 
-    const db = await getMongoDb();
-    if (db) {
+    await commitDurableMongoWrite(async (db) => {
       await Promise.all([
         db
           .collection("orders")
@@ -190,8 +200,7 @@ export async function handleOrderRoutes({ req, res, method, path }) {
                 updatedAt,
               },
             }
-          )
-          .catch(() => {}),
+          ),
         nextStatus === "CANCELLED"
           ? db
               .collection("store_config")
@@ -200,10 +209,11 @@ export async function handleOrderRoutes({ req, res, method, path }) {
                 { $set: state.storeConfig },
                 { upsert: true }
               )
-              .catch(() => {})
           : Promise.resolve(),
       ]);
-    }
+    });
+
+    state.orders = nextOrders;
     await saveCloudMirrorState(state);
 
     sendJson(req, res, 200, {

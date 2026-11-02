@@ -278,6 +278,7 @@ export default function DesktopNavbar({
           <ShoppingBag size={20} />
           <span
             aria-hidden="true"
+            data-testid="desktop-header-cart-count"
             className="absolute -top-0.5 -right-0.5 bg-gray-900 h-4 min-w-[16px] px-1 leading-4 rounded-full text-[10px] font-bold text-white flex items-center justify-center"
           >
             {totalCartItems}

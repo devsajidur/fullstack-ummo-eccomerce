@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ShoppingBag } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
 import { onUserChanged, saveLocalOrder } from "../../services/authSession";
@@ -12,12 +12,14 @@ import {
 import {
   computeCartPromotions,
   evaluateCouponClientEligibility,
+  getCombinedKnownOrders,
   getStoredCartRules,
   initCartRulesSync,
   resolveCartItemPricing,
 } from "../../utils/cartPromotions";
 import {
   fetchUserAddressesFromMongo,
+  getStoredCoupons,
   initiatePaymentSession,
   submitBackendOrder,
 } from "../../services/api";
@@ -49,6 +51,8 @@ const BillingInformation = () => {
   const dispatch = useDispatch();
 
   const [cartRules, setCartRules] = useState(() => getStoredCartRules());
+  const [availableCoupons] = useState(() => getStoredCoupons());
+  const [knownOrders] = useState(() => getCombinedKnownOrders());
 
   const [firstName, setfirstName] = useState("");
   const [lastName, setlastName] = useState("");
@@ -66,6 +70,8 @@ const BillingInformation = () => {
   const [user, setuser] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("sslcommerz");
   const [submitting, setSubmitting] = useState(false);
+  const [pendingSession, setPendingSession] = useState(null);
+  const lastCartSignatureRef = useRef("");
 
   function applySavedAddress(addr) {
     if (!addr) return;
@@ -80,7 +86,6 @@ const BillingInformation = () => {
     if (addr.phone) setphone(addr.phone);
   }
 
-  // Auto-fill from localStorage default address or Firebase Address Book
   useEffect(() => {
     try {
       const savedAddr = localStorage.getItem("ummo_default_address");
@@ -123,24 +128,47 @@ const BillingInformation = () => {
     };
   }, []);
 
-  const pricedOrderItems = (ORDER_ITEMS || []).map((item) => {
-    const pricing = resolveCartItemPricing(item, catalogProducts);
-    const resolvedImg = resolveProductImage(item, catalogProducts);
-    return {
-      ...item,
-      productId: String(item.id ?? item.productId ?? ""),
-      variantId: `${item.size || "M"}-${item.color || "Black"}`,
-      productNameSnapshot: item.title || item.name || "Product",
-      productImageSnapshot: resolvedImg,
-      image: resolvedImg,
-      optionalMessage: String(item.optionalMessage || "").trim(),
-      quantity: Math.max(1, Number(item.quantity || 1)),
-      price: pricing.unitPrice,
-      unitPriceSnapshot: pricing.unitPrice,
-      originalPrice: pricing.originalPrice,
-      discountPercent: pricing.discountPercent,
-    };
-  });
+  const pricedOrderItems = useMemo(
+    () =>
+      (ORDER_ITEMS || []).map((item) => {
+        const pricing = resolveCartItemPricing(item, catalogProducts);
+        const resolvedImg = resolveProductImage(item, catalogProducts);
+        const liveMatch = catalogProducts.find(
+          (p) => String(p.id) === String(item.id)
+        );
+        const maxStock = Math.max(
+          1,
+          Number(liveMatch?.stock ?? item.stock ?? 99)
+        );
+        const safeQty = Math.min(
+          maxStock,
+          Math.max(1, Number(item.quantity || 1))
+        );
+        const chosenSize = String(item.size ?? item.selectedSize ?? "").trim();
+        const chosenColor = String(
+          item.color ?? item.selectedColor ?? ""
+        ).trim();
+        return {
+          ...item,
+          productId: String(item.id ?? item.productId ?? ""),
+          variantId:
+            [chosenSize, chosenColor].filter(Boolean).join("-") || "standard",
+          size: chosenSize,
+          color: chosenColor,
+          productNameSnapshot: item.title || item.name || "Product",
+          productImageSnapshot: resolvedImg,
+          image: resolvedImg,
+          optionalMessage: String(item.optionalMessage || "").trim(),
+          quantity: safeQty,
+          maxStock,
+          price: pricing.unitPrice,
+          unitPriceSnapshot: pricing.unitPrice,
+          originalPrice: pricing.originalPrice,
+          discountPercent: pricing.discountPercent,
+        };
+      }),
+    [ORDER_ITEMS, catalogProducts]
+  );
 
   const promotions = computeCartPromotions(
     pricedOrderItems,
@@ -149,26 +177,92 @@ const BillingInformation = () => {
   );
   const subtotal = promotions.subtotal;
   const tieredDiscount = promotions.tieredDiscount;
+  const netAfterAutoPromos = Math.max(0, subtotal - tieredDiscount);
+
+  const liveAppliedCoupon = appliedCoupon
+    ? availableCoupons.find(
+        (c) =>
+          String(c.code || "").toUpperCase() ===
+          String(appliedCoupon.code || "").toUpperCase()
+      ) || appliedCoupon
+    : null;
+
+  useEffect(() => {
+    if (!liveAppliedCoupon || pricedOrderItems.length === 0) return;
+    const check = evaluateCouponClientEligibility(liveAppliedCoupon, {
+      subtotal,
+      eligibleAmount: netAfterAutoPromos,
+      userUid: user?.uid || "",
+      userEmail: email.trim() || user?.email || "",
+      userPhone: phone.trim(),
+      orders: knownOrders,
+    });
+    if (!check.valid) {
+      dispatch(removeCoupon());
+      if (check.reason) {
+        toast.error(check.reason);
+      }
+    }
+  }, [
+    liveAppliedCoupon,
+    subtotal,
+    netAfterAutoPromos,
+    pricedOrderItems.length,
+    user?.uid,
+    user?.email,
+    email,
+    phone,
+    knownOrders,
+    dispatch,
+  ]);
+
   const discount = computeCouponDiscount(
-    Math.max(0, subtotal - tieredDiscount),
-    appliedCoupon,
+    netAfterAutoPromos,
+    liveAppliedCoupon,
     subtotal
   );
   const rawShippingCost =
     SHIPPING_OPTIONS.find((o) => o.id === shippingMethodId)?.price || 0;
-  const shippingCost = promotions.freeShippingUnlocked ? 0 : rawShippingCost;
+  const shippingCost =
+    pricedOrderItems.length === 0 || promotions.freeShippingUnlocked
+      ? 0
+      : rawShippingCost;
   const giftWrapCost =
     giftWrap && pricedOrderItems.length > 0 ? promotions.giftWrapFee : 0;
   const vat = pricedOrderItems.length > 0 ? 19 : 0;
   const total = Math.max(
     0,
-    subtotal -
-      tieredDiscount -
-      discount +
-      shippingCost +
-      giftWrapCost +
-      vat
+    Number(
+      (
+        subtotal -
+        tieredDiscount -
+        discount +
+        shippingCost +
+        giftWrapCost +
+        vat
+      ).toFixed(2)
+    )
   );
+
+  // Invalidate any stale pending payment session whenever cart quantities, items, or total change
+  const cartSignature = useMemo(
+    () =>
+      `${pricedOrderItems
+        .map((i) => `${i.cartLineId || i.id}:${i.quantity}:${i.price}`)
+        .join("|")}::${total.toFixed(2)}`,
+    [pricedOrderItems, total]
+  );
+
+  useEffect(() => {
+    if (
+      lastCartSignatureRef.current &&
+      lastCartSignatureRef.current !== cartSignature &&
+      pendingSession
+    ) {
+      setPendingSession(null);
+    }
+    lastCartSignatureRef.current = cartSignature;
+  }, [cartSignature, pendingSession]);
 
   async function handlePlaceOrder(e) {
     e.preventDefault();
@@ -184,23 +278,26 @@ const BillingInformation = () => {
       return;
     }
 
-    if (appliedCoupon) {
-      const couponCheck = evaluateCouponClientEligibility(appliedCoupon, {
+    if (liveAppliedCoupon) {
+      const couponCheck = evaluateCouponClientEligibility(liveAppliedCoupon, {
         subtotal,
-        eligibleAmount: Math.max(0, subtotal - tieredDiscount),
+        eligibleAmount: netAfterAutoPromos,
         userUid: user.uid,
         userEmail: email.trim() || user.email || "",
         userPhone: phone.trim(),
+        orders: knownOrders,
       });
       if (!couponCheck.valid) {
         dispatch(removeCoupon());
         toast.error(
-          couponCheck.reason || "Applied coupon is no longer valid for this order."
+          couponCheck.reason ||
+            "Applied coupon is no longer valid for this order."
         );
         return;
       }
     }
 
+    const submissionSignature = cartSignature;
     setSubmitting(true);
     try {
       const orderPayload = {
@@ -215,7 +312,10 @@ const BillingInformation = () => {
         subtotal: Number(subtotal.toFixed(2)),
         tieredDiscount: Number(tieredDiscount.toFixed(2)),
         discount: Number(discount.toFixed(2)),
-        couponCode: discount > 0 && appliedCoupon?.code ? appliedCoupon.code : null,
+        couponCode:
+          discount > 0 && liveAppliedCoupon?.code
+            ? liveAppliedCoupon.code
+            : null,
         shipping: shippingCost,
         freeShippingUnlocked: promotions.freeShippingUnlocked,
         shippingMethod: shippingMethodId,
@@ -248,31 +348,38 @@ const BillingInformation = () => {
         userUid: user.uid,
       };
 
-      let finalOrder = fullOrder;
+      let finalOrder;
       try {
         const res = await submitBackendOrder(fullOrder);
         const serverOrder = res?.order || res?.data;
-        if (serverOrder?.orderId) {
-          finalOrder = {
-            ...fullOrder,
-            ...serverOrder,
-            id: serverOrder.orderId,
-            orderId: serverOrder.orderId,
-          };
+        if (!serverOrder?.orderId) {
+          throw new Error(
+            "Server did not confirm durable order creation. Please try again."
+          );
         }
+        finalOrder = {
+          ...fullOrder,
+          ...serverOrder,
+          id: serverOrder.orderId,
+          orderId: serverOrder.orderId,
+        };
       } catch (apiErr) {
-        const status = apiErr?.response?.status;
-        if (status && status >= 400 && status < 500) {
-          const errMsg =
-            apiErr?.response?.data?.error ||
-            "Order validation failed. Please review your cart.";
-          if (/coupon/i.test(errMsg)) {
-            dispatch(removeCoupon());
-          }
-          toast.error(errMsg);
-          return;
+        const errMsg =
+          apiErr?.response?.data?.error ||
+          apiErr?.message ||
+          "Order could not be saved because the database service is unavailable. Your cart has been preserved.";
+        if (/coupon/i.test(errMsg)) {
+          dispatch(removeCoupon());
         }
-        // Only fall back to local order saving when offline / network unreachable
+        toast.error(errMsg);
+        return;
+      }
+
+      if (lastCartSignatureRef.current !== submissionSignature) {
+        toast.error(
+          "Your cart items changed during checkout. Please review your updated total before paying."
+        );
+        return;
       }
 
       let paymentSession = null;
@@ -282,6 +389,11 @@ const BillingInformation = () => {
             finalOrder.orderId,
             paymentMethod
           );
+          setPendingSession({
+            orderId: finalOrder.orderId,
+            cartSignature: submissionSignature,
+            tranId: paymentSession?.tranId || paymentSession?.sessionId || "",
+          });
           finalOrder = {
             ...finalOrder,
             paymentStatus: "INITIATED",
@@ -289,12 +401,12 @@ const BillingInformation = () => {
             gatewayTransactionId:
               paymentSession?.tranId || paymentSession?.sessionId || "",
           };
-        } catch {
-          finalOrder = {
-            ...finalOrder,
-            paymentStatus: "INITIATED",
-            paymentGateway: paymentMethod,
-          };
+        } catch (payErr) {
+          const payMsg =
+            payErr?.response?.data?.error ||
+            "Order saved, but payment gateway session could not be initialized. Please check your order in Account > Orders.";
+          toast.error(payMsg);
+          return;
         }
       }
 
@@ -322,6 +434,43 @@ const BillingInformation = () => {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (pricedOrderItems.length === 0) {
+    return (
+      <div className="min-h-[60vh] bg-white px-4 sm:px-6 lg:px-10 py-14">
+        <Toaster position="top-center" reverseOrder={false} />
+        <div
+          data-testid="checkout-empty-state"
+          className="max-w-lg mx-auto border border-dashed border-gray-300 rounded-2xl p-8 text-center"
+        >
+          <ShoppingBag size={42} className="mx-auto text-gray-300 mb-3" />
+          <h2 className="text-lg font-bold text-gray-900 uppercase">
+            Your Checkout Bag Is Empty
+          </h2>
+          <p className="text-xs text-gray-500 mt-1.5 mb-6">
+            Add products to your shopping bag before proceeding to billing and
+            payment.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate("/shop")}
+              className="min-h-[44px] px-6 py-2.5 bg-gray-900 text-white text-xs font-bold uppercase tracking-wider rounded-lg cursor-pointer hover:bg-gray-800"
+            >
+              Continue Shopping
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/cart")}
+              className="min-h-[44px] px-5 py-2.5 border border-gray-300 text-gray-800 text-xs font-bold uppercase tracking-wider rounded-lg cursor-pointer hover:bg-gray-50"
+            >
+              View Cart
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -465,7 +614,7 @@ const BillingInformation = () => {
           promotions={promotions}
           tieredDiscount={tieredDiscount}
           discount={discount}
-          appliedCoupon={appliedCoupon}
+          appliedCoupon={liveAppliedCoupon}
           shippingCost={shippingCost}
           giftWrapCost={giftWrapCost}
           giftNote={giftNote}

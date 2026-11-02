@@ -80,6 +80,15 @@ export async function handleAdminAndMediaRoutes({
       return true;
     }
 
+    if (!securityDb) {
+      sendJson(req, res, 503, {
+        error:
+          "Administrator authentication requires an active MongoDB Atlas connection (`ummo_ecommerce`). Configure MONGODB_URI and database network access on the server.",
+        code: "DB_UNAVAILABLE",
+      });
+      return true;
+    }
+
     const clientIp =
       String(
         req.headers?.["x-forwarded-for"] ||

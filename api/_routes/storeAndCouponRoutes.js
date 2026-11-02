@@ -1,6 +1,7 @@
 import {
+  commitDurableMongoWrite,
   getFullState,
-  getMongoDb,
+  requireDurableMongoDb,
   saveCloudMirrorState,
 } from "../db.js";
 import {
@@ -151,19 +152,17 @@ export async function handleStoreAndCouponRoutes({
       updatedAt: new Date().toISOString(),
     };
 
-    state.storeConfig = updatedConfig;
-
-    const db = await getMongoDb();
-    if (db) {
+    await commitDurableMongoWrite(async (db) => {
       await db
         .collection("store_config")
         .updateOne(
           { _id: "global" },
           { $set: updatedConfig },
           { upsert: true }
-        )
-        .catch(() => {});
-    }
+        );
+    });
+
+    state.storeConfig = updatedConfig;
     await saveCloudMirrorState(state);
 
     sendJson(req, res, 200, {

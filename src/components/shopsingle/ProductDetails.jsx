@@ -12,6 +12,7 @@ import ProductVariantPicker from "./details/ProductVariantPicker";
 import SizeGuideModal from "./details/SizeGuideModal";
 import {
   addToCart,
+  requestOpenCartDrawer,
   sanitizeClientProductMessage,
 } from "../../slices/cartSlice";
 import { addWishList } from "../../slices/wishListSlice";
@@ -38,6 +39,7 @@ export default function ProductDetails() {
     (state) => state.clickProductDetails.Details
   );
   const catalogProducts = useSelector((state) => state.AllProduct.Products);
+  const cartItems = useSelector((state) => state.cart.products);
   const { id: routeParamId } = useParams();
   const [searchParams] = useSearchParams();
   const productIdParam = searchParams.get("id") || routeParamId;
@@ -151,14 +153,44 @@ export default function ProductDetails() {
       toast.error("Sorry, this product is currently out of stock.");
       return;
     }
-    const finalQty = Math.max(
+    const requestedQty = Math.max(
       1,
       Number(customQty !== null ? customQty : quantity) || 1
     );
-    const latestDiscount = getProductDiscountState(liveProduct);
     const cleanedMessage = sanitizeClientProductMessage(optionalMessage).trim();
     const chosenSize = variantInfo.sizes.length > 0 ? selectedSize : "";
     const chosenColor = variantInfo.colors.length > 0 ? selectedColor : "";
+
+    const existingLineQty = (cartItems || [])
+      .filter(
+        (ci) =>
+          String(ci.id) === String(liveProduct.id) &&
+          String(ci.size || "") === String(chosenSize) &&
+          String(ci.color || "") === String(chosenColor) &&
+          String(ci.optionalMessage || "").trim() === cleanedMessage
+      )
+      .reduce((sum, ci) => sum + Math.max(1, Number(ci.quantity || 1)), 0);
+
+    if (existingLineQty >= stockCount) {
+      toast.error(
+        `Maximum available stock (${stockCount}) reached in your shopping bag.`
+      );
+      if (!redirectToCheckout) {
+        requestOpenCartDrawer({
+          title: liveProduct.title,
+          quantity: 0,
+          size: chosenSize,
+          color: chosenColor,
+        });
+      }
+      return;
+    }
+
+    const finalQty = Math.min(
+      requestedQty,
+      Math.max(1, stockCount - existingLineQty)
+    );
+    const latestDiscount = getProductDiscountState(liveProduct);
 
     dispatch(
       addToCart({
@@ -177,6 +209,7 @@ export default function ProductDetails() {
         thumbnail: liveProduct.thumbnail,
         productImageSnapshot: liveProduct.thumbnail,
         quantity: finalQty,
+        stock: stockCount,
         size: chosenSize,
         color: chosenColor,
         optionalMessage: cleanedMessage,
@@ -184,21 +217,26 @@ export default function ProductDetails() {
     );
     setOptionalMessage("");
     const variantSuffix = [chosenSize, chosenColor].filter(Boolean).join(" / ");
-    if (freeGiftConfig && finalQty >= freeGiftConfig.minBuyQty) {
-      const earnedGifts =
-        Math.floor(finalQty / freeGiftConfig.minBuyQty) *
-        freeGiftConfig.giftQty;
-      toast.success(
-        `Added ${finalQty} × ${liveProduct.title}${variantSuffix ? ` (${variantSuffix})` : ""} + 🎁 ${earnedGifts}x FREE "${freeGiftConfig.giftName}" to cart!`
-      );
-    } else {
-      toast.success(
-        `Added ${finalQty} × ${liveProduct.title}${variantSuffix ? ` (${variantSuffix})` : ""} ($${(latestDiscount.effectivePrice * finalQty).toFixed(2)}) to cart!`
-      );
-    }
     if (redirectToCheckout) {
       navigate("/billing");
+      return;
     }
+
+    if (freeGiftConfig && finalQty + existingLineQty >= freeGiftConfig.minBuyQty) {
+      const earnedGifts =
+        Math.floor((finalQty + existingLineQty) / freeGiftConfig.minBuyQty) *
+        freeGiftConfig.giftQty;
+      toast.success(
+        `Added ${finalQty} × ${liveProduct.title}${variantSuffix ? ` (${variantSuffix})` : ""} + 🎁 ${earnedGifts}x FREE "${freeGiftConfig.giftName}"!`
+      );
+    }
+    requestOpenCartDrawer({
+      title: liveProduct.title,
+      quantity: finalQty,
+      size: chosenSize,
+      color: chosenColor,
+      optionalMessage: cleanedMessage,
+    });
   }
 
   function handleWishList() {

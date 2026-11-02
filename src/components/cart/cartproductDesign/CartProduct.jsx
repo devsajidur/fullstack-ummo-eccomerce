@@ -1,4 +1,6 @@
+import React from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { Gift, MessageSquare, Minus, Plus, X } from "lucide-react";
 import Image from "../../layout/common/Image";
 import {
   quentityDecrease,
@@ -7,7 +9,6 @@ import {
   RemoveItem,
   sanitizeClientProductMessage,
 } from "../../../slices/cartSlice";
-import { Gift, MessageSquare } from "lucide-react";
 import {
   evaluateCartItemFreeGift,
   resolveCartItemPricing,
@@ -20,19 +21,42 @@ const CartProduct = (props) => {
   const catalogProducts =
     useSelector((state) => state.AllProduct.Products) || EMPTY_LIST;
 
+  const liveMatch = catalogProducts.find(
+    (p) => String(p.id) === String(props.id)
+  );
+  const maxStock = Math.max(1, Number(liveMatch?.stock ?? props.stock ?? 99));
+  const qty = Math.max(1, Number(props.quantity || 1));
+  const atMaxStock = qty >= maxStock;
+
+  const chosenSize = String(props.size ?? props.selectedSize ?? "").trim();
+  const chosenColor = String(props.color ?? props.selectedColor ?? "").trim();
+  const itemMsg = props.optionalMessage || "";
+
+  const lineTarget = {
+    cartLineId: props.cartLineId,
+    id: props.id,
+    size: chosenSize,
+    color: chosenColor,
+    optionalMessage: itemMsg,
+    maxStock,
+  };
+
   const handleIncrease = () => {
-    dispatch(quentityIncrease(props));
+    dispatch(quentityIncrease(lineTarget));
   };
+
   const handleDecrease = () => {
-    dispatch(quentityDecrease(props));
+    dispatch(quentityDecrease(lineTarget));
   };
+
   const handleRemove = () => {
-    dispatch(RemoveItem(props));
+    dispatch(RemoveItem(lineTarget));
   };
+
   const handleMessageChange = (e) => {
     dispatch(
       updateItemMessage({
-        ...props,
+        ...lineTarget,
         optionalMessage: sanitizeClientProductMessage(e.target.value),
       })
     );
@@ -40,79 +64,103 @@ const CartProduct = (props) => {
 
   const freeGiftState = evaluateCartItemFreeGift(props, catalogProducts);
   const pricing = resolveCartItemPricing(props, catalogProducts);
-  const qty = Math.max(1, Number(props.quantity || 1));
-  const itemMsg = props.optionalMessage || "";
   const variantLabelParts = [
-    props.size ? `Size: ${props.size}` : "",
-    props.color ? `Color: ${props.color}` : "",
+    chosenSize ? `Size: ${chosenSize}` : "",
+    chosenColor ? `Color: ${chosenColor}` : "",
   ].filter(Boolean);
 
   return (
-    <>
-      {/* Desktop / Tablet cart row */}
-      <div className="sm:flex lg:gap-15 gap-7 hidden w-full lg:w-150 xl:w-230 items-center py-7.5 border-b border-[#E4E4E4]">
-        <div className="flex items-start gap-4 xl:gap-7.5">
-          <Image
-            className="h-28 w-28 object-contain shrink-0 bg-gray-50 rounded border border-gray-100"
-            item={props}
-            src={props.image || props.thumbnail}
-            alt={props.title}
-            width={112}
-            height={112}
-          />
-          <div className="xl:w-76">
-            <h2 className="text-[16px] font-normal text-primary">
-              {props.title}
-            </h2>
-            {variantLabelParts.length > 0 && (
-              <p className="text-xs text-gray-500 mt-1">
-                {variantLabelParts.join(" | ")}
-              </p>
-            )}
-
-            {/* Product-Specific Optional Message Editor */}
-            <div className="mt-2.5">
-              <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
-                <span className="inline-flex items-center gap-1 font-medium text-gray-600">
-                  <MessageSquare size={11} /> Message for this product (optional)
-                </span>
-                <span className="font-mono text-[10px]">
-                  {itemMsg.length}/500
-                </span>
-              </div>
-              <input
-                type="text"
-                maxLength={500}
-                value={itemMsg}
-                onChange={handleMessageChange}
-                placeholder="Add note for this item (e.g. gift wrap, pack separately)..."
-                className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-xs text-primary bg-gray-50/70 focus:bg-white focus:border-primary outline-none transition-colors"
-              />
+    <div
+      data-testid="cart-page-item"
+      className="py-5 sm:py-6 border-b border-[#E4E4E4] grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_96px_124px_100px_36px] gap-4 sm:items-center"
+    >
+      {/* Product Info + Variant + Optional Message */}
+      <div className="flex items-start gap-3.5 sm:gap-5 min-w-0">
+        <Image
+          className="h-22 w-22 sm:h-26 sm:w-26 object-contain shrink-0 bg-gray-50 rounded-lg border border-gray-100 p-1"
+          item={props}
+          src={props.image || props.thumbnail}
+          alt={props.title}
+          width={104}
+          height={104}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-medium text-primary break-words">
+                {props.title}
+              </h2>
+              {variantLabelParts.length > 0 && (
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {variantLabelParts.join(" • ")}
+                </p>
+              )}
             </div>
+            {/* Mobile remove button */}
+            <button
+              type="button"
+              aria-label={`Remove ${props.title}`}
+              onClick={handleRemove}
+              className="sm:hidden min-w-[36px] min-h-[36px] -mr-1.5 -mt-1 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-gray-100 cursor-pointer shrink-0"
+            >
+              <X size={16} />
+            </button>
+          </div>
 
-            {/* Per-Product Free Gift Status (Only if Admin enabled a Free Gift on this product) */}
-            {freeGiftState.hasFreeGiftRule && freeGiftState.unlocked && (
-              <div className="mt-2 inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 px-2.5 py-1.5 rounded-md text-xs">
-                {freeGiftState.giftImage ? (
-                  <img
-                    src={freeGiftState.giftImage}
-                    alt={freeGiftState.giftName}
-                    width={24}
-                    height={24}
-                    className="w-6 h-6 rounded object-contain bg-white border border-emerald-200 shrink-0"
-                  />
-                ) : (
-                  <Gift size={13} className="text-emerald-600 shrink-0" />
-                )}
-                <span className="font-semibold">
-                  FREE GIFT: {freeGiftState.earnedGiftQty}×{" "}
-                  {freeGiftState.giftName}{" "}
-                  <strong className="text-emerald-700">($0.00)</strong>
-                </span>
-              </div>
+          {/* Mobile unit price */}
+          <div className="flex sm:hidden items-center gap-2 mt-1">
+            <span
+              className={`text-xs font-semibold ${
+                pricing.isDiscountActive ? "text-[#D6001C]" : "text-gray-700"
+              }`}
+            >
+              Unit: ${pricing.unitPrice.toFixed(2)}
+            </span>
+            {pricing.isDiscountActive && (
+              <span className="text-[11px] text-gray-400 line-through">
+                ${pricing.originalPrice.toFixed(2)}
+              </span>
             )}
+          </div>
 
-            {freeGiftState.hasFreeGiftRule && !freeGiftState.unlocked && (
+          {/* Product-Specific Optional Message Editor */}
+          <div className="mt-2.5 max-w-md">
+            <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
+              <label
+                htmlFor={`cart-msg-${props.cartLineId || props.id}`}
+                className="inline-flex items-center gap-1 font-medium text-gray-600"
+              >
+                <MessageSquare size={11} /> Message for this product (optional)
+              </label>
+              <span className="font-mono text-[10px]">{itemMsg.length}/500</span>
+            </div>
+            <input
+              id={`cart-msg-${props.cartLineId || props.id}`}
+              type="text"
+              maxLength={500}
+              value={itemMsg}
+              onChange={handleMessageChange}
+              data-testid="cart-item-message-input"
+              placeholder="Add note for this item (e.g. gift wrap, pack separately)..."
+              className="w-full border border-gray-200 rounded px-2.5 py-1.5 text-xs text-primary bg-gray-50/70 focus:bg-white focus:border-primary outline-none transition-colors"
+            />
+          </div>
+
+          {/* Per-Product Free Gift Status */}
+          {freeGiftState.hasFreeGiftRule && freeGiftState.unlocked && (
+            <div className="mt-2 inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 px-2.5 py-1 rounded-md text-xs">
+              <Gift size={13} className="text-emerald-600 shrink-0" />
+              <span className="font-semibold">
+                FREE GIFT: {freeGiftState.earnedGiftQty}×{" "}
+                {freeGiftState.giftName}{" "}
+                <strong className="text-emerald-700">($0.00)</strong>
+              </span>
+            </div>
+          )}
+
+          {freeGiftState.hasFreeGiftRule &&
+            !freeGiftState.unlocked &&
+            !atMaxStock && (
               <button
                 type="button"
                 onClick={handleIncrease}
@@ -123,204 +171,100 @@ const CartProduct = (props) => {
                 (+ Add {freeGiftState.qtyNeededToUnlock} more)
               </button>
             )}
-          </div>
         </div>
-        <div className="flex items-center w-2/4 justify-between">
-          <div className="xl:mr-15">
-            <h3
-              className={`text-[16px] font-medium ${
-                pricing.isDiscountActive ? "text-[#D6001C]" : "text-gray"
-              }`}
-            >
-              ${pricing.unitPrice.toFixed(2)}
-            </h3>
-            {pricing.isDiscountActive && (
-              <div className="flex items-center gap-1 mt-0.5">
-                <span className="text-xs text-gray-400 line-through">
-                  ${pricing.originalPrice.toFixed(2)}
-                </span>
-                {pricing.discountPercent > 0 && (
-                  <span className="text-[10px] font-bold bg-red-50 text-[#D6001C] px-1 rounded">
-                    -{pricing.discountPercent}%
-                  </span>
-                )}
-              </div>
-            )}
+      </div>
+
+      {/* Desktop Unit Price */}
+      <div className="hidden sm:block text-right">
+        <span
+          className={`text-sm font-semibold ${
+            pricing.isDiscountActive ? "text-[#D6001C]" : "text-gray-700"
+          }`}
+        >
+          ${pricing.unitPrice.toFixed(2)}
+        </span>
+        {pricing.isDiscountActive && (
+          <div className="flex items-center justify-end gap-1 mt-0.5">
+            <span className="text-xs text-gray-400 line-through">
+              ${pricing.originalPrice.toFixed(2)}
+            </span>
           </div>
-          <div className="xl:h-12.5 xl:w-27.5 h-10 w-20 xl:mr-20.5 leading-12.5 flex justify-between items-center lg:px-3.75 border-3 border-[#E4E4E4]">
+        )}
+      </div>
+
+      {/* Quantity Stepper + Mobile Subtotal Row */}
+      <div className="flex items-center justify-between sm:justify-center gap-3">
+        <div className="flex flex-col items-start sm:items-center">
+          <div className="inline-flex items-center border-2 border-[#E4E4E4] rounded-md bg-white">
             <button
               type="button"
-              aria-label="Decrease quantity"
-              className="px-2 cursor-pointer text-[16px] text-gray font-normal"
+              aria-label={
+                qty <= 1
+                  ? `Remove ${props.title}`
+                  : `Decrease quantity of ${props.title}`
+              }
+              data-testid="cart-qty-decrease"
+              className="min-w-[38px] min-h-[38px] flex items-center justify-center cursor-pointer text-gray-700 hover:bg-gray-100"
               onClick={handleDecrease}
             >
-              -
+              <Minus size={14} />
             </button>
-            <span className="text-[16px] text-gray font-normal">{qty}</span>
+            <span
+              data-testid="cart-item-qty"
+              className="min-w-[32px] text-center text-sm font-bold text-primary select-none"
+            >
+              {qty}
+            </span>
             <button
               type="button"
-              aria-label="Increase quantity"
-              className="px-2 cursor-pointer text-[16px] text-gray font-normal"
+              aria-label={`Increase quantity of ${props.title}`}
+              data-testid="cart-qty-increase"
+              disabled={atMaxStock}
+              className="min-w-[38px] min-h-[38px] flex items-center justify-center cursor-pointer text-gray-700 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={handleIncrease}
             >
-              +
+              <Plus size={14} />
             </button>
           </div>
-          <h3 className="text-[16px] font-medium text-primary">
-            ${(qty * pricing.unitPrice).toFixed(2)}
-          </h3>
-
-          <h2 className="xl:ml-15">
-            <button
-              type="button"
-              aria-label="Remove item"
-              className="cursor-pointer p-1"
-              onClick={handleRemove}
+          {atMaxStock && (
+            <span
+              data-testid="cart-stock-cap-msg"
+              className="text-[10px] font-medium text-amber-700 mt-1"
             >
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 10 10"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M0.259435 8.85506L9.11449 0L10 0.885506L1.14494 9.74056L0.259435 8.85506Z"
-                  fill="#767676"
-                />
-                <path
-                  d="M0.885506 0.0889838L9.74057 8.94404L8.85506 9.82955L0 0.97449L0.885506 0.0889838Z"
-                  fill="#767676"
-                />
-              </svg>
-            </button>
-          </h2>
-        </div>
-      </div>
-
-      {/* Mobile responsive cart row (< 640px) */}
-      <div className="flex sm:hidden gap-3.5 w-full items-start py-5 border-b border-[#E4E4E4]">
-        <Image
-          className="h-20 w-20 object-contain bg-gray-50 rounded shrink-0 border border-gray-100"
-          item={props}
-          src={props.image || props.thumbnail}
-          alt={props.title}
-          width={80}
-          height={80}
-        />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h2 className="text-sm font-medium text-primary truncate">
-                {props.title}
-              </h2>
-              {variantLabelParts.length > 0 && (
-                <p className="text-[11px] text-gray-500 mt-0.5">
-                  {variantLabelParts.join(" • ")}
-                </p>
-              )}
-            </div>
-            <button
-              type="button"
-              aria-label="Remove item"
-              className="cursor-pointer p-1.5 text-gray-400 hover:text-red-500 shrink-0"
-              onClick={handleRemove}
-            >
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 10 10"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M0.259435 8.85506L9.11449 0L10 0.885506L1.14494 9.74056L0.259435 8.85506Z"
-                  fill="currentColor"
-                />
-                <path
-                  d="M0.885506 0.0889838L9.74057 8.94404L8.85506 9.82955L0 0.97449L0.885506 0.0889838Z"
-                  fill="currentColor"
-                />
-              </svg>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 mt-1">
-            <p
-              className={`text-xs font-medium ${
-                pricing.isDiscountActive ? "text-[#D6001C]" : "text-gray"
-              }`}
-            >
-              Unit: ${pricing.unitPrice.toFixed(2)}
-            </p>
-            {pricing.isDiscountActive && (
-              <span className="text-[11px] text-gray-400 line-through">
-                ${pricing.originalPrice.toFixed(2)}
-              </span>
-            )}
-          </div>
-
-          {/* Mobile Item Message Input */}
-          <div className="mt-2">
-            <div className="flex items-center justify-between text-[10px] text-gray-500 mb-0.5">
-              <span>Message for this product (optional)</span>
-              <span className="font-mono">{itemMsg.length}/500</span>
-            </div>
-            <input
-              type="text"
-              maxLength={500}
-              value={itemMsg}
-              onChange={handleMessageChange}
-              placeholder="Note for this item..."
-              className="w-full border border-gray-200 rounded px-2 py-1 text-xs text-primary bg-gray-50 focus:bg-white outline-none"
-            />
-          </div>
-
-          {freeGiftState.hasFreeGiftRule && freeGiftState.unlocked && (
-            <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded">
-              <Gift size={10} /> Free Gift: {freeGiftState.earnedGiftQty}×{" "}
-              {freeGiftState.giftName} ($0.00)
+              Max stock ({maxStock})
             </span>
           )}
-
-          {freeGiftState.hasFreeGiftRule && !freeGiftState.unlocked && (
-            <button
-              type="button"
-              onClick={handleIncrease}
-              className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 px-2 py-1 rounded cursor-pointer"
-            >
-              <Gift size={11} /> + Add {freeGiftState.qtyNeededToUnlock} more for
-              FREE {freeGiftState.giftName}
-            </button>
-          )}
-
-          <div className="flex items-center justify-between mt-3">
-            <div className="px-2.5 h-8 w-22 flex justify-between items-center border-2 border-[#E4E4E4]">
-              <button
-                type="button"
-                aria-label="Decrease quantity"
-                className="cursor-pointer text-sm text-gray font-medium px-1"
-                onClick={handleDecrease}
-              >
-                -
-              </button>
-              <span className="text-sm text-primary font-medium">{qty}</span>
-              <button
-                type="button"
-                aria-label="Increase quantity"
-                className="cursor-pointer text-sm text-gray font-medium px-1"
-                onClick={handleIncrease}
-              >
-                +
-              </button>
-            </div>
-            <h3 className="text-sm font-semibold text-primary">
-              ${(qty * pricing.unitPrice).toFixed(2)}
-            </h3>
-          </div>
         </div>
+
+        {/* Mobile line total */}
+        <span className="sm:hidden text-sm font-bold text-primary">
+          ${(qty * pricing.unitPrice).toFixed(2)}
+        </span>
       </div>
-    </>
+
+      {/* Desktop Line Subtotal */}
+      <div className="hidden sm:block text-right">
+        <span
+          data-testid="cart-item-subtotal"
+          className="text-base font-semibold text-primary"
+        >
+          ${(qty * pricing.unitPrice).toFixed(2)}
+        </span>
+      </div>
+
+      {/* Desktop Remove Action */}
+      <div className="hidden sm:flex justify-end">
+        <button
+          type="button"
+          aria-label={`Remove ${props.title}`}
+          data-testid="cart-remove-item"
+          className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-gray-100 cursor-pointer transition-colors"
+          onClick={handleRemove}
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </div>
   );
 };
 

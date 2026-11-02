@@ -6,10 +6,9 @@ import toast from "react-hot-toast";
 import Image from "../layout/common/Image";
 import { addToCart } from "../../slices/cartSlice";
 import { productDetail } from "../../slices/ProductDetailsSlice";
-import {
-  getProductDiscountState,
-} from "../../utils/discountTimer";
+import { getProductDiscountState } from "../../utils/discountTimer";
 import { getRecentlyViewedProducts } from "../../utils/cartPromotions";
+import { resolveProductVariants } from "../../utils/productVariants";
 
 const EMPTY_ARRAY = [];
 
@@ -45,7 +44,6 @@ export default function CartCrossSell() {
       (p) => !cartIds.has(String(p.id)) && Number(p.stock ?? 20) > 0
     );
 
-    // Prioritize items from the same or complementary categories, then highest rating
     const scored = candidates.map((p) => {
       let score = Number(p.rating || 4.5);
       if (cartCategories.has(p.category)) score += 10;
@@ -66,6 +64,7 @@ export default function CartCrossSell() {
 
   function handleQuickAdd(item) {
     const dState = getProductDiscountState(item);
+    const variants = resolveProductVariants(item);
     dispatch(
       addToCart({
         id: item.id,
@@ -73,10 +72,14 @@ export default function CartCrossSell() {
         price: dState.effectivePrice,
         originalPrice: dState.originalPrice,
         discountPercent: dState.discountPercent,
+        discountPercentage: item.discountPercentage,
+        discountEndTime: item.discountEndTime || null,
         image: item.thumbnail,
+        thumbnail: item.thumbnail,
         quantity: 1,
-        size: "M",
-        color: "Black",
+        stock: Number(item.stock ?? 20),
+        size: variants.sizes[0] || "",
+        color: variants.colors[0]?.name || "",
       })
     );
     toast.success(`Added "${item.title}" to your cart!`);
@@ -85,6 +88,7 @@ export default function CartCrossSell() {
   function handleBundleAll() {
     displayList.forEach((item) => {
       const dState = getProductDiscountState(item);
+      const variants = resolveProductVariants(item);
       dispatch(
         addToCart({
           id: item.id,
@@ -92,10 +96,14 @@ export default function CartCrossSell() {
           price: dState.effectivePrice,
           originalPrice: dState.originalPrice,
           discountPercent: dState.discountPercent,
+          discountPercentage: item.discountPercentage,
+          discountEndTime: item.discountEndTime || null,
           image: item.thumbnail,
+          thumbnail: item.thumbnail,
           quantity: 1,
-          size: "M",
-          color: "Black",
+          stock: Number(item.stock ?? 20),
+          size: variants.sizes[0] || "",
+          color: variants.colors[0]?.name || "",
         })
       );
     });
@@ -120,10 +128,10 @@ export default function CartCrossSell() {
             Customers Who Bought Your Items Also Bought
           </h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Add 1 more item to unlock{" "}
-            <strong className="text-gray-800">Buy 2 Get 1 FREE</strong> or reach
-            your <strong className="text-gray-800">Free Express Delivery</strong>{" "}
-            goal faster!
+            Add items to reach your{" "}
+            <strong className="text-gray-800">Free Express Delivery</strong> or{" "}
+            <strong className="text-gray-800">VIP Spend Discount</strong> goal
+            faster!
           </p>
         </div>
 
