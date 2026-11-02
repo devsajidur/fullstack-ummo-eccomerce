@@ -195,6 +195,9 @@ test("URI writeConcern corruption detection and normalization clean malformed w=
     'mongodb://u:secretPass@localhost:27017/?retryWrites=true&w=majority"',
     "mongodb://u:secretPass@localhost:27017/?retryWrites=true&w=majority;",
     "mongodb://u:secretPass@localhost:27017/?retryWrites=true&w=majority/ummo_ecommerce",
+    'mongodb://u:secretPass@localhost:27017?retryWrites=true&w=majority"',
+    "mongodb://u:secretPass@localhost:27017?retryWrites=true&w=majority%0A",
+    "mongodb://u:secretPass@localhost:27017?retryWrites=true&w=majority/ummo_ecommerce",
   ];
 
   for (const raw of malformedSamples) {

@@ -115,8 +115,15 @@ export function normalizeMongoUri(raw) {
     const scheme = schemeMatch[1];
     const rest = schemeMatch[2];
     const slashIdx = rest.indexOf("/");
-    const authority = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
-    let tail = slashIdx === -1 ? "" : rest.slice(slashIdx);
+    const qMarkIdx = rest.indexOf("?");
+    const splitIdx =
+      slashIdx === -1
+        ? qMarkIdx
+        : qMarkIdx === -1
+          ? slashIdx
+          : Math.min(slashIdx, qMarkIdx);
+    const authority = splitIdx === -1 ? rest : rest.slice(0, splitIdx);
+    let tail = splitIdx === -1 ? "" : rest.slice(splitIdx);
     const lastAt = authority.lastIndexOf("@");
     const firstAt = authority.indexOf("@");
     const normalizedAuthority =
@@ -126,7 +133,7 @@ export function normalizeMongoUri(raw) {
 
     const qIdx = tail.indexOf("?");
     if (qIdx !== -1) {
-      const pathPart = tail.slice(0, qIdx);
+      const pathPart = tail.slice(0, qIdx) || "/";
       let queryStr = tail.slice(qIdx + 1);
       queryStr = queryStr.replace(/^(?:\\[rn])+|(?:\\[rn])+$/g, "").trim();
       queryStr = queryStr.replace(/[`"';]+$/g, "").trim();
@@ -138,6 +145,7 @@ export function normalizeMongoUri(raw) {
           const k = pair.slice(0, eqIdx).trim();
           let v = pair
             .slice(eqIdx + 1)
+            .replace(/(?:%0[ad]|%20|%22|%27|%60)+$/gi, "")
             .replace(/(?:\\[rn])+$/g, "")
             .replace(/[`"';]+$/g, "")
             .trim();
@@ -524,6 +532,7 @@ export async function getMongoDb(options = {}) {
           maxIdleTimeMS: 30000,
           retryWrites: true,
           retryReads: true,
+          w: "majority",
         });
         await client.connect();
         const db = client.db(DB_NAME);
