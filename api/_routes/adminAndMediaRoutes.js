@@ -13,6 +13,8 @@ import {
   clearAdminLoginFailuresDurable,
   createAdminSessionToken,
   DEMO_ADMIN_UID,
+  DEMO_ADMIN_TOKEN_TTL_MS,
+  isDemoAdminEnabled,
   getDemoAdminEmail,
   getMasterAdminEmail,
   getOwnerAuthSecuritySummary,
@@ -53,6 +55,32 @@ export async function handleAdminAndMediaRoutes({
   path,
   securityDb,
 }) {
+  if (path === "/admin/demo-config" && method === "GET") {
+    const publicPassword = String(process.env.DEMO_ADMIN_PUBLIC_PASSWORD || "");
+    const enabled = isDemoAdminEnabled();
+    sendJson(req, res, 200, {
+      enabled,
+      ...(enabled ? { email: getDemoAdminEmail(),
+        password: verifyDemoAdminCredentials(getDemoAdminEmail(), publicPassword) ? publicPassword : "" } : {}),
+    });
+    return true;
+  }
+  if (path === "/admin/demo-login") {
+    if (method !== "POST") {
+      sendJson(req, res, 405, { error: "Method not allowed" });
+    } else if (!isDemoAdminEnabled()) {
+      sendJson(req, res, 403, { error: "Demo access is disabled." });
+    } else if (!securityDb) {
+      sendJson(req, res, 503, { error: "Live business data is unavailable.", code: "DB_UNAVAILABLE" });
+    } else {
+      const user = { uid: DEMO_ADMIN_UID, email: getDemoAdminEmail(), name: "Demo Administrator", role: "ADMIN", isDemo: true };
+      sendJson(req, res, 200, { status: "ok", user,
+        adminToken: createAdminSessionToken({ ...user, demo: true }),
+        expiresAt: new Date(Date.now() + DEMO_ADMIN_TOKEN_TTL_MS).toISOString() });
+    }
+    return true;
+  }
+
   if (path === "/admin/login") {
     if (method !== "POST") {
       sendJson(req, res, 405, { error: "Method not allowed" });
@@ -159,7 +187,7 @@ export async function handleAdminAndMediaRoutes({
       sendJson(req, res, 200, {
         status: "ok",
         adminToken: demoToken,
-        expiresAt: new Date(Date.now() + ADMIN_TOKEN_TTL_MS).toISOString(),
+        expiresAt: new Date(Date.now() + DEMO_ADMIN_TOKEN_TTL_MS).toISOString(),
         user: demoUser,
       });
       return true;
@@ -330,7 +358,7 @@ export async function handleAdminAndMediaRoutes({
           role: "ADMIN",
           ...(caller.isDemoAdmin ? { isDemo: true } : {}),
         },
-        securityStatus: {
+        securityStatus: caller.isDemoAdmin ? { demoReadOnly: true } : {
           ...ownerSummary,
           mongoConnected: Boolean(securityDb),
           cloudinarySigningConfigured: Boolean(

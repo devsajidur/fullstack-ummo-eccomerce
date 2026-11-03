@@ -1,3 +1,4 @@
+import { projectStoreDataForDemoAdmin } from "../_services/demoProjection.js";
 import {
   commitDurableMongoWrite,
   getFullState,
@@ -31,6 +32,15 @@ export async function handleStoreAndCouponRoutes({
     const caller = resolveCaller(req, state);
     const requestedUid = asSafeId(urlObj.searchParams.get("userUid"), 128);
     const productId = asSafeId(urlObj.searchParams.get("productId"), 64);
+
+    if (caller.isDemoAdmin) {
+      if (source !== "mongodb-atlas") {
+        sendJson(req, res, 503, { error: "Live business data is unavailable.", code: "DB_UNAVAILABLE" });
+      } else {
+        sendJson(req, res, 200, { ...projectStoreDataForDemoAdmin(state, getConfiguredGatewaysStatus()), source });
+      }
+      return true;
+    }
 
     if (caller.isAdmin) {
       sendJson(req, res, 200, {

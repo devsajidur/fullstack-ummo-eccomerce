@@ -1970,7 +1970,7 @@ test("Demo Admin: opt-in restricted demo credentials grant admin panel access wh
     assert.equal(r.res.json?.demoRestricted, true);
   }
 
-  // Demo admin Cloudinary sign prefixes publicId with demo_ and never sets overwrite=true on canonical assets
+  // Read-only demo sessions cannot request any media signing credentials.
   const demoCloudSign = createMockReqRes({
     method: "POST",
     url: "/api/v1/cloudinary-sign",
@@ -1978,8 +1978,8 @@ test("Demo Admin: opt-in restricted demo credentials grant admin panel access wh
     body: { folder: "ummo_products", publicId: "product_1", mimeType: "image/webp", fileSize: 12000 },
   });
   await handler(demoCloudSign.req, demoCloudSign.res);
-  assert.equal(demoCloudSign.res.statusCode, 200);
-  assert.match(String(demoCloudSign.res.json?.publicId || ""), /^demo_product_1_/);
+  assert.equal(demoCloudSign.res.statusCode, 403);
+  assert.equal(demoCloudSign.res.json?.code, "DEMO_READ_ONLY");
 
   // Regular customer / unauthenticated callers are strictly blocked from admin endpoints (403)
   for (const [method, url, body] of [

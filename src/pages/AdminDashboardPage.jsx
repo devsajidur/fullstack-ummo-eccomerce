@@ -23,6 +23,7 @@ import {
 } from "../services/api";
 import {
   authenticateAdminLogin,
+  authenticateDemoAdmin,
   clearSessionUser,
   getLocalOrders,
   isUserAdmin,
@@ -71,12 +72,15 @@ export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState("overview");
 
   const [products, setProducts] = useState([]);
-  const [orders, setOrders] = useState(() => getLocalOrders());
+  const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [messages, setMessages] = useState([]);
   const [subscribers, setSubscribers] = useState([]);
   const [coupons, setCoupons] = useState(() => getStoredCoupons());
   const [securityStatus, setSecurityStatus] = useState(null);
+  const [demoDataError, setDemoDataError] = useState("");
+  const [demoDataLoaded, setDemoDataLoaded] = useState(false);
+  const [demoCampaigns, setDemoCampaigns] = useState([]);
 
   const isAdminVerified = useMemo(() => isUserAdmin(authUser), [authUser]);
   const metrics = useAdminMetrics(orders, products, customers);
@@ -130,6 +134,7 @@ export default function AdminDashboardPage() {
   }, [mobileDrawerOpen]);
 
   useEffect(() => {
+    if (authUser?.isDemo) return;
     if (catalogProducts?.length) {
       setProducts(catalogProducts);
     } else {
@@ -139,7 +144,7 @@ export default function AdminDashboardPage() {
         dispatch(addProduct(list));
       });
     }
-  }, [catalogProducts, dispatch]);
+  }, [catalogProducts, dispatch, authUser?.isDemo]);
 
   useEffect(() => {
     if (!authUser || !isAdminVerified) return;
@@ -152,8 +157,9 @@ export default function AdminDashboardPage() {
         .then((data) => {
           if (!active || !data) return;
 
+          setDemoDataError("");
           const mongoOrders = Array.isArray(data.orders) ? data.orders : [];
-          const localList = getLocalOrders();
+          const localList = authUser.isDemo ? [] : getLocalOrders();
           const mongoIds = new Set(mongoOrders.map((o) => String(o.orderId)));
           const mergedOrders = [
             ...mongoOrders,
@@ -164,6 +170,12 @@ export default function AdminDashboardPage() {
               new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
           );
           setOrders(mergedOrders);
+          if (authUser.isDemo) {
+            setDemoDataLoaded(true);
+            setDemoCampaigns(data.storeConfig?.discountCampaigns || []);
+            setProducts(data.storeConfig?.customProducts || []);
+            setCoupons(data.storeConfig?.coupons || []);
+          }
 
           if (Array.isArray(data.users)) setCustomers(data.users);
           if (Array.isArray(data.messages)) setMessages(data.messages);
@@ -172,6 +184,7 @@ export default function AdminDashboardPage() {
           if (!initialConfigApplied && data.storeConfig) {
             initialConfigApplied = true;
             applyRemoteStoreConfig(data.storeConfig);
+            if (authUser.isDemo) return;
             setCoupons(getStoredCoupons());
             fetchCatalogProducts(200).then((list) => {
               if (!active) return;
@@ -182,7 +195,8 @@ export default function AdminDashboardPage() {
           }
         })
         .catch(() => {
-          setOrders(getLocalOrders());
+          setOrders(authUser.isDemo ? [] : getLocalOrders());
+          if (authUser.isDemo) setDemoDataError("Live business data is unavailable. Please try again shortly.");
         });
     };
 
@@ -491,6 +505,14 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function handleDemoLogin() {
+    setLoginSubmitting(true);
+    setLoginError("");
+    try { setAuthUser(await authenticateDemoAdmin()); }
+    catch (err) { setLoginError(err?.response?.data?.error || err.message); }
+    finally { setLoginSubmitting(false); }
+  }
+
   async function handleAdminSignOut() {
     setMobileDrawerOpen(false);
     await clearSessionUser();
@@ -534,6 +556,7 @@ export default function AdminDashboardPage() {
         loginSubmitting={loginSubmitting}
         loginError={loginError}
         onSubmit={handleAdminSignIn}
+        onDemoLogin={handleDemoLogin}
         onReturnStore={() => navigate("/")}
       />
     );
@@ -550,9 +573,16 @@ export default function AdminDashboardPage() {
       onNavigateStorefront={() => navigate("/")}
       onSignOut={handleAdminSignOut}
     >
+      {authUser.isDemo && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+        <strong>Demo Mode — Read Only</strong><p className="text-sm">Live business data. Customer details are protected; changes are disabled.</p>
+      </div>}
+      {authUser.isDemo && !demoDataLoaded && !demoDataError && <p>Loading live business data…</p>}
+      {authUser.isDemo && demoDataError && <p role="alert">{demoDataError}</p>}
+      <fieldset disabled={Boolean(authUser.isDemo)} className="min-w-0 space-y-6" hidden={Boolean(authUser.isDemo && (!demoDataLoaded || demoDataError))} aria-label={authUser.isDemo ? "Read-only business data" : "Business management"}>
       {activeTab === "overview" && (
         <AdminOverviewTab
           metrics={metrics}
+          campaignsOverride={authUser.isDemo ? demoCampaigns : undefined}
           orders={orders}
           products={products}
           coupons={coupons}
@@ -633,7 +663,7 @@ export default function AdminDashboardPage() {
         />
       )}
 
-      {activeTab === "security" && (
+      {activeTab === "security" && !authUser.isDemo && (
         <AdminSecurityTab
           authUser={authUser}
           securityStatus={securityStatus}
@@ -648,6 +678,8 @@ export default function AdminDashboardPage() {
           onSignOut={handleAdminSignOut}
         />
       )}
+      {activeTab === "security" && authUser.isDemo && <p>Security settings are available only to the store owner.</p>}
+      </fieldset>
     </AdminNavigationShell>
   );
 }

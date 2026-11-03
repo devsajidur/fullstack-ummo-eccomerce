@@ -28,61 +28,41 @@ export function getMasterAdminEmail() {
 
 export const MASTER_ADMIN_EMAIL = getMasterAdminEmail();
 
-// Optional restricted DEMO administrator: disabled (false) by default.
-// Never uses hardcoded passwords; only active when DEMO_ADMIN_ENABLED=true AND
-// an explicit DEMO_ADMIN_PASSWORD_HASH or DEMO_ADMIN_PASSWORD is set in env.
+// Public demo access is explicitly enabled by server configuration.
 export const DEMO_ADMIN_UID = "admin-ummo-demo";
-
+export const DEMO_ADMIN_TOKEN_TTL_MS = 30 * 60 * 1000;
 export function getDemoAdminEmail() {
-  return String(process.env.DEMO_ADMIN_EMAIL || "demo.admin@ummo.com")
-    .trim()
-    .toLowerCase();
+  return String(process.env.DEMO_ADMIN_EMAIL || "demo.admin@ummo.com").trim().toLowerCase();
 }
-
 export const DEMO_ADMIN_EMAIL = getDemoAdminEmail();
-
 export function isDemoAdminEnabled(env = process.env) {
-  const flag =
-    String(env?.DEMO_ADMIN_ENABLED || "false").trim().toLowerCase() === "true";
-  if (!flag) return false;
-  return Boolean(
-    String(env?.DEMO_ADMIN_PASSWORD_HASH || "").trim() ||
-      String(env?.DEMO_ADMIN_PASSWORD || "")
-  );
+  return String(env.DEMO_ADMIN_ENABLED || "").toLowerCase() === "true";
 }
-
 export const DEMO_ADMIN_ENABLED = isDemoAdminEnabled();
-
 export function verifyDemoAdminCredentials(email, password) {
-  if (!isDemoAdminEnabled(process.env)) return false;
-  const safeEmail = String(email || "").trim().toLowerCase();
-  const safePass = String(password || "");
-  if (!safeEmail || !safePass) return false;
-  if (!timingSafeStringMatch(safeEmail, getDemoAdminEmail())) return false;
-
-  const demoHash = String(process.env.DEMO_ADMIN_PASSWORD_HASH || "").trim();
-  if (demoHash) {
-    return verifyAdminPasswordHash(safePass, demoHash);
-  }
-  const demoPlain = String(process.env.DEMO_ADMIN_PASSWORD || "");
-  return demoPlain ? timingSafeStringMatch(safePass, demoPlain) : false;
+  const hash = String(process.env.DEMO_ADMIN_PASSWORD_HASH || "");
+  return isDemoAdminEnabled() && Boolean(hash) &&
+    timingSafeStringMatch(String(email || "").trim().toLowerCase(), getDemoAdminEmail()) &&
+    verifyAdminPasswordHash(String(password || ""), hash);
 }
-
-/** Server-side guard: demo admin may not move money, change privileges/passwords, or delete customer records. */
 export function isDemoAdminBlockedRequest(method, path) {
   const m = String(method || "GET").toUpperCase();
-  if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
-  if (m === "DELETE" && (path === "/messages" || path === "/subscribers")) {
-    return true;
-  }
-  return (
-    path === "/admin/password" ||
-    path === "/payments/reconcile" ||
-    path === "/payments/refund" ||
-    path === "/payments/sandbox-confirm" ||
-    path === "/users/role" ||
-    path === "/users"
-  );
+  if (m === "POST" && ["/admin/login", "/admin/demo-login", "/admin/logout"].includes(path)) return false;
+  if (!["GET", "HEAD", "OPTIONS"].includes(m)) return true;
+  // Fail closed for new/alternative read endpoints until their projection is reviewed.
+  return !["/store-data", "/admin/session", "/admin/demo-config", "/payments/config"].includes(path);
+}
+
+export function sendDemoReadOnlyForbidden(
+  req,
+  res,
+  customMessage = "Demo Mode — Read Only: Modifying products, inventory, orders, payments, discounts, banners, settings, media, or customer records is disabled."
+) {
+  return sendJson(req, res, 403, {
+    error: customMessage,
+    code: "DEMO_READ_ONLY",
+    demoRestricted: true,
+  });
 }
 
 export function getAdminAccessKey() {
@@ -478,7 +458,7 @@ export function createAdminSessionToken({
     role: String(role || "ADMIN").toUpperCase(),
     ...(demo ? { demo: true } : {}),
     iat: now,
-    exp: now + Number(ttlMs),
+    exp: now + (demo ? Math.min(Number(ttlMs), DEMO_ADMIN_TOKEN_TTL_MS) : Number(ttlMs)),
   };
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString(
     "base64url"
@@ -525,6 +505,7 @@ export function verifyAdminSessionToken(token) {
     );
     if (!decoded || typeof decoded !== "object") return null;
     if (decoded.role !== "ADMIN") return null;
+    if (decoded.demo && !isDemoAdminEnabled()) return null;
     if (!decoded.exp || Number(decoded.exp) <= Date.now()) return null;
     if (decoded.jti && isAdminTokenRevoked(decoded.jti)) return null;
     if (

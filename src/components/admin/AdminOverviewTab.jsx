@@ -17,13 +17,15 @@ const currency = new Intl.NumberFormat("en-US", {
 
 export default function AdminOverviewTab({
   metrics,
+  campaignsOverride,
   orders,
   products = [],
   coupons = [],
   onNavigateTab,
   onUpdateOrderStatus,
 }) {
-  const campaigns = useMemo(() => getStoredDiscountCampaigns(), []);
+  const storedCampaigns = useMemo(() => getStoredDiscountCampaigns(), []);
+  const campaigns = campaignsOverride ?? storedCampaigns;
   const activeCampaignsCount = campaigns.filter((c) => c.active !== false).length;
 
   const todayStats = useMemo(() => {

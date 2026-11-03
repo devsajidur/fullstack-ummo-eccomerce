@@ -1,5 +1,6 @@
 import {
   loginAdminWithServer,
+  apiClient,
   logoutAdminWithServer,
   syncUserToMongo,
 } from "./api";
@@ -162,6 +163,7 @@ export function setSessionUser(user, { adminToken = "" } = {}) {
     username: user.username || user.displayName || user.name || "Customer",
     photoURL: user.photoURL || user.profile_picture || DEFAULT_AVATAR,
     role: isVerifiedAdmin ? "ADMIN" : "CUSTOMER",
+    isDemo: Boolean(user.isDemo),
   };
   try {
     localStorage.setItem(ACTIVE_USER_KEY, JSON.stringify(normalized));
@@ -177,7 +179,7 @@ export function setSessionUser(user, { adminToken = "" } = {}) {
   } catch {
     // ignore
   }
-  syncUserToMongo({
+  if (!normalized.isDemo) syncUserToMongo({
     uid: normalized.uid,
     email: normalized.email,
     username: normalized.username,
@@ -274,6 +276,7 @@ export async function authenticateAdminLogin(email, password) {
       DEFAULT_ADMIN_ACCOUNT.username,
     photoURL: firebaseUser?.photoURL || DEFAULT_AVATAR,
     role: "ADMIN",
+    isDemo: Boolean(serverResult?.user?.isDemo),
   };
 
   return setSessionUser(adminUser, {
@@ -444,4 +447,10 @@ export function updateLocalOrderStatus(orderId, newStatus) {
     // ignore
   }
   return next;
+}
+
+export async function authenticateDemoAdmin() {
+  const { data } = await apiClient.post("/admin/demo-login");
+  if (!data.user?.isDemo || !data.adminToken) throw new Error("Demo login failed.");
+  return setSessionUser(data.user, { adminToken: data.adminToken });
 }

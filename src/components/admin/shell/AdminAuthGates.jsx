@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { apiClient } from "../../../services/api";
 import { Toaster } from "react-hot-toast";
 import { Eye, EyeOff, Lock, ShieldAlert } from "lucide-react";
 
@@ -57,8 +58,15 @@ export function AdminLoginPortal({
   loginSubmitting,
   loginError,
   onSubmit,
+  onDemoLogin,
   onReturnStore,
 }) {
+  const [demoConfig, setDemoConfig] = useState(null);
+  useEffect(() => {
+    let active = true;
+    apiClient.get("/admin/demo-config").then(({ data }) => { if (active) setDemoConfig(data); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-gray-950">
       <Toaster position="top-right" />
@@ -152,27 +160,18 @@ export function AdminLoginPortal({
           </button>
         </form>
 
-        {import.meta.env.VITE_DEMO_ADMIN_ENABLED === "true" &&
-          import.meta.env.VITE_DEMO_ADMIN_EMAIL && (
-            <div
-              className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-left"
-              data-testid="demo-admin-hint"
-            >
-              <p className="text-[11px] font-bold uppercase tracking-wider text-amber-900">
-                Restricted Demo Sandbox Enabled
-              </p>
-              <p className="mt-1.5 text-xs text-amber-900 break-all">
-                Demo Email:{" "}
-                <span className="font-mono font-semibold">
-                  {import.meta.env.VITE_DEMO_ADMIN_EMAIL}
-                </span>
-              </p>
-              <p className="mt-1.5 text-[11px] text-amber-800">
-                Demo accounts cannot modify payments, refunds, administrator
-                passwords, or user privileges.
-              </p>
-            </div>
-          )}
+        {demoConfig?.enabled && (
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm" data-testid="demo-admin-hint">
+            <button type="button" disabled={loginSubmitting} onClick={onDemoLogin}
+              className="w-full rounded-xl bg-amber-900 text-white p-3 font-semibold disabled:opacity-60">
+              Explore Demo Admin
+            </button>
+            <p className="mt-3 font-semibold">Demo Mode — Read Only</p>
+            <p className="mt-2 break-all">Email: {demoConfig.email}</p>
+            {demoConfig.password && <p className="break-all">Password: {demoConfig.password}</p>}
+            <p className="mt-2 text-xs">Explore live business data with customer details protected. Changes are disabled.</p>
+          </div>
+        )}
 
         <div className="mt-6 pt-4 border-t border-gray-100 text-center">
           <button

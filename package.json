@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "node --test tests/security-and-mongodb.test.mjs",
-    "admin:recover": "node scripts/owner-admin-recovery.mjs"
+    "admin:recover": "node scripts/owner-admin-recovery.mjs",
+    "test:demo": "node --experimental-test-module-mocks --test tests/demo-readonly.test.mjs"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.12.0",

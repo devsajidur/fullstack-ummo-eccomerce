@@ -3,7 +3,8 @@ import {
   isDemoAdminBlockedRequest,
   sendJson,
   syncSecurityGuardFromDb,
-  verifyAdminSessionToken,
+  resolveCaller,
+  sendDemoReadOnlyForbidden,
 } from "./security.js";
 import { handleSeoAndHealthRoutes } from "./_routes/seoAndHealthRoutes.js";
 import { handleAdminAndMediaRoutes } from "./_routes/adminAndMediaRoutes.js";
@@ -31,12 +32,6 @@ export default async function handler(req, res) {
     urlObj.pathname.replace(/^\/api\/v1/, "").replace(/^\/api/, "") || "/";
 
   try {
-    if (
-      await handleSeoAndHealthRoutes({ req, res, method, path, urlObj })
-    ) {
-      return;
-    }
-
     const hasAdminAuthHeader = Boolean(
       req.headers?.["x-admin-token"] ||
         req.headers?.["X-Admin-Token"] ||
@@ -50,21 +45,19 @@ export default async function handler(req, res) {
       await syncSecurityGuardFromDb(securityDb);
     }
 
-    if (hasAdminAuthHeader && isDemoAdminBlockedRequest(method, path)) {
-      const rawTok =
-        req.headers?.["x-admin-token"] ||
-        req.headers?.["X-Admin-Token"] ||
-        (String(req.headers?.authorization || "").startsWith("Bearer ")
-          ? String(req.headers.authorization).slice(7).trim()
-          : "");
-      const sess = verifyAdminSessionToken(String(rawTok || ""));
-      if (sess?.demo) {
-        return sendJson(req, res, 403, {
-          error:
-            "Demo administrator accounts cannot perform this action (payments, refunds, user roles, customer messages/subscribers are protected).",
-          demoRestricted: true,
-        });
-      }
+    const caller = resolveCaller(req, null);
+    if (caller.isDemoAdmin && (
+      isDemoAdminBlockedRequest(method, path) ||
+      req.headers?.["x-http-method-override"] || req.headers?.["x-method-override"] ||
+      urlObj.searchParams.has("_method") || urlObj.searchParams.has("__seo")
+    )) {
+      return sendDemoReadOnlyForbidden(req, res);
+    }
+
+    if (
+      await handleSeoAndHealthRoutes({ req, res, method, path, urlObj })
+    ) {
+      return;
     }
 
     const ctx = { req, res, method, path, urlObj, securityDb };
